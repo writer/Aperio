@@ -63,7 +63,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-latest
-    needs: [verify-shard]
+    needs: [verify-shard, go-connect]
     if: always()
     steps:
       - name: Check verify shards
@@ -72,4 +72,23 @@ jobs:
             echo "One or more verify shards failed"
             exit 1
           fi
+          if [ "${{ needs.go-connect.result }}" != "success" ]; then
+            echo "Go/ConnectRPC checks failed"
+            exit 1
+          fi
           echo "All verify shards passed"
+
+  go-connect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - run: go mod download
+
+      - run: go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint
+
+      - run: go test ./...
