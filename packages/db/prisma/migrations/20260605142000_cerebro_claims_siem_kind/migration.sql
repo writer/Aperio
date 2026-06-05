@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "SiemKind" ADD VALUE 'CEREBRO_CLAIMS';

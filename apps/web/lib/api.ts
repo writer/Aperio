@@ -228,6 +228,7 @@ export type SiemKind =
   | "ELASTIC"
   | "DATADOG"
   | "GENERIC_WEBHOOK"
+  | "CEREBRO_CLAIMS"
   | "JSON_FILE";
 
 export type SiemStream = "FINDINGS" | "EVENTS" | "AUDIT_LOGS";
@@ -247,7 +248,7 @@ export type SiemDestinationDefinition = {
   name: string;
   vendor: string;
   description: string;
-  category: "Cloud SIEM" | "Hosted Search" | "Observability" | "Generic";
+  category: "Cloud SIEM" | "Hosted Search" | "Observability" | "Graph" | "Generic";
   docsUrl: string;
   defaultStreams: SiemStream[];
   fields: SiemField[];
