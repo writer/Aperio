@@ -1,0 +1,685 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  OWNER
+  ADMIN
+  SECURITY_ANALYST
+  VIEWER
+}
+
+enum SaaSProvider {
+  GITHUB
+  SLACK
+  GOOGLE_WORKSPACE
+  ONE_PASSWORD
+  OKTA
+  MICROSOFT_365
+  ATLASSIAN
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISABLED
+  ERROR
+}
+
+enum IntegrationMode {
+  READ_ONLY
+  REMEDIATION
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum FindingStatus {
+  OPEN
+  RESOLVED
+  MUTED
+}
+
+enum EventProcessingStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+enum SiemKind {
+  SPLUNK_HEC
+  PANTHER
+  PANOPTICON
+  ELASTIC
+  DATADOG
+  GENERIC_WEBHOOK
+  JSON_FILE
+}
+
+enum SiemStreamType {
+  FINDINGS
+  EVENTS
+  AUDIT_LOGS
+}
+
+enum SiemStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum SiemDeliveryStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+  DEAD_LETTER
+}
+
+enum AgentKind {
+  MCP_BROKER
+  SSPM_SCANNER
+  SIEM_DISPATCHER
+  REMEDIATION_PLANNER
+  HUMAN_REVIEW
+  CUSTOM
+}
+
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum AgentTaskStatus {
+  QUEUED
+  RUNNING
+  WAITING_FOR_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AgentMessageRole {
+  SYSTEM
+  AGENT
+  USER
+  TOOL
+}
+
+enum AgentProposalStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+enum SecurityAssetType {
+  APPLICATION
+  OAUTH_APP
+  SERVICE_ACCOUNT
+  DATA_RESOURCE
+  WORKSPACE
+  VAULT
+  REPOSITORY
+}
+
+enum AssetCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AssetExposureLevel {
+  INTERNAL
+  TRUSTED_EXTERNAL
+  PUBLIC
+}
+
+enum AssetOwnershipStatus {
+  ASSIGNED
+  UNASSIGNED
+  REVIEW_REQUIRED
+}
+
+enum RiskExceptionStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum SaasIdentityKind {
+  USER
+  SERVICE_ACCOUNT
+  BOT
+}
+
+enum SaasIdentityStatus {
+  ACTIVE
+  SUSPENDED
+  DORMANT
+}
+
+enum AuthTokenPurpose {
+  INVITE
+  PASSWORD_RESET
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(160)
+  slug      String   @unique @db.VarChar(120)
+  notificationEmail        String?  @map("notification_email") @db.VarChar(255)
+  dataRetentionDays        Int      @default(90) @map("data_retention_days")
+  criticalRiskThreshold    Int      @default(80) @map("critical_risk_threshold")
+  defaultSlaHours          Int      @default(24) @map("default_sla_hours")
+  autoResolveLowSeverity   Boolean  @default(false) @map("auto_resolve_low_severity")
+  enforceSsoOnly           Boolean  @default(false) @map("enforce_sso_only")
+  webhookAlertUrl          String?  @map("webhook_alert_url") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users        User[]
+  roles        Role[]
+  integrations IntegrationConnection[]
+  events       IngestedEvent[]
+  findings     SecurityFinding[]
+  auditLogs    TenantAuditLog[]
+  siemDestinations SiemDestination[]
+  siemDeliveries    SiemDelivery[]
+  agents            Agent[]
+  agentTasks        AgentTask[]
+  agentMessages     AgentMessage[]
+  agentProposals    AgentProposal[]
+  assets            SecurityAsset[]
+  riskExceptions    RiskException[]
+  saasIdentities    SaasIdentity[]
+  authTokens        AuthToken[]
+  sessions          UserSession[]
+  oauthAppGrants    OauthAppGrant[]
+
+  @@map("organizations")
+}
+
+model Role {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  name           RoleName
+  permissions    String[]     @default([])
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          User[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  roleId         String       @map("role_id")
+  email          String       @db.VarChar(255)
+  passwordHash   String?      @map("password_hash") @db.VarChar(255)
+  displayName    String?      @map("display_name") @db.VarChar(160)
+  isActive       Boolean      @default(true) @map("is_active")
+  mfaEnabled     Boolean      @default(false) @map("mfa_enabled")
+  mfaSecretEncrypted String?  @map("mfa_secret_encrypted") @db.Text
+  lastLoginAt    DateTime?    @map("last_login_at")
+  isBreakGlass   Boolean      @default(false) @map("is_break_glass")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  resolvedFindings SecurityFinding[] @relation("FindingResolvedBy")
+  approvedAgentProposals AgentProposal[] @relation("AgentProposalApprovedBy")
+  auditLogs      TenantAuditLog[]
+  ownedAssets    SecurityAsset[] @relation("SecurityAssetOwner")
+  businessOwnedAssets SecurityAsset[] @relation("SecurityAssetBusinessOwner")
+  createdRiskExceptions RiskException[] @relation("RiskExceptionCreatedBy")
+  approvedRiskExceptions RiskException[] @relation("RiskExceptionApprovedBy")
+  authTokens       AuthToken[] @relation("AuthTokenUser")
+  createdAuthTokens AuthToken[] @relation("AuthTokenCreatedBy")
+  sessions        UserSession[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([organizationId, roleId])
+  @@map("users")
+}
+
+model IntegrationConnection {
+  id                     String            @id @default(cuid())
+  organizationId         String            @map("organization_id")
+  provider               SaaSProvider
+  displayName            String            @map("display_name") @db.VarChar(160)
+  externalAccountId      String            @map("external_account_id") @db.VarChar(255)
+  scopes                 String[]          @default([])
+  disabledChecks         String[]          @default([]) @map("disabled_checks")
+  encryptedAccessToken   String            @map("encrypted_access_token") @db.Text
+  encryptedRefreshToken  String?           @map("encrypted_refresh_token") @db.Text
+  encryptedWebhookSecret String?           @map("encrypted_webhook_secret") @db.Text
+  googleMailboxScanClientEmail String?     @map("google_mailbox_scan_client_email") @db.VarChar(255)
+  encryptedGoogleMailboxScanPrivateKey String? @map("encrypted_google_mailbox_scan_private_key") @db.Text
+  tokenKeyVersion        String            @default("v1") @map("token_key_version") @db.VarChar(32)
+  status                 IntegrationStatus @default(CONNECTED)
+  mode                   IntegrationMode   @default(READ_ONLY)
+  lastSyncAt             DateTime?         @map("last_sync_at")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  organization           Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  events                 IngestedEvent[]
+  findings               SecurityFinding[]
+  assets                 SecurityAsset[]
+  saasIdentities         SaasIdentity[]
+  oauthAppGrants         OauthAppGrant[]
+
+  @@unique([organizationId, provider, externalAccountId])
+  @@index([organizationId])
+  @@index([organizationId, provider, status])
+  @@map("integration_connections")
+}
+
+model IngestedEvent {
+  id                String                @id @default(cuid())
+  organizationId    String                @map("organization_id")
+  integrationId     String                @map("integration_id")
+  provider          SaaSProvider
+  eventType         String                @map("event_type") @db.VarChar(180)
+  source            String                @db.VarChar(180)
+  actor             String?               @db.VarChar(255)
+  severity          Severity              @default(INFO)
+  payload           Json
+  processingStatus  EventProcessingStatus @default(RECEIVED) @map("processing_status")
+  occurredAt        DateTime              @map("occurred_at")
+  processedAt       DateTime?             @map("processed_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  findings          SecurityFinding[]
+
+  @@index([organizationId])
+  @@index([organizationId, provider, eventType])
+  @@index([organizationId, occurredAt])
+  @@map("ingested_events")
+}
+
+model SecurityFinding {
+  id                String                 @id @default(cuid())
+  organizationId    String                 @map("organization_id")
+  integrationId     String                 @map("integration_id")
+  eventId           String?                @map("event_id")
+  dedupeKey         String                 @map("dedupe_key") @db.VarChar(128)
+  title             String                 @db.VarChar(220)
+  description       String                 @db.Text
+  severity          Severity
+  status            FindingStatus          @default(OPEN)
+  riskScore         Int                    @map("risk_score")
+  remediationSteps  String[]               @map("remediation_steps")
+  evidence          Json
+  detectedAt        DateTime               @default(now()) @map("detected_at")
+  resolvedAt        DateTime?              @map("resolved_at")
+  resolvedById      String?                @map("resolved_by_id")
+  assetId           String?                @map("asset_id")
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       IntegrationConnection  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event             IngestedEvent?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  resolvedBy        User?                  @relation("FindingResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  asset             SecurityAsset?         @relation("FindingAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  agentProposals    AgentProposal[]
+  riskExceptions    RiskException[]
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId])
+  @@index([organizationId, status, severity])
+  @@index([organizationId, integrationId])
+  @@index([organizationId, detectedAt])
+  @@index([organizationId, assetId])
+  @@map("security_findings")
+}
+
+model SecurityAsset {
+  id                 String               @id @default(cuid())
+  organizationId     String               @map("organization_id")
+  integrationId      String?              @map("integration_id")
+  ownerUserId        String?              @map("owner_user_id")
+  businessOwnerUserId String?             @map("business_owner_user_id")
+  type               SecurityAssetType
+  provider           SaaSProvider?
+  name               String               @db.VarChar(180)
+  summary            String?              @db.VarChar(500)
+  externalId         String?              @map("external_id") @db.VarChar(255)
+  labels             String[]             @default([])
+  criticality        AssetCriticality     @default(MEDIUM)
+  exposureLevel      AssetExposureLevel   @default(INTERNAL) @map("exposure_level")
+  ownershipStatus    AssetOwnershipStatus @default(UNASSIGNED) @map("ownership_status")
+  containsSensitiveData Boolean           @default(false) @map("contains_sensitive_data")
+  isPrivileged       Boolean              @default(false) @map("is_privileged")
+  riskScore          Int                  @default(0) @map("risk_score")
+  lastObservedAt     DateTime?            @map("last_observed_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration        IntegrationConnection? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  owner              User?                @relation("SecurityAssetOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  businessOwner      User?                @relation("SecurityAssetBusinessOwner", fields: [businessOwnerUserId], references: [id], onDelete: SetNull)
+  findings           SecurityFinding[]    @relation("FindingAsset")
+  riskExceptions     RiskException[]
+  oauthAppGrants     OauthAppGrant[]      @relation("OauthAppGrantAsset")
+
+  @@index([organizationId, type])
+  @@index([organizationId, ownershipStatus])
+  @@index([organizationId, exposureLevel])
+  @@index([integrationId])
+  @@index([ownerUserId])
+  @@map("security_assets")
+}
+
+model SaasIdentity {
+  id              String             @id @default(cuid())
+  organizationId  String             @map("organization_id")
+  integrationId   String?            @map("integration_id")
+  provider        SaaSProvider
+  externalId      String             @map("external_id") @db.VarChar(255)
+  email           String?            @db.VarChar(255)
+  displayName     String?            @map("display_name") @db.VarChar(160)
+  kind            SaasIdentityKind   @default(USER)
+  status          SaasIdentityStatus @default(ACTIVE)
+  role            String?            @db.VarChar(120)
+  groups          String[]           @default([])
+  scopeHints      String[]           @default([]) @map("scope_hints")
+  linkedAssetIds  String[]           @default([]) @map("linked_asset_ids")
+  mfaEnabled      Boolean?           @map("mfa_enabled")
+  isPrivileged    Boolean            @default(false) @map("is_privileged")
+  isExternal      Boolean            @default(false) @map("is_external")
+  lastObservedAt  DateTime?          @map("last_observed_at")
+  riskScore       Int                @default(0) @map("risk_score")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration     IntegrationConnection? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, provider, externalId])
+  @@index([organizationId, provider, status])
+  @@index([integrationId, status])
+  @@map("saas_identities")
+}
+
+model AuthToken {
+  id              String           @id @default(cuid())
+  organizationId  String           @map("organization_id")
+  userId          String           @map("user_id")
+  createdByUserId String?          @map("created_by_user_id")
+  purpose         AuthTokenPurpose
+  tokenHash       String           @unique @map("token_hash") @db.VarChar(128)
+  expiresAt       DateTime         @map("expires_at")
+  consumedAt      DateTime?        @map("consumed_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User             @relation("AuthTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy       User?            @relation("AuthTokenCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, purpose, expiresAt])
+  @@index([userId, purpose, consumedAt])
+  @@map("auth_tokens")
+}
+
+model UserSession {
+  id              String       @id @default(cuid())
+  organizationId  String       @map("organization_id")
+  userId          String       @map("user_id")
+  tokenHash       String       @unique @map("token_hash") @db.VarChar(128)
+  expiresAt       DateTime     @map("expires_at")
+  lastSeenAt      DateTime     @default(now()) @map("last_seen_at")
+  mfaVerifiedAt   DateTime?    @map("mfa_verified_at")
+  lastIpAddress   String?      @map("last_ip_address") @db.VarChar(64)
+  lastUserAgent   String?      @map("last_user_agent") @db.VarChar(255)
+  revokedAt       DateTime?    @map("revoked_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
+}
+
+model SiemDestination {
+  id              String           @id @default(cuid())
+  organizationId  String           @map("organization_id")
+  kind            SiemKind
+  name            String           @db.VarChar(160)
+  endpointUrl     String?          @map("endpoint_url") @db.VarChar(500)
+  filePath        String?          @map("file_path") @db.VarChar(500)
+  index           String?          @db.VarChar(120)
+  encryptedToken  String?          @map("encrypted_token") @db.Text
+  tokenKeyVersion String           @default("v1") @map("token_key_version") @db.VarChar(32)
+  streams         SiemStreamType[] @default([FINDINGS])
+  status          SiemStatus       @default(ACTIVE)
+  lastDeliveryAt  DateTime?        @map("last_delivery_at")
+  lastError       String?          @map("last_error") @db.VarChar(500)
+  deliveriesOk    Int              @default(0) @map("deliveries_ok")
+  deliveriesFail  Int              @default(0) @map("deliveries_fail")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries      SiemDelivery[]
+
+  @@index([organizationId])
+  @@index([organizationId, kind])
+  @@map("siem_destinations")
+}
+
+model SiemDelivery {
+  id             String             @id @default(cuid())
+  organizationId String             @map("organization_id")
+  destinationId  String?            @map("destination_id")
+  stream         SiemStreamType
+  payload        Json
+  status         SiemDeliveryStatus @default(PENDING)
+  attempts       Int                @default(0)
+  maxAttempts    Int                @default(5) @map("max_attempts")
+  nextAttemptAt  DateTime           @default(now()) @map("next_attempt_at")
+  lastError      String?            @map("last_error") @db.VarChar(500)
+  deliveredAt    DateTime?          @map("delivered_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  destination    SiemDestination?   @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([destinationId, status])
+  @@map("siem_deliveries")
+}
+
+model Agent {
+  id               String         @id @default(cuid())
+  organizationId   String         @map("organization_id")
+  key              String         @db.VarChar(120)
+  name             String         @db.VarChar(160)
+  kind             AgentKind
+  capabilities     String[]       @default([])
+  endpointUrl      String?        @map("endpoint_url") @db.VarChar(500)
+  mcpServerUrl     String?        @map("mcp_server_url") @db.VarChar(500)
+  status           AgentStatus    @default(ACTIVE)
+  lastSeenAt       DateTime?      @map("last_seen_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdTasks     AgentTask[]    @relation("AgentTaskCreatedBy")
+  assignedTasks    AgentTask[]    @relation("AgentTaskAssignedTo")
+  sentMessages     AgentMessage[] @relation("AgentMessageFrom")
+  receivedMessages AgentMessage[] @relation("AgentMessageTo")
+  proposals        AgentProposal[] @relation("AgentProposalProposedBy")
+
+  @@unique([organizationId, key])
+  @@index([organizationId, kind, status])
+  @@map("agents")
+}
+
+model AgentTask {
+  id               String           @id @default(cuid())
+  organizationId   String           @map("organization_id")
+  taskType         String           @map("task_type") @db.VarChar(120)
+  title            String           @db.VarChar(220)
+  status           AgentTaskStatus  @default(QUEUED)
+  input            Json
+  output           Json?
+  error            String?          @db.VarChar(1000)
+  createdByAgentId String?          @map("created_by_agent_id")
+  assignedAgentId  String?          @map("assigned_agent_id")
+  parentTaskId     String?          @map("parent_task_id")
+  leaseExpiresAt   DateTime?        @map("lease_expires_at")
+  startedAt        DateTime?        @map("started_at")
+  completedAt      DateTime?        @map("completed_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByAgent   Agent?           @relation("AgentTaskCreatedBy", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  assignedAgent    Agent?           @relation("AgentTaskAssignedTo", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  parentTask       AgentTask?       @relation("AgentTaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  childTasks       AgentTask[]      @relation("AgentTaskHierarchy")
+  messages         AgentMessage[]
+  proposals        AgentProposal[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([assignedAgentId, status])
+  @@index([parentTaskId])
+  @@map("agent_tasks")
+}
+
+model AgentMessage {
+  id             String           @id @default(cuid())
+  organizationId String           @map("organization_id")
+  taskId         String?          @map("task_id")
+  fromAgentId    String?          @map("from_agent_id")
+  toAgentId      String?          @map("to_agent_id")
+  role           AgentMessageRole @default(AGENT)
+  messageType    String           @default("a2a.message.v1") @map("message_type") @db.VarChar(120)
+  correlationId  String?          @map("correlation_id") @db.VarChar(160)
+  content        Json
+  createdAt      DateTime         @default(now()) @map("created_at")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task           AgentTask?       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromAgent      Agent?           @relation("AgentMessageFrom", fields: [fromAgentId], references: [id], onDelete: SetNull)
+  toAgent        Agent?           @relation("AgentMessageTo", fields: [toAgentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([taskId, createdAt])
+  @@index([toAgentId, createdAt])
+  @@map("agent_messages")
+}
+
+model AgentProposal {
+  id                String              @id @default(cuid())
+  organizationId    String              @map("organization_id")
+  taskId            String?             @map("task_id")
+  findingId         String?             @map("finding_id")
+  proposedByAgentId String?             @map("proposed_by_agent_id")
+  approvedByUserId  String?             @map("approved_by_user_id")
+  action            String              @db.VarChar(160)
+  rationale         String              @db.Text
+  payload           Json
+  status            AgentProposalStatus @default(PROPOSED)
+  approvedAt        DateTime?           @map("approved_at")
+  executedAt        DateTime?           @map("executed_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task              AgentTask?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  finding           SecurityFinding?    @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  proposedByAgent   Agent?              @relation("AgentProposalProposedBy", fields: [proposedByAgentId], references: [id], onDelete: SetNull)
+  approvedBy        User?               @relation("AgentProposalApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([taskId])
+  @@index([findingId])
+  @@map("agent_proposals")
+}
+
+model RiskException {
+  id                 String              @id @default(cuid())
+  organizationId     String              @map("organization_id")
+  assetId            String?             @map("asset_id")
+  findingId          String?             @map("finding_id")
+  createdByUserId    String?             @map("created_by_user_id")
+  approvedByUserId   String?             @map("approved_by_user_id")
+  title              String              @db.VarChar(180)
+  rationale          String              @db.Text
+  compensatingControls String[]          @default([]) @map("compensating_controls")
+  status             RiskExceptionStatus @default(ACTIVE)
+  expiresAt          DateTime?           @map("expires_at")
+  approvedAt         DateTime?           @map("approved_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset              SecurityAsset?      @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  finding            SecurityFinding?    @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  createdBy          User?               @relation("RiskExceptionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedBy         User?               @relation("RiskExceptionApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([assetId])
+  @@index([findingId])
+  @@map("risk_exceptions")
+}
+
+model OauthAppGrant {
+  id              String       @id @default(cuid())
+  organizationId  String       @map("organization_id")
+  integrationId   String       @map("integration_id")
+  assetId         String?      @map("asset_id")
+  provider        SaaSProvider
+  externalAppId   String       @map("external_app_id") @db.VarChar(255)
+  appDisplayName  String?      @map("app_display_name") @db.VarChar(255)
+  userEmail       String       @map("user_email") @db.VarChar(255)
+  userExternalId  String?      @map("user_external_id") @db.VarChar(255)
+  userDisplayName String?      @map("user_display_name") @db.VarChar(255)
+  scopes          String[]     @default([])
+  anonymous       Boolean      @default(false)
+  nativeApp       Boolean      @default(false) @map("native_app")
+  lastObservedAt  DateTime     @map("last_observed_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration     IntegrationConnection  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  asset           SecurityAsset?         @relation("OauthAppGrantAsset", fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, integrationId, externalAppId, userEmail])
+  @@index([organizationId, externalAppId])
+  @@index([organizationId, integrationId])
+  @@index([assetId])
+  @@map("oauth_app_grants")
+}
+
+model TenantAuditLog {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  actorUserId    String?      @map("actor_user_id")
+  action         String       @db.VarChar(180)
+  targetType     String       @map("target_type") @db.VarChar(120)
+  targetId       String       @map("target_id") @db.VarChar(180)
+  ipAddress      String?      @map("ip_address") @db.VarChar(64)
+  metadata       Json?
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([organizationId, actorUserId])
+  @@index([organizationId, createdAt])
+  @@map("tenant_audit_logs")
+}

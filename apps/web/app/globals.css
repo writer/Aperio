@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 22% 97%;
+    --foreground: 222 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 30% 12%;
+    --primary: 222 30% 12%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 222 30% 12%;
+    --muted: 220 14% 93%;
+    --muted-foreground: 220 9% 42%;
+    --accent: 220 14% 93%;
+    --accent-foreground: 222 30% 12%;
+    --destructive: 354 76% 47%;
+    --destructive-foreground: 0 0% 98%;
+    --critical: 354 84% 53%;
+    --critical-foreground: 0 0% 98%;
+    --success: 152 64% 38%;
+    --success-foreground: 0 0% 98%;
+    --warning: 32 95% 50%;
+    --warning-foreground: 222 30% 12%;
+    --signal: 188 86% 42%;
+    --signal-foreground: 222 30% 12%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: 188 86% 42%;
+    --radius: 0.5rem;
+    --grid-line: 220 14% 90%;
+    --noise-opacity: 0.025;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 222 36% 6%;
+    --foreground: 220 18% 92%;
+    --card: 222 32% 8%;
+    --card-foreground: 220 18% 92%;
+    --popover: 222 32% 9%;
+    --popover-foreground: 220 18% 92%;
+    --primary: 220 18% 92%;
+    --primary-foreground: 222 36% 6%;
+    --secondary: 222 24% 14%;
+    --secondary-foreground: 220 18% 92%;
+    --muted: 222 24% 12%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 222 24% 16%;
+    --accent-foreground: 220 18% 92%;
+    --destructive: 354 84% 58%;
+    --destructive-foreground: 0 0% 98%;
+    --critical: 354 92% 64%;
+    --critical-foreground: 0 0% 98%;
+    --success: 152 64% 48%;
+    --success-foreground: 222 36% 6%;
+    --warning: 36 96% 58%;
+    --warning-foreground: 222 36% 6%;
+    --signal: 188 88% 55%;
+    --signal-foreground: 222 36% 6%;
+    --border: 222 24% 18%;
+    --input: 222 24% 18%;
+    --ring: 188 88% 55%;
+    --grid-line: 222 24% 14%;
+    --noise-opacity: 0.04;
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  }
+
+  ::selection {
+    background-color: hsl(var(--signal) / 0.3);
+    color: hsl(var(--foreground));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  .surface-grid {
+    background-image:
+      linear-gradient(
+        to right,
+        hsl(var(--grid-line) / 0.6) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        hsl(var(--grid-line) / 0.6) 1px,
+        transparent 1px
+      );
+    background-size: 56px 56px;
+    background-position: -1px -1px;
+  }
+
+  .surface-grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--noise-opacity);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.65 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode: overlay;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .signal-glow {
+    box-shadow:
+      0 0 0 1px hsl(var(--signal) / 0.4),
+      0 0 24px -6px hsl(var(--signal) / 0.45);
+  }
+
+  .critical-pulse {
+    animation: critical-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@keyframes critical-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--critical) / 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 4px hsl(var(--critical) / 0);
+  }
+}

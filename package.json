@@ -1,0 +1,63 @@
+{
+  "name": "aperio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:api": "tsx apps/api/src/server.ts",
+    "dev:web": "next dev apps/web -p 3000",
+    "worker:ingestion": "tsx workers/ingestion-worker.ts",
+    "worker:siem": "tsx workers/siem-dispatcher.ts",
+    "mcp:broker": "tsx apps/mcp/src/server.ts",
+    "build:web": "NEXT_TELEMETRY_DISABLED=1 next build apps/web",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:api": "tsx --test tests/**/*.test.ts",
+    "audit:prod": "npm audit --omit=dev",
+    "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
+    "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma",
+    "backup:check": "tsx scripts/check-backup-readiness.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@radix-ui/react-avatar": "^1.1.11",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "compression": "^1.7.5",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "lucide-react": "^0.468.0",
+    "next": "^16.2.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0",
+    "tailwind-merge": "^2.5.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.7.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.10",
+    "prisma": "^5.22.0",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}

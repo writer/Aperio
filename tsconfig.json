@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "strict": true,
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["apps/web/*"],
+      "@aperio/db": ["packages/db/src/client.ts"],
+      "@aperio/security": ["packages/security/src/index.ts"],
+      "@aperio/security/*": ["packages/security/src/*"],
+      "@aperio/shared": ["packages/shared/src/types.ts"],
+      "@aperio/shared/*": ["packages/shared/src/*"]
+    }
+  },
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.ts",
+    "workers/**/*.ts",
+    "apps/web/next-env.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "apps/web/next-env.d.ts"]
+}
