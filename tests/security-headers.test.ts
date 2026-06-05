@@ -30,3 +30,15 @@ test("sets a restrictive API content security policy", async () => {
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
 });
+
+test("rejects disallowed CORS origins without a server error", async () => {
+  const response = await fetch(`${baseUrl}/healthz`, {
+    headers: {
+      origin: "https://attacker.example"
+    }
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(body.error, "Origin not allowed by CORS");
+});
