@@ -92,7 +92,17 @@ async function upsertComment(body) {
   if (!repository || !prNumber || !(process.env.GH_TOKEN || process.env.GITHUB_TOKEN)) {
     return;
   }
-  const comments = await requestGitHubJSON("GET", `/repos/${repository}/issues/${prNumber}/comments?per_page=100`);
+  const comments = [];
+  for (let page = 1; ; page += 1) {
+    const batch = await requestGitHubJSON("GET", `/repos/${repository}/issues/${prNumber}/comments?per_page=100&page=${page}`);
+    if (!batch?.length) {
+      break;
+    }
+    comments.push(...batch);
+    if (batch.length < 100) {
+      break;
+    }
+  }
   const existing = (comments || []).find((comment) => String(comment.body || "").includes("<!-- droid-review-context -->"));
   const boundedBody = truncate(body, 60000);
   if (existing) {
