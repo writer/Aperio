@@ -85,10 +85,15 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.24.x"
 
       - run: go mod download
 
       - run: go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint
+
+      - name: Verify generated code is current
+        run: |
+          go run github.com/bufbuild/buf/cmd/buf@v1.59.0 generate
+          git diff --exit-code gen packages/connect/src/gen
 
       - run: go test ./...

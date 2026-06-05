@@ -13,7 +13,3 @@ plugins:
     out: packages/connect/src/gen
     opt:
       - target=ts
-  - remote: buf.build/connectrpc/es:v2.1.1
-    out: packages/connect/src/gen
-    opt:
-      - target=ts

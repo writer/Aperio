@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,8 @@ type Config struct {
 	Addr string
 	// DatabaseURL points at the same Postgres database used by the TypeScript API.
 	DatabaseURL string
+	// SessionIdleMinutes mirrors APERIO_SESSION_IDLE_MINUTES from the TypeScript API.
+	SessionIdleMinutes int
 	// WebOrigin is the single browser origin allowed to send credentialed RPCs.
 	WebOrigin string
 }
@@ -22,9 +25,10 @@ type Config struct {
 // Config without a database.
 func FromEnv() Config {
 	return Config{
-		Addr:        env("APERIO_CONNECT_ADDR", ":4100"),
-		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		WebOrigin:   strings.TrimRight(env("APERIO_WEB_ORIGIN", "http://localhost:3000"), "/"),
+		Addr:               env("APERIO_CONNECT_ADDR", ":4100"),
+		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		SessionIdleMinutes: envInt("APERIO_SESSION_IDLE_MINUTES", 120),
+		WebOrigin:          strings.TrimRight(env("APERIO_WEB_ORIGIN", "http://localhost:3000"), "/"),
 	}
 }
 
@@ -36,4 +40,18 @@ func env(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// envInt parses integer settings with the same forgiving local-development
+// behavior as env: invalid or missing values fall back to a safe default.
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }

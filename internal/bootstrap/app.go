@@ -7,7 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,6 +39,14 @@ type dashboardMetrics struct {
 	OpenCriticalFindings int32 `json:"openCriticalFindings"`
 	ConnectedApps        int32 `json:"connectedApps"`
 	EventIngestionRate   int32 `json:"eventIngestionRate"`
+}
+
+type riskFinding struct {
+	RiskScore  int
+	Severity   string
+	DetectedAt time.Time
+	Evidence   map[string]any
+	Provider   string
 }
 
 // NewApp wires routes but does not open network sockets. Tests can mount the
@@ -119,7 +130,8 @@ func (a *App) GetDashboardMetrics(
 
 // organizationIDFromSession validates Aperio's HttpOnly cookie session against
 // the same user_sessions table used by the TypeScript API. It accepts only live,
-// unrevoked sessions for active users and respects MFA completion.
+// unrevoked sessions for active users, respects MFA completion, and enforces the
+// same idle-timeout control before returning the tenant boundary.
 func (a *App) organizationIDFromSession(ctx context.Context, header http.Header) (string, error) {
 	token := sessionCookie(header.Get("Cookie"))
 	if token == "" {
@@ -131,9 +143,10 @@ func (a *App) organizationIDFromSession(ctx context.Context, header http.Header)
 	}
 	tokenHash := hashOpaqueToken(parts[1])
 
-	var organizationID string
+	var organizationID, sessionID string
+	var lastSeenAt time.Time
 	err := a.db.QueryRowContext(ctx, `
-		SELECT us.organization_id
+		SELECT us.id, us.organization_id, us.last_seen_at
 		FROM user_sessions us
 		JOIN users u ON u.id = us.user_id
 		WHERE us.id = $1
@@ -142,9 +155,16 @@ func (a *App) organizationIDFromSession(ctx context.Context, header http.Header)
 		  AND us.expires_at > NOW()
 		  AND u.is_active = TRUE
 		  AND (u.mfa_enabled = FALSE OR us.mfa_verified_at IS NOT NULL)
-	`, parts[0], tokenHash).Scan(&organizationID)
+	`, parts[0], tokenHash).Scan(&sessionID, &organizationID, &lastSeenAt)
 	if err != nil {
 		return "", err
+	}
+	if time.Since(lastSeenAt) > time.Duration(a.cfg.SessionIdleMinutes)*time.Minute {
+		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, sessionID)
+		return "", errors.New("session idle timeout")
+	}
+	if time.Since(lastSeenAt) > time.Minute {
+		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET last_seen_at = NOW() WHERE id = $1`, sessionID)
 	}
 	return organizationID, nil
 }
@@ -168,22 +188,171 @@ func sessionCookie(header string) string {
 func (a *App) dashboardMetrics(ctx context.Context, organizationID string) (dashboardMetrics, error) {
 	var metrics dashboardMetrics
 	oneMinuteAgo := time.Now().Add(-1 * time.Minute)
+	findings, err := a.openFindings(ctx, organizationID)
+	if err != nil {
+		return metrics, err
+	}
+	metrics.TotalRiskScore = int32(aggregateRiskScore(findings))
 	row := a.db.QueryRowContext(ctx, `
 		SELECT
-			COALESCE(SUM(CASE WHEN sf.status = 'OPEN' THEN sf.risk_score ELSE 0 END), 0)::int,
 			COUNT(*) FILTER (WHERE sf.status = 'OPEN' AND sf.severity = 'CRITICAL')::int,
 			(SELECT COUNT(*)::int FROM integration_connections ic WHERE ic.organization_id = $1 AND ic.status = 'CONNECTED'),
 			(SELECT COUNT(*)::int FROM ingested_events ie WHERE ie.organization_id = $1 AND ie.created_at >= $2)
 		FROM security_findings sf
 		WHERE sf.organization_id = $1
 	`, organizationID, oneMinuteAgo)
-	err := row.Scan(
-		&metrics.TotalRiskScore,
+	err = row.Scan(
 		&metrics.OpenCriticalFindings,
 		&metrics.ConnectedApps,
 		&metrics.EventIngestionRate,
 	)
 	return metrics, err
+}
+
+// openFindings loads the same finding fields used by the TypeScript risk
+// scorer. Keeping the selection explicit prevents the Go endpoint from drifting
+// into raw database aggregates that do not match the product metric.
+func (a *App) openFindings(ctx context.Context, organizationID string) ([]riskFinding, error) {
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT sf.risk_score, sf.severity::text, sf.detected_at, sf.evidence, ic.provider::text
+		FROM security_findings sf
+		JOIN integration_connections ic ON ic.id = sf.integration_id
+		WHERE sf.organization_id = $1 AND sf.status = 'OPEN'
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var findings []riskFinding
+	for rows.Next() {
+		var finding riskFinding
+		var evidenceBytes []byte
+		if err := rows.Scan(
+			&finding.RiskScore,
+			&finding.Severity,
+			&finding.DetectedAt,
+			&evidenceBytes,
+			&finding.Provider,
+		); err != nil {
+			return nil, err
+		}
+		if len(evidenceBytes) > 0 {
+			_ = json.Unmarshal(evidenceBytes, &finding.Evidence)
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
+func aggregateRiskScore(findings []riskFinding) int {
+	if len(findings) == 0 {
+		return 0
+	}
+	scores := make([]int, 0, len(findings))
+	criticalCount := 0
+	highCount := 0
+	recentHighCount := 0
+	providers := map[string]struct{}{}
+	for _, finding := range findings {
+		score := calculateFindingRiskScore(finding)
+		scores = append(scores, score)
+		if finding.Severity == "CRITICAL" {
+			criticalCount++
+		}
+		if finding.Severity == "HIGH" {
+			highCount++
+		}
+		if score >= 70 && time.Since(finding.DetectedAt) <= 7*24*time.Hour {
+			recentHighCount++
+		}
+		if finding.Provider != "" {
+			providers[finding.Provider] = struct{}{}
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(scores)))
+	highest := scores[0]
+	residual := 0.0
+	weights := []float64{0.2, 0.12, 0.08, 0.05}
+	for index, score := range scores[1:] {
+		weight := 0.03
+		if index < len(weights) {
+			weight = weights[index]
+		}
+		residual += float64(score) * weight
+	}
+	return clampInt(int(math.Round(
+		float64(highest)*0.72+
+			residual+
+			float64(minInt(14, criticalCount*6+highCount*2))+
+			float64(minInt(8, maxInt(0, len(providers)-1)*2))+
+			float64(minInt(8, recentHighCount*2)),
+	)), 0, 100)
+}
+
+func calculateFindingRiskScore(finding riskFinding) int {
+	score := maxInt(clampInt(finding.RiskScore, 0, 100), severityFloor(finding.Severity))
+	bonus := 0
+	visibility := strings.ToLower(stringEvidence(finding.Evidence, "visibility", "exposureLevel"))
+	if strings.Contains(visibility, "public") ||
+		strings.Contains(visibility, "anyone") ||
+		strings.Contains(visibility, "shared_externally") {
+		bonus += 10
+	} else if strings.Contains(visibility, "external") {
+		bonus += 6
+	}
+	if time.Since(finding.DetectedAt) <= 24*time.Hour {
+		bonus += 4
+	} else if time.Since(finding.DetectedAt) <= 7*24*time.Hour {
+		bonus += 2
+	} else if time.Since(finding.DetectedAt) > 90*24*time.Hour {
+		bonus -= 8
+	} else if time.Since(finding.DetectedAt) > 30*24*time.Hour {
+		bonus -= 4
+	}
+	return clampInt(score+bonus, 0, 100)
+}
+
+func severityFloor(severity string) int {
+	switch severity {
+	case "CRITICAL":
+		return 88
+	case "HIGH":
+		return 68
+	case "MEDIUM":
+		return 45
+	case "LOW":
+		return 25
+	default:
+		return 10
+	}
+}
+
+func stringEvidence(evidence map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := evidence[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func clampInt(value, minValue, maxValue int) int {
+	return minInt(maxInt(value, minValue), maxValue)
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // hashOpaqueToken mirrors packages/security/src/crypto.ts. Session rows store
@@ -211,8 +380,35 @@ func (a *App) withCORS(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if isUnsafeMethod(r.Method) && sessionCookie(r.Header.Get("Cookie")) != "" && !a.hasAllowedRequestOrigin(r) {
+			writeError(w, http.StatusForbidden, "invalid request origin")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isUnsafeMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	default:
+		return true
+	}
+}
+
+func (a *App) hasAllowedRequestOrigin(r *http.Request) bool {
+	origin := strings.TrimRight(r.Header.Get("Origin"), "/")
+	if origin == "" {
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			parsed, err := url.Parse(referer)
+			if err == nil {
+				origin = parsed.Scheme + "://" + parsed.Host
+			}
+		}
+	}
+	return origin != "" && origin == a.cfg.WebOrigin
 }
 
 // writeJSON is used only by non-Connect compatibility endpoints such as

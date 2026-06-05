@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/writer/aperio/internal/bootstrap"
@@ -30,8 +31,12 @@ func main() {
 	// The service intentionally uses the standard net/http server that ConnectRPC
 	// generates handlers for; this mirrors Cerebro's lightweight server wiring.
 	server := &http.Server{
-		Addr:    cfg.Addr,
-		Handler: app.Handler(),
+		Addr:              cfg.Addr,
+		Handler:           app.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("Aperio Go Connect service listening on %s", cfg.Addr)
 	log.Fatal(server.ListenAndServe())

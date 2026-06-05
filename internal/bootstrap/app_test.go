@@ -1,10 +1,12 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
@@ -33,6 +35,31 @@ func TestCheckHealthConnectEndpoint(t *testing.T) {
 	}
 }
 
+func TestAggregateRiskScoreMatchesClampedPostureShape(t *testing.T) {
+	score := aggregateRiskScore([]riskFinding{
+		{
+			RiskScore:  95,
+			Severity:   "CRITICAL",
+			DetectedAt: nowMinus(t, time.Hour),
+			Evidence:   map[string]any{"visibility": "public"},
+			Provider:   "GITHUB",
+		},
+		{
+			RiskScore:  90,
+			Severity:   "HIGH",
+			DetectedAt: nowMinus(t, 2*time.Hour),
+			Provider:   "SLACK",
+		},
+	})
+
+	if score < 1 || score > 100 {
+		t.Fatalf("expected clamped posture score, got %d", score)
+	}
+	if score == 185 {
+		t.Fatal("expected weighted aggregate, not raw risk score sum")
+	}
+}
+
 // TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
 // credentials. The allowed origin must match exactly because session cookies are
 // cross-runtime auth material.
@@ -53,4 +80,27 @@ func TestConnectCORSPreflight(t *testing.T) {
 	if rec.Header().Get("Access-Control-Allow-Credentials") != "true" {
 		t.Fatal("expected credentialed CORS")
 	}
+}
+
+func TestCookieBackedConnectRequiresAllowedOrigin(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/aperio.v1.AperioService/GetDashboardMetrics",
+		bytes.NewBufferString("{}"),
+	)
+	req.Header.Set("Cookie", "aperio_session=session.raw")
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func nowMinus(t *testing.T, duration time.Duration) time.Time {
+	t.Helper()
+	return time.Now().Add(-duration)
 }
