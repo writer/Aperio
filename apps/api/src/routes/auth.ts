@@ -25,10 +25,12 @@ import { sendTenantOperationalAlert } from "../lib/alerts";
 import { deliverAuthLinkEmail } from "../lib/email";
 import { createMemoryRateLimit } from "../middleware/rate-limit";
 import {
+  clearSessionCookie,
   issueSessionToken,
   requireAuth,
   requireTenant,
   revokeSession,
+  setSessionCookie,
   type TenantRequest
 } from "../middleware/security";
 
@@ -332,6 +334,7 @@ const signupHandler: RequestHandler = async (
       mfaVerified: false,
       req
     });
+    setSessionCookie(res, token);
 
     return res.status(201).json({
       data: serializeSession({
@@ -445,6 +448,7 @@ const loginHandler: RequestHandler = async (
       mfaVerified: requiresMfa,
       req
     });
+    setSessionCookie(res, token);
 
     return res.json({
       data: serializeSession({
@@ -663,6 +667,7 @@ const resetPasswordHandler: RequestHandler = async (
       mfaVerified: updatedUser.mfaEnabled,
       req
     });
+    setSessionCookie(res, token);
 
     return res.json({
       data: serializeSession({
@@ -756,6 +761,7 @@ const acceptInviteHandler: RequestHandler = async (
       mfaVerified: false,
       req
     });
+    setSessionCookie(res, token);
 
     return res.json({
       data: serializeSession({
@@ -777,6 +783,7 @@ const logoutHandler: RequestHandler = async (
 
   try {
     await revokeSession(tenantReq.auth.sessionId);
+    clearSessionCookie(res);
     return res.json({ data: { ok: true } });
   } catch (error) {
     return next(error);
@@ -958,6 +965,7 @@ const switchWorkspaceHandler: RequestHandler = async (
       mfaVerified: updatedTarget.mfaEnabled,
       req
     });
+    setSessionCookie(res, token);
 
     return res.json({
       data: serializeSession({
