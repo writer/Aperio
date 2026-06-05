@@ -12,9 +12,11 @@ import {
   isConnectorProductionReady,
   scopesForMode
 } from "@aperio/shared/connectors";
+import { encodeFindingLifecycleEvent } from "@aperio/shared/protobuf-contracts";
 import { logger } from "../lib/logger";
 import { requireRole, type TenantRequest } from "../middleware/security";
 import { IngestionWorker } from "../../../../workers/ingestion-worker";
+import { publishAperioEvent } from "../../../../workers/event-bus";
 
 export const integrationsRouter = Router();
 export const publicIntegrationsRouter = Router();
@@ -2360,6 +2362,24 @@ async function autoCloseMissingFindings(input: {
       }))
     })
   ]);
+
+  await Promise.all(
+    staleFindings.map(async (finding) =>
+      publishAperioEvent(
+        await encodeFindingLifecycleEvent({
+          findingId: finding.id,
+          organizationId: input.organizationId,
+          integrationId: input.integrationId,
+          previousStatus: "OPEN",
+          nextStatus: "RESOLVED",
+          actorUserId: null,
+          statusSource: "system",
+          occurredAt: new Date(),
+          resolutionNote: "Issue not observed in latest provider sync"
+        })
+      )
+    )
+  );
 
   return staleFindings.length;
 }

@@ -355,6 +355,114 @@ func (x *WideEvent) GetMeasurements() map[string]int64 {
 	return nil
 }
 
+type FindingLifecycleEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	FindingId      string                 `protobuf:"bytes,1,opt,name=finding_id,json=findingId,proto3" json:"finding_id,omitempty"`
+	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	IntegrationId  string                 `protobuf:"bytes,3,opt,name=integration_id,json=integrationId,proto3" json:"integration_id,omitempty"`
+	PreviousStatus string                 `protobuf:"bytes,4,opt,name=previous_status,json=previousStatus,proto3" json:"previous_status,omitempty"`
+	NextStatus     string                 `protobuf:"bytes,5,opt,name=next_status,json=nextStatus,proto3" json:"next_status,omitempty"`
+	ActorUserId    string                 `protobuf:"bytes,6,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	StatusSource   string                 `protobuf:"bytes,7,opt,name=status_source,json=statusSource,proto3" json:"status_source,omitempty"`
+	OccurredAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	ResolutionNote string                 `protobuf:"bytes,9,opt,name=resolution_note,json=resolutionNote,proto3" json:"resolution_note,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *FindingLifecycleEvent) Reset() {
+	*x = FindingLifecycleEvent{}
+	mi := &file_aperio_contracts_v1_events_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindingLifecycleEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindingLifecycleEvent) ProtoMessage() {}
+
+func (x *FindingLifecycleEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_contracts_v1_events_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindingLifecycleEvent.ProtoReflect.Descriptor instead.
+func (*FindingLifecycleEvent) Descriptor() ([]byte, []int) {
+	return file_aperio_contracts_v1_events_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FindingLifecycleEvent) GetFindingId() string {
+	if x != nil {
+		return x.FindingId
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetIntegrationId() string {
+	if x != nil {
+		return x.IntegrationId
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetPreviousStatus() string {
+	if x != nil {
+		return x.PreviousStatus
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetNextStatus() string {
+	if x != nil {
+		return x.NextStatus
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetActorUserId() string {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetStatusSource() string {
+	if x != nil {
+		return x.StatusSource
+	}
+	return ""
+}
+
+func (x *FindingLifecycleEvent) GetOccurredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return nil
+}
+
+func (x *FindingLifecycleEvent) GetResolutionNote() string {
+	if x != nil {
+		return x.ResolutionNote
+	}
+	return ""
+}
+
 var File_aperio_contracts_v1_events_proto protoreflect.FileDescriptor
 
 const file_aperio_contracts_v1_events_proto_rawDesc = "" +
@@ -409,7 +517,20 @@ const file_aperio_contracts_v1_events_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a?\n" +
 	"\x11MeasurementsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01BDZBgithub.com/writer/aperio/gen/aperio/contracts/v1;aperiocontractsv1b\x06proto3"
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xff\x02\n" +
+	"\x15FindingLifecycleEvent\x12\x1d\n" +
+	"\n" +
+	"finding_id\x18\x01 \x01(\tR\tfindingId\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12%\n" +
+	"\x0eintegration_id\x18\x03 \x01(\tR\rintegrationId\x12'\n" +
+	"\x0fprevious_status\x18\x04 \x01(\tR\x0epreviousStatus\x12\x1f\n" +
+	"\vnext_status\x18\x05 \x01(\tR\n" +
+	"nextStatus\x12\"\n" +
+	"\ractor_user_id\x18\x06 \x01(\tR\vactorUserId\x12#\n" +
+	"\rstatus_source\x18\a \x01(\tR\fstatusSource\x12;\n" +
+	"\voccurred_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"occurredAt\x12'\n" +
+	"\x0fresolution_note\x18\t \x01(\tR\x0eresolutionNoteBDZBgithub.com/writer/aperio/gen/aperio/contracts/v1;aperiocontractsv1b\x06proto3"
 
 var (
 	file_aperio_contracts_v1_events_proto_rawDescOnce sync.Once
@@ -423,28 +544,30 @@ func file_aperio_contracts_v1_events_proto_rawDescGZIP() []byte {
 	return file_aperio_contracts_v1_events_proto_rawDescData
 }
 
-var file_aperio_contracts_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_aperio_contracts_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_aperio_contracts_v1_events_proto_goTypes = []any{
 	(*IngestionJobEvent)(nil),        // 0: aperio.contracts.v1.IngestionJobEvent
 	(*CerebroClaimsFanoutEvent)(nil), // 1: aperio.contracts.v1.CerebroClaimsFanoutEvent
 	(*WideEvent)(nil),                // 2: aperio.contracts.v1.WideEvent
-	nil,                              // 3: aperio.contracts.v1.WideEvent.DimensionsEntry
-	nil,                              // 4: aperio.contracts.v1.WideEvent.MeasurementsEntry
-	(*timestamppb.Timestamp)(nil),    // 5: google.protobuf.Timestamp
-	(*v1.Claim)(nil),                 // 6: cerebro.v1.Claim
+	(*FindingLifecycleEvent)(nil),    // 3: aperio.contracts.v1.FindingLifecycleEvent
+	nil,                              // 4: aperio.contracts.v1.WideEvent.DimensionsEntry
+	nil,                              // 5: aperio.contracts.v1.WideEvent.MeasurementsEntry
+	(*timestamppb.Timestamp)(nil),    // 6: google.protobuf.Timestamp
+	(*v1.Claim)(nil),                 // 7: cerebro.v1.Claim
 }
 var file_aperio_contracts_v1_events_proto_depIdxs = []int32{
-	5, // 0: aperio.contracts.v1.IngestionJobEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	5, // 1: aperio.contracts.v1.CerebroClaimsFanoutEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	6, // 2: aperio.contracts.v1.CerebroClaimsFanoutEvent.claims:type_name -> cerebro.v1.Claim
-	5, // 3: aperio.contracts.v1.WideEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	3, // 4: aperio.contracts.v1.WideEvent.dimensions:type_name -> aperio.contracts.v1.WideEvent.DimensionsEntry
-	4, // 5: aperio.contracts.v1.WideEvent.measurements:type_name -> aperio.contracts.v1.WideEvent.MeasurementsEntry
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 0: aperio.contracts.v1.IngestionJobEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	6, // 1: aperio.contracts.v1.CerebroClaimsFanoutEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	7, // 2: aperio.contracts.v1.CerebroClaimsFanoutEvent.claims:type_name -> cerebro.v1.Claim
+	6, // 3: aperio.contracts.v1.WideEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	4, // 4: aperio.contracts.v1.WideEvent.dimensions:type_name -> aperio.contracts.v1.WideEvent.DimensionsEntry
+	5, // 5: aperio.contracts.v1.WideEvent.measurements:type_name -> aperio.contracts.v1.WideEvent.MeasurementsEntry
+	6, // 6: aperio.contracts.v1.FindingLifecycleEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_aperio_contracts_v1_events_proto_init() }
@@ -458,7 +581,7 @@ func file_aperio_contracts_v1_events_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_contracts_v1_events_proto_rawDesc), len(file_aperio_contracts_v1_events_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

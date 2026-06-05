@@ -4,6 +4,8 @@ package aperio.v1;
 
 option go_package = "github.com/writer/aperio/gen/aperio/v1;aperiov1";
 
+import "google/protobuf/timestamp.proto";
+
 service AperioService {
   rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
@@ -16,6 +18,14 @@ message CheckHealthRequest {}
 message CheckHealthResponse {
   string status = 1;
   string service = 2;
+  google.protobuf.Timestamp checked_at = 3;
+  repeated HealthComponent components = 4;
+}
+
+message HealthComponent {
+  string name = 1;
+  string status = 2;
+  string detail = 3;
 }
 
 message GetDashboardMetricsRequest {}

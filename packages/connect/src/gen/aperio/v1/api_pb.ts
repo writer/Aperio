@@ -4,13 +4,15 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file aperio/v1/api.proto.
  */
 export const file_aperio_v1_api: GenFile = /*@__PURE__*/
-  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IjYKE0NoZWNrSGVhbHRoUmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEg8KB3NlcnZpY2UYAiABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCTLfAgoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z");
+  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCTLfAgoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aperio.v1.CheckHealthRequest
@@ -38,6 +40,16 @@ export type CheckHealthResponse = Message<"aperio.v1.CheckHealthResponse"> & {
    * @generated from field: string service = 2;
    */
   service: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp checked_at = 3;
+   */
+  checkedAt?: Timestamp;
+
+  /**
+   * @generated from field: repeated aperio.v1.HealthComponent components = 4;
+   */
+  components: HealthComponent[];
 };
 
 /**
@@ -46,6 +58,33 @@ export type CheckHealthResponse = Message<"aperio.v1.CheckHealthResponse"> & {
  */
 export const CheckHealthResponseSchema: GenMessage<CheckHealthResponse> = /*@__PURE__*/
   messageDesc(file_aperio_v1_api, 1);
+
+/**
+ * @generated from message aperio.v1.HealthComponent
+ */
+export type HealthComponent = Message<"aperio.v1.HealthComponent"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string detail = 3;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message aperio.v1.HealthComponent.
+ * Use `create(HealthComponentSchema)` to create a new message.
+ */
+export const HealthComponentSchema: GenMessage<HealthComponent> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 2);
 
 /**
  * @generated from message aperio.v1.GetDashboardMetricsRequest
@@ -58,7 +97,7 @@ export type GetDashboardMetricsRequest = Message<"aperio.v1.GetDashboardMetricsR
  * Use `create(GetDashboardMetricsRequestSchema)` to create a new message.
  */
 export const GetDashboardMetricsRequestSchema: GenMessage<GetDashboardMetricsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 2);
+  messageDesc(file_aperio_v1_api, 3);
 
 /**
  * @generated from message aperio.v1.GetDashboardMetricsResponse
@@ -75,7 +114,7 @@ export type GetDashboardMetricsResponse = Message<"aperio.v1.GetDashboardMetrics
  * Use `create(GetDashboardMetricsResponseSchema)` to create a new message.
  */
 export const GetDashboardMetricsResponseSchema: GenMessage<GetDashboardMetricsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 3);
+  messageDesc(file_aperio_v1_api, 4);
 
 /**
  * @generated from message aperio.v1.DashboardMetrics
@@ -107,7 +146,7 @@ export type DashboardMetrics = Message<"aperio.v1.DashboardMetrics"> & {
  * Use `create(DashboardMetricsSchema)` to create a new message.
  */
 export const DashboardMetricsSchema: GenMessage<DashboardMetrics> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 4);
+  messageDesc(file_aperio_v1_api, 5);
 
 /**
  * @generated from message aperio.v1.ListFindingsRequest
@@ -149,7 +188,7 @@ export type ListFindingsRequest = Message<"aperio.v1.ListFindingsRequest"> & {
  * Use `create(ListFindingsRequestSchema)` to create a new message.
  */
 export const ListFindingsRequestSchema: GenMessage<ListFindingsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 5);
+  messageDesc(file_aperio_v1_api, 6);
 
 /**
  * @generated from message aperio.v1.ListFindingsResponse
@@ -171,7 +210,7 @@ export type ListFindingsResponse = Message<"aperio.v1.ListFindingsResponse"> & {
  * Use `create(ListFindingsResponseSchema)` to create a new message.
  */
 export const ListFindingsResponseSchema: GenMessage<ListFindingsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 6);
+  messageDesc(file_aperio_v1_api, 7);
 
 /**
  * @generated from message aperio.v1.GetFindingRequest
@@ -188,7 +227,7 @@ export type GetFindingRequest = Message<"aperio.v1.GetFindingRequest"> & {
  * Use `create(GetFindingRequestSchema)` to create a new message.
  */
 export const GetFindingRequestSchema: GenMessage<GetFindingRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 7);
+  messageDesc(file_aperio_v1_api, 8);
 
 /**
  * @generated from message aperio.v1.GetFindingResponse
@@ -205,7 +244,7 @@ export type GetFindingResponse = Message<"aperio.v1.GetFindingResponse"> & {
  * Use `create(GetFindingResponseSchema)` to create a new message.
  */
 export const GetFindingResponseSchema: GenMessage<GetFindingResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 8);
+  messageDesc(file_aperio_v1_api, 9);
 
 /**
  * @generated from message aperio.v1.Finding
@@ -277,7 +316,7 @@ export type Finding = Message<"aperio.v1.Finding"> & {
  * Use `create(FindingSchema)` to create a new message.
  */
 export const FindingSchema: GenMessage<Finding> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 9);
+  messageDesc(file_aperio_v1_api, 10);
 
 /**
  * @generated from message aperio.v1.FindingIntegration
@@ -304,7 +343,7 @@ export type FindingIntegration = Message<"aperio.v1.FindingIntegration"> & {
  * Use `create(FindingIntegrationSchema)` to create a new message.
  */
 export const FindingIntegrationSchema: GenMessage<FindingIntegration> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 10);
+  messageDesc(file_aperio_v1_api, 11);
 
 /**
  * @generated from message aperio.v1.PageInfo
@@ -326,7 +365,7 @@ export type PageInfo = Message<"aperio.v1.PageInfo"> & {
  * Use `create(PageInfoSchema)` to create a new message.
  */
 export const PageInfoSchema: GenMessage<PageInfo> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 11);
+  messageDesc(file_aperio_v1_api, 12);
 
 /**
  * @generated from service aperio.v1.AperioService

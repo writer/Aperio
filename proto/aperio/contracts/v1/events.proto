@@ -43,3 +43,15 @@ message WideEvent {
   map<string, string> dimensions = 5;
   map<string, int64> measurements = 6;
 }
+
+message FindingLifecycleEvent {
+  string finding_id = 1;
+  string organization_id = 2;
+  string integration_id = 3;
+  string previous_status = 4;
+  string next_status = 5;
+  string actor_user_id = 6;
+  string status_source = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+  string resolution_note = 9;
+}

@@ -30,8 +30,26 @@ func TestCheckHealthConnectEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Msg.Status != "ok" {
-		t.Fatalf("expected ok, got %s", resp.Msg.Status)
+	if resp.Msg.Status != "degraded" {
+		t.Fatalf("expected degraded without database, got %s", resp.Msg.Status)
+	}
+	if resp.Msg.CheckedAt == nil {
+		t.Fatal("expected checked_at timestamp")
+	}
+	if len(resp.Msg.Components) == 0 {
+		t.Fatal("expected component health details")
+	}
+}
+
+func TestReadyzReportsDependencyHealth(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected degraded readiness status, got %d", rec.Code)
 	}
 }
 

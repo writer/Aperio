@@ -17,6 +17,7 @@
     "proto:lint": "go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint",
     "verify": "npm run typecheck && npm run test:api && npm run db:validate && npm run audit:prod",
     "audit:prod": "npm audit --omit=dev",
+    "leak:check": "node scripts/leak-check.mjs",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma",
     "backup:check": "tsx scripts/check-backup-readiness.ts"

@@ -9,6 +9,7 @@ package aperiov1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -61,6 +62,8 @@ type CheckHealthResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	Service       string                 `protobuf:"bytes,2,opt,name=service,proto3" json:"service,omitempty"`
+	CheckedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=checked_at,json=checkedAt,proto3" json:"checked_at,omitempty"`
+	Components    []*HealthComponent     `protobuf:"bytes,4,rep,name=components,proto3" json:"components,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,6 +112,80 @@ func (x *CheckHealthResponse) GetService() string {
 	return ""
 }
 
+func (x *CheckHealthResponse) GetCheckedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CheckedAt
+	}
+	return nil
+}
+
+func (x *CheckHealthResponse) GetComponents() []*HealthComponent {
+	if x != nil {
+		return x.Components
+	}
+	return nil
+}
+
+type HealthComponent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Detail        string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthComponent) Reset() {
+	*x = HealthComponent{}
+	mi := &file_aperio_v1_api_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthComponent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthComponent) ProtoMessage() {}
+
+func (x *HealthComponent) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthComponent.ProtoReflect.Descriptor instead.
+func (*HealthComponent) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *HealthComponent) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *HealthComponent) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HealthComponent) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 type GetDashboardMetricsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -117,7 +194,7 @@ type GetDashboardMetricsRequest struct {
 
 func (x *GetDashboardMetricsRequest) Reset() {
 	*x = GetDashboardMetricsRequest{}
-	mi := &file_aperio_v1_api_proto_msgTypes[2]
+	mi := &file_aperio_v1_api_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -129,7 +206,7 @@ func (x *GetDashboardMetricsRequest) String() string {
 func (*GetDashboardMetricsRequest) ProtoMessage() {}
 
 func (x *GetDashboardMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[2]
+	mi := &file_aperio_v1_api_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -142,7 +219,7 @@ func (x *GetDashboardMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDashboardMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetDashboardMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{2}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{3}
 }
 
 type GetDashboardMetricsResponse struct {
@@ -154,7 +231,7 @@ type GetDashboardMetricsResponse struct {
 
 func (x *GetDashboardMetricsResponse) Reset() {
 	*x = GetDashboardMetricsResponse{}
-	mi := &file_aperio_v1_api_proto_msgTypes[3]
+	mi := &file_aperio_v1_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -166,7 +243,7 @@ func (x *GetDashboardMetricsResponse) String() string {
 func (*GetDashboardMetricsResponse) ProtoMessage() {}
 
 func (x *GetDashboardMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[3]
+	mi := &file_aperio_v1_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -179,7 +256,7 @@ func (x *GetDashboardMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDashboardMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetDashboardMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{3}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetDashboardMetricsResponse) GetData() *DashboardMetrics {
@@ -201,7 +278,7 @@ type DashboardMetrics struct {
 
 func (x *DashboardMetrics) Reset() {
 	*x = DashboardMetrics{}
-	mi := &file_aperio_v1_api_proto_msgTypes[4]
+	mi := &file_aperio_v1_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -213,7 +290,7 @@ func (x *DashboardMetrics) String() string {
 func (*DashboardMetrics) ProtoMessage() {}
 
 func (x *DashboardMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[4]
+	mi := &file_aperio_v1_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -226,7 +303,7 @@ func (x *DashboardMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DashboardMetrics.ProtoReflect.Descriptor instead.
 func (*DashboardMetrics) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{4}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DashboardMetrics) GetTotalRiskScore() int32 {
@@ -271,7 +348,7 @@ type ListFindingsRequest struct {
 
 func (x *ListFindingsRequest) Reset() {
 	*x = ListFindingsRequest{}
-	mi := &file_aperio_v1_api_proto_msgTypes[5]
+	mi := &file_aperio_v1_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -283,7 +360,7 @@ func (x *ListFindingsRequest) String() string {
 func (*ListFindingsRequest) ProtoMessage() {}
 
 func (x *ListFindingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[5]
+	mi := &file_aperio_v1_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -296,7 +373,7 @@ func (x *ListFindingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFindingsRequest.ProtoReflect.Descriptor instead.
 func (*ListFindingsRequest) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{5}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListFindingsRequest) GetSeverity() string {
@@ -351,7 +428,7 @@ type ListFindingsResponse struct {
 
 func (x *ListFindingsResponse) Reset() {
 	*x = ListFindingsResponse{}
-	mi := &file_aperio_v1_api_proto_msgTypes[6]
+	mi := &file_aperio_v1_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -363,7 +440,7 @@ func (x *ListFindingsResponse) String() string {
 func (*ListFindingsResponse) ProtoMessage() {}
 
 func (x *ListFindingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[6]
+	mi := &file_aperio_v1_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +453,7 @@ func (x *ListFindingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFindingsResponse.ProtoReflect.Descriptor instead.
 func (*ListFindingsResponse) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{6}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListFindingsResponse) GetData() []*Finding {
@@ -402,7 +479,7 @@ type GetFindingRequest struct {
 
 func (x *GetFindingRequest) Reset() {
 	*x = GetFindingRequest{}
-	mi := &file_aperio_v1_api_proto_msgTypes[7]
+	mi := &file_aperio_v1_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +491,7 @@ func (x *GetFindingRequest) String() string {
 func (*GetFindingRequest) ProtoMessage() {}
 
 func (x *GetFindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[7]
+	mi := &file_aperio_v1_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +504,7 @@ func (x *GetFindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFindingRequest.ProtoReflect.Descriptor instead.
 func (*GetFindingRequest) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{7}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetFindingRequest) GetId() string {
@@ -446,7 +523,7 @@ type GetFindingResponse struct {
 
 func (x *GetFindingResponse) Reset() {
 	*x = GetFindingResponse{}
-	mi := &file_aperio_v1_api_proto_msgTypes[8]
+	mi := &file_aperio_v1_api_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -458,7 +535,7 @@ func (x *GetFindingResponse) String() string {
 func (*GetFindingResponse) ProtoMessage() {}
 
 func (x *GetFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[8]
+	mi := &file_aperio_v1_api_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -471,7 +548,7 @@ func (x *GetFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFindingResponse.ProtoReflect.Descriptor instead.
 func (*GetFindingResponse) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{8}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetFindingResponse) GetData() *Finding {
@@ -501,7 +578,7 @@ type Finding struct {
 
 func (x *Finding) Reset() {
 	*x = Finding{}
-	mi := &file_aperio_v1_api_proto_msgTypes[9]
+	mi := &file_aperio_v1_api_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -513,7 +590,7 @@ func (x *Finding) String() string {
 func (*Finding) ProtoMessage() {}
 
 func (x *Finding) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[9]
+	mi := &file_aperio_v1_api_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -526,7 +603,7 @@ func (x *Finding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finding.ProtoReflect.Descriptor instead.
 func (*Finding) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{9}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Finding) GetId() string {
@@ -624,7 +701,7 @@ type FindingIntegration struct {
 
 func (x *FindingIntegration) Reset() {
 	*x = FindingIntegration{}
-	mi := &file_aperio_v1_api_proto_msgTypes[10]
+	mi := &file_aperio_v1_api_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -636,7 +713,7 @@ func (x *FindingIntegration) String() string {
 func (*FindingIntegration) ProtoMessage() {}
 
 func (x *FindingIntegration) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[10]
+	mi := &file_aperio_v1_api_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -649,7 +726,7 @@ func (x *FindingIntegration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindingIntegration.ProtoReflect.Descriptor instead.
 func (*FindingIntegration) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{10}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FindingIntegration) GetId() string {
@@ -683,7 +760,7 @@ type PageInfo struct {
 
 func (x *PageInfo) Reset() {
 	*x = PageInfo{}
-	mi := &file_aperio_v1_api_proto_msgTypes[11]
+	mi := &file_aperio_v1_api_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -695,7 +772,7 @@ func (x *PageInfo) String() string {
 func (*PageInfo) ProtoMessage() {}
 
 func (x *PageInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_aperio_v1_api_proto_msgTypes[11]
+	mi := &file_aperio_v1_api_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -708,7 +785,7 @@ func (x *PageInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PageInfo.ProtoReflect.Descriptor instead.
 func (*PageInfo) Descriptor() ([]byte, []int) {
-	return file_aperio_v1_api_proto_rawDescGZIP(), []int{11}
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PageInfo) GetTotal() int32 {
@@ -729,11 +806,20 @@ var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
 	"\n" +
-	"\x13aperio/v1/api.proto\x12\taperio.v1\"\x14\n" +
-	"\x12CheckHealthRequest\"G\n" +
+	"\x13aperio/v1/api.proto\x12\taperio.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x14\n" +
+	"\x12CheckHealthRequest\"\xbe\x01\n" +
 	"\x13CheckHealthResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
-	"\aservice\x18\x02 \x01(\tR\aservice\"\x1c\n" +
+	"\aservice\x18\x02 \x01(\tR\aservice\x129\n" +
+	"\n" +
+	"checked_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x12:\n" +
+	"\n" +
+	"components\x18\x04 \x03(\v2\x1a.aperio.v1.HealthComponentR\n" +
+	"components\"U\n" +
+	"\x0fHealthComponent\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\x1c\n" +
 	"\x1aGetDashboardMetricsRequest\"N\n" +
 	"\x1bGetDashboardMetricsResponse\x12/\n" +
 	"\x04data\x18\x01 \x01(\v2\x1b.aperio.v1.DashboardMetricsR\x04data\"\xcb\x01\n" +
@@ -800,40 +886,44 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_aperio_v1_api_proto_goTypes = []any{
 	(*CheckHealthRequest)(nil),          // 0: aperio.v1.CheckHealthRequest
 	(*CheckHealthResponse)(nil),         // 1: aperio.v1.CheckHealthResponse
-	(*GetDashboardMetricsRequest)(nil),  // 2: aperio.v1.GetDashboardMetricsRequest
-	(*GetDashboardMetricsResponse)(nil), // 3: aperio.v1.GetDashboardMetricsResponse
-	(*DashboardMetrics)(nil),            // 4: aperio.v1.DashboardMetrics
-	(*ListFindingsRequest)(nil),         // 5: aperio.v1.ListFindingsRequest
-	(*ListFindingsResponse)(nil),        // 6: aperio.v1.ListFindingsResponse
-	(*GetFindingRequest)(nil),           // 7: aperio.v1.GetFindingRequest
-	(*GetFindingResponse)(nil),          // 8: aperio.v1.GetFindingResponse
-	(*Finding)(nil),                     // 9: aperio.v1.Finding
-	(*FindingIntegration)(nil),          // 10: aperio.v1.FindingIntegration
-	(*PageInfo)(nil),                    // 11: aperio.v1.PageInfo
+	(*HealthComponent)(nil),             // 2: aperio.v1.HealthComponent
+	(*GetDashboardMetricsRequest)(nil),  // 3: aperio.v1.GetDashboardMetricsRequest
+	(*GetDashboardMetricsResponse)(nil), // 4: aperio.v1.GetDashboardMetricsResponse
+	(*DashboardMetrics)(nil),            // 5: aperio.v1.DashboardMetrics
+	(*ListFindingsRequest)(nil),         // 6: aperio.v1.ListFindingsRequest
+	(*ListFindingsResponse)(nil),        // 7: aperio.v1.ListFindingsResponse
+	(*GetFindingRequest)(nil),           // 8: aperio.v1.GetFindingRequest
+	(*GetFindingResponse)(nil),          // 9: aperio.v1.GetFindingResponse
+	(*Finding)(nil),                     // 10: aperio.v1.Finding
+	(*FindingIntegration)(nil),          // 11: aperio.v1.FindingIntegration
+	(*PageInfo)(nil),                    // 12: aperio.v1.PageInfo
+	(*timestamppb.Timestamp)(nil),       // 13: google.protobuf.Timestamp
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
-	4,  // 0: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
-	9,  // 1: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
-	11, // 2: aperio.v1.ListFindingsResponse.page_info:type_name -> aperio.v1.PageInfo
-	9,  // 3: aperio.v1.GetFindingResponse.data:type_name -> aperio.v1.Finding
-	10, // 4: aperio.v1.Finding.integration:type_name -> aperio.v1.FindingIntegration
-	0,  // 5: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	2,  // 6: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	5,  // 7: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
-	7,  // 8: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
-	1,  // 9: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	3,  // 10: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	6,  // 11: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
-	8,  // 12: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
-	9,  // [9:13] is the sub-list for method output_type
-	5,  // [5:9] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
+	2,  // 1: aperio.v1.CheckHealthResponse.components:type_name -> aperio.v1.HealthComponent
+	5,  // 2: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
+	10, // 3: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
+	12, // 4: aperio.v1.ListFindingsResponse.page_info:type_name -> aperio.v1.PageInfo
+	10, // 5: aperio.v1.GetFindingResponse.data:type_name -> aperio.v1.Finding
+	11, // 6: aperio.v1.Finding.integration:type_name -> aperio.v1.FindingIntegration
+	0,  // 7: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	3,  // 8: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	6,  // 9: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	8,  // 10: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	1,  // 11: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	4,  // 12: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	7,  // 13: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	9,  // 14: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -847,7 +937,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
