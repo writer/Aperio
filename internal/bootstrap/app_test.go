@@ -125,6 +125,41 @@ func TestValidateFindingFiltersRejectsUnknownValues(t *testing.T) {
 	}
 }
 
+func TestRPCWideEventCarriesCanonicalDebugDimensions(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	event := app.buildRPCWideEvent(rpcWideEvent{
+		Method:         "ListFindings",
+		OrganizationID: "org_123",
+		Status:         "success",
+		Started:        time.Now().Add(-25 * time.Millisecond),
+		Dimensions: map[string]string{
+			"http.route.query.status": "OPEN",
+		},
+		Measurements: map[string]int64{
+			"result.count": 3,
+		},
+	})
+
+	if event.Dimensions["main"] != "true" {
+		t.Fatal("expected canonical main wide-event marker")
+	}
+	if event.Dimensions["unit_of_work"] != "connect_rpc" {
+		t.Fatal("expected unit-of-work dimension")
+	}
+	if event.Dimensions["rpc.method"] != "ListFindings" {
+		t.Fatal("expected rpc method dimension")
+	}
+	if event.Dimensions["user.org.id"] != "org_123" {
+		t.Fatal("expected tenant dimension")
+	}
+	if event.Measurements["duration_ms"] < 0 {
+		t.Fatal("expected non-negative duration")
+	}
+	if event.Measurements["result.count"] != 3 {
+		t.Fatal("expected result count measurement")
+	}
+}
+
 // TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
 // credentials. The allowed origin must match exactly because session cookies are
 // cross-runtime auth material.

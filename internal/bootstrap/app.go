@@ -10,6 +10,8 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +25,8 @@ import (
 )
 
 const sessionCookieName = "aperio_session"
+
+var processStartedAt = time.Now()
 
 // App owns the Go/ConnectRPC HTTP surface. It deliberately keeps only
 // infrastructural dependencies here so endpoint implementations stay easy to
@@ -131,7 +135,12 @@ func (a *App) GetDashboardMetrics(
 	organizationID := ""
 	status := "success"
 	defer func() {
-		a.emitRPCWideEvent("GetDashboardMetrics", organizationID, status, started, nil, nil)
+		a.emitRPCWideEvent(rpcWideEvent{
+			Method:         "GetDashboardMetrics",
+			OrganizationID: organizationID,
+			Status:         status,
+			Started:        started,
+		})
 	}()
 	if a.db == nil {
 		status = "unavailable"
@@ -165,12 +174,27 @@ func (a *App) ListFindings(
 	started := time.Now()
 	organizationID := ""
 	status := "success"
+	resultCount := 0
+	resultTotal := 0
 	defer func() {
-		a.emitRPCWideEvent("ListFindings", organizationID, status, started, map[string]string{
-			"filter.severity": req.Msg.Severity,
-			"filter.status":   req.Msg.Status,
-			"filter.provider": req.Msg.Provider,
-		}, nil)
+		a.emitRPCWideEvent(rpcWideEvent{
+			Method:         "ListFindings",
+			OrganizationID: organizationID,
+			Status:         status,
+			Started:        started,
+			Dimensions: map[string]string{
+				"http.route.query.severity":       req.Msg.Severity,
+				"http.route.query.status":         req.Msg.Status,
+				"http.route.query.provider":       req.Msg.Provider,
+				"http.route.query.integration_id": req.Msg.IntegrationId,
+				"http.route.query.cursor.present": strconv.FormatBool(req.Msg.Cursor != ""),
+			},
+			Measurements: map[string]int64{
+				"http.route.query.limit": int64(normalizedLimit(req.Msg.Limit)),
+				"result.count":           int64(resultCount),
+				"result.total":           int64(resultTotal),
+			},
+		})
 	}()
 	if a.db == nil {
 		status = "unavailable"
@@ -191,6 +215,8 @@ func (a *App) ListFindings(
 		status = "internal"
 		return nil, connect.NewError(connect.CodeInternal, errors.New("findings unavailable"))
 	}
+	resultCount = len(findings)
+	resultTotal = total
 	response := &aperiov1.ListFindingsResponse{
 		Data: make([]*aperiov1.Finding, 0, len(findings)),
 		PageInfo: &aperiov1.PageInfo{
@@ -204,10 +230,6 @@ func (a *App) ListFindings(
 	for _, finding := range findings {
 		response.Data = append(response.Data, finding.toProto())
 	}
-	a.emitRPCWideEvent("ListFindings.result", organizationID, "success", started, nil, map[string]int64{
-		"result.count": int64(len(findings)),
-		"result.total": int64(total),
-	})
 	return connect.NewResponse(response), nil
 }
 
@@ -219,7 +241,15 @@ func (a *App) GetFinding(
 	organizationID := ""
 	status := "success"
 	defer func() {
-		a.emitRPCWideEvent("GetFinding", organizationID, status, started, nil, nil)
+		a.emitRPCWideEvent(rpcWideEvent{
+			Method:         "GetFinding",
+			OrganizationID: organizationID,
+			Status:         status,
+			Started:        started,
+			Dimensions: map[string]string{
+				"http.route.param.finding_id.present": strconv.FormatBool(strings.TrimSpace(req.Msg.Id) != ""),
+			},
+		})
 	}()
 	if a.db == nil {
 		status = "unavailable"
@@ -248,37 +278,80 @@ func (a *App) GetFinding(
 	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
 }
 
-func (a *App) emitRPCWideEvent(
-	method string,
-	organizationID string,
-	status string,
-	started time.Time,
-	dimensions map[string]string,
-	measurements map[string]int64,
-) {
+type rpcWideEvent struct {
+	Method         string
+	OrganizationID string
+	Status         string
+	Started        time.Time
+	Dimensions     map[string]string
+	Measurements   map[string]int64
+}
+
+func (a *App) emitRPCWideEvent(event rpcWideEvent) {
+	telemetry.EmitWide(a.buildRPCWideEvent(event))
+}
+
+func (a *App) buildRPCWideEvent(event rpcWideEvent) telemetry.WideEvent {
 	mergedDimensions := map[string]string{
-		"rpc.system": "connect",
-		"rpc.method": method,
-		"status":     status,
+		"main":                "true",
+		"unit_of_work":        "connect_rpc",
+		"service.name":        "aperio-go-connect",
+		"service.environment": envOrDefault("APERIO_ENVIRONMENT", "development"),
+		"service.version":     envOrDefault("APERIO_VERSION", "unknown"),
+		"service.build.git_hash": envOrDefault(
+			"APERIO_GIT_SHA",
+			envOrDefault("GITHUB_SHA", "unknown"),
+		),
+		"instance.id":         hostnameOrUnknown(),
+		"go.version":          runtime.Version(),
+		"rpc.system":          "connect",
+		"rpc.service":         "aperio.v1.AperioService",
+		"rpc.method":          event.Method,
+		"http.route":          "/aperio.v1.AperioService/" + event.Method,
+		"http.request.method": "POST",
+		"user.org.id":         event.OrganizationID,
+		"status":              event.Status,
 	}
-	for key, value := range dimensions {
+	if event.Status != "success" {
+		mergedDimensions["error.kind"] = event.Status
+	}
+	for key, value := range event.Dimensions {
 		if strings.TrimSpace(value) != "" {
 			mergedDimensions[key] = value
 		}
 	}
 	mergedMeasurements := map[string]int64{
-		"duration_ms": time.Since(started).Milliseconds(),
+		"duration_ms":        time.Since(event.Started).Milliseconds(),
+		"process.uptime_ms":  time.Since(processStartedAt).Milliseconds(),
+		"instance.cpu_count": int64(runtime.NumCPU()),
+		"process.pid":        int64(os.Getpid()),
 	}
-	for key, value := range measurements {
+	for key, value := range event.Measurements {
 		mergedMeasurements[key] = value
 	}
-	telemetry.EmitWide(telemetry.WideEvent{
+	return telemetry.WideEvent{
 		Name:         "aperio.connect_rpc",
-		Organization: organizationID,
+		Organization: event.OrganizationID,
 		Service:      "aperio-go-connect",
 		Dimensions:   mergedDimensions,
 		Measurements: mergedMeasurements,
-	})
+	}
+}
+
+func envOrDefault(key string, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func hostnameOrUnknown() string {
+	hostname, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		return "unknown"
+	}
+	return hostname
 }
 
 // organizationIDFromSession validates Aperio's HttpOnly cookie session against
