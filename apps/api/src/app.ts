@@ -28,6 +28,8 @@ import { siemRouter } from "./routes/siem";
 
 type RequestWithId = Request & { requestId?: string };
 
+const CORS_ORIGIN_ERROR = "Origin not allowed by CORS";
+
 function backupCheck() {
   return {
     storageConfigured: Boolean(process.env.APERIO_BACKUP_STORAGE_URL),
@@ -64,7 +66,7 @@ export function createApp() {
           return callback(null, true);
         }
 
-        return callback(new Error("Origin not allowed by CORS"));
+        return callback(new Error(CORS_ORIGIN_ERROR));
       },
       credentials: true
     })
@@ -145,14 +147,17 @@ export function createApp() {
       error: error instanceof Error ? error.message : String(error)
     });
 
-    const message =
-      process.env.NODE_ENV === "production"
+    const isCorsOriginError =
+      error instanceof Error && error.message === CORS_ORIGIN_ERROR;
+    const message = isCorsOriginError
+      ? CORS_ORIGIN_ERROR
+      : process.env.NODE_ENV === "production"
         ? "Internal server error"
         : error instanceof Error
           ? error.message
           : "Internal server error";
 
-    res.status(500).json({
+    res.status(isCorsOriginError ? 403 : 500).json({
       error: message,
       requestId
     });
