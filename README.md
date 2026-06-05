@@ -210,11 +210,14 @@ Each delivery row is durable, retried with exponential backoff, and de-duplicate
 
 ```bash
 npm run dev:api                # Express API on :4000
+npm run dev:connect            # Go ConnectRPC API on :4100
 npm run dev:web                # Next.js console on :3000
 npm run worker:ingestion       # ingestion worker
 npm run worker:siem            # SIEM dispatcher worker
 npm run mcp:broker             # stdio MCP broker
 npm run build:web              # production Next.js build
+npm run proto:lint             # Buf lint for protobuf contracts
+npm run test:go                # Go unit tests for ConnectRPC service
 npm run typecheck              # tsc --noEmit
 npm run test:api               # node --test (tsx loader)
 npm run verify                 # typecheck + API tests + Prisma validate + production audit
@@ -234,9 +237,39 @@ Production deployments should pair Aperio's process-local route limits with edge
 
 ---
 
+## Go / ConnectRPC backend
+
+Aperio now includes a Go backend foundation alongside the existing Express API. It is intentionally incremental: the TypeScript API remains the primary mutation surface, while Go/ConnectRPC starts with liveness and dashboard metrics so read paths can move over safely.
+
+| Surface | Purpose |
+| --- | --- |
+| `cmd/aperio/main.go` | Go process entrypoint, listening on `APERIO_CONNECT_ADDR` (`:4100` locally) |
+| `internal/bootstrap` | ConnectRPC handler wiring, CORS, cookie-session auth, dashboard metrics query |
+| `proto/aperio/v1/api.proto` | Stable service contract for `AperioService` |
+| `gen/aperio/v1` | Generated Go protobuf and ConnectRPC handlers |
+| `packages/connect/src` | Generated TypeScript contracts plus browser Connect client |
+
+The web app can opt into the Go path by setting `NEXT_PUBLIC_CONNECT_API_BASE_URL`, for example:
+
+```bash
+DATABASE_URL=postgresql://aperio:aperio@localhost:5432/aperio npm run dev:connect
+NEXT_PUBLIC_CONNECT_API_BASE_URL=http://localhost:4100 npm run dev:web
+```
+
+Authentication is shared with the Express app through the `aperio_session` HttpOnly cookie and the `user_sessions` table. The Go service validates the cookie token hash directly in Postgres and only reflects the configured `APERIO_WEB_ORIGIN` for credentialed browser calls.
+
+Protobuf contracts follow Cerebro-style Buf conventions:
+
+```bash
+npm run proto:lint
+npm run test:go
+```
+
+---
+
 ## HTTP API surface
 
-All routes are JSON over HTTPS and live under `/api/v1`. Key groups:
+The legacy REST surface is JSON over HTTPS and lives under `/api/v1`. New Go-backed RPCs live under ConnectRPC procedure paths such as `/aperio.v1.AperioService/GetDashboardMetrics`. Key REST groups:
 
 | Prefix | Purpose |
 | --- | --- |
@@ -263,10 +296,15 @@ aperio/
 │   ├── api/                # Express + Prisma server
 │   ├── mcp/                # stdio MCP broker
 │   └── web/                # Next.js operator console
+├── cmd/aperio/             # Go ConnectRPC server entrypoint
+├── gen/                    # Generated Go protobuf/ConnectRPC code
+├── internal/               # Go service config and bootstrap packages
 ├── packages/
+│   ├── connect/            # TypeScript ConnectRPC client and generated contracts
 │   ├── db/                 # Prisma schema and client
 │   ├── security/           # AES-256-GCM helpers and password hashing
 │   └── shared/             # Zod schemas, connector catalog, SIEM catalog
+├── proto/                  # Cerebro-compatible protobuf contracts
 ├── workers/                # ingestion + SIEM background workers
 ├── scripts/                # seed and operational scripts
 ├── tests/                  # node --test suites
@@ -300,13 +338,14 @@ The `droid-wiki/` directory contains generated documentation. Useful entry point
 
 | Component | Technology |
 | --- | --- |
-| Language | TypeScript 5.7 |
-| Runtime | Node.js 20+ |
-| API server | Express 4 |
+| Language | TypeScript 5.7, Go 1.24 |
+| Runtime | Node.js 20+, Go `net/http` |
+| API server | Express 4, ConnectRPC |
 | Web console | Next.js 16 + React 18 + Tailwind |
 | ORM | Prisma 5 |
 | Database | PostgreSQL 15+ |
 | Background workers | tsx + custom durable outbox |
+| Contracts | Protobuf + Buf + generated Go/TypeScript clients |
 | Validation | Zod |
 | MCP transport | stdio JSON-RPC |
 | Auth | Cookie sessions, TOTP MFA, RBAC |

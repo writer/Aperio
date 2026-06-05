@@ -12,6 +12,9 @@ import (
 	"github.com/writer/aperio/internal/config"
 )
 
+// TestCheckHealthConnectEndpoint exercises the generated Go Connect client
+// against the in-process server. This catches handler registration drift without
+// requiring Postgres.
 func TestCheckHealthConnectEndpoint(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	server := httptest.NewServer(app.Handler())
@@ -30,6 +33,9 @@ func TestCheckHealthConnectEndpoint(t *testing.T) {
 	}
 }
 
+// TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
+// credentials. The allowed origin must match exactly because session cookies are
+// cross-runtime auth material.
 func TestConnectCORSPreflight(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	req := httptest.NewRequest(http.MethodOptions, "/aperio.v1.AperioService/GetDashboardMetrics", nil)
