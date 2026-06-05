@@ -43,10 +43,10 @@ npm run db:generate
 npm run db:validate
 ```
 
-The repo often uses direct Prisma commands with the schema at `packages/db/prisma/schema.prisma`:
+Apply the checked-in migrations:
 
 ```bash
-npx prisma db push --schema packages/db/prisma/schema.prisma
+npx prisma migrate dev --schema packages/db/prisma/schema.prisma
 ```
 
 To seed the demo tenant and three sample findings:
@@ -81,13 +81,17 @@ In practice the API process already starts the SIEM dispatcher in `apps/api/src/
 
 ## Validation commands
 
-This repo has no dedicated test suite in the current checkout. The main checks are:
+The main checks are:
 
 ```bash
 npm run typecheck
+npm run test:api
 npm run build:web
 npm run db:validate
+npm run audit:prod
 ```
+
+For PR parity, run `npm run verify`.
 
 ## First pages to open
 

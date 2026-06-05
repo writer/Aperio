@@ -14,7 +14,6 @@ This page summarizes the important third-party libraries visible in `package.jso
 | `zod` | `packages/shared/src/*.ts`, route files | Runtime validation |
 | `next` / `react` / `react-dom` | `apps/web` | Operator console runtime |
 | `lucide-react` | `apps/web/components/**/*.tsx` | UI icons |
-| `class-variance-authority` | `apps/web/components/ui` | Component variants |
 | `tailwindcss` | `apps/web` | Styling system |
 | `tsx` | root scripts | TypeScript execution in development |
 
@@ -41,8 +40,8 @@ A few common repo-level tools are notably absent from the visible config:
 - Prettier
 - Jest / Vitest
 - Playwright / Cypress
-- GitHub Actions
+- end-to-end browser testing
 
-That absence explains why the repo leans heavily on type checking, Prisma validation, and manual smoke tests.
+That absence explains why the repo leans heavily on type checking, Prisma validation, API tests, CI, and manual smoke tests.
 
 For scripts built on these dependencies, go to [Tooling](../how-to-contribute/tooling.md). For the data layer they support, go to [DB](../packages/db.md).

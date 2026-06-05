@@ -28,8 +28,12 @@ From `package.json`:
   "mcp:broker": "tsx apps/mcp/src/server.ts",
   "build:web": "NEXT_TELEMETRY_DISABLED=1 next build apps/web",
   "typecheck": "tsc -p tsconfig.json --noEmit",
+  "test:api": "tsx --test tests/**/*.test.ts",
+  "verify": "npm run typecheck && npm run test:api && npm run db:validate && npm run audit:prod",
+  "audit:prod": "npm audit --omit=dev",
   "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
-  "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma"
+  "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma",
+  "backup:check": "tsx scripts/check-backup-readiness.ts"
 }
 ```
 
@@ -39,11 +43,9 @@ The current checkout does not include:
 
 - ESLint config
 - Prettier config
-- GitHub Actions or other CI workflows
-- test runner config
-- migration files under a Prisma migrations directory
+- end-to-end test runner config
 
-That means the repo is using TypeScript, Prisma, and manual smoke tests as its primary guardrails.
+That means the repo is using TypeScript, Prisma, `node:test`, GitHub Actions, and manual smoke tests as its primary guardrails.
 
 ## Practical tips
 

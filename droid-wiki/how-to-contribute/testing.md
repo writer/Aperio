@@ -1,6 +1,6 @@
 # Testing
 
-This checkout has no formal test suite. There are no unit-test or integration-test files under `apps/`, `packages/`, `workers/`, or `scripts/`. The current test strategy is static validation plus targeted smoke tests.
+This checkout has a focused `node:test` API/security suite under `tests/`. The current strategy is static validation, Prisma schema checks, production dependency audit, API tests, and targeted smoke tests.
 
 ## Baseline validation
 
@@ -8,14 +8,22 @@ Run these for most changes:
 
 ```bash
 npm run typecheck
+npm run test:api
 npm run build:web
 npm run db:validate
+npm run audit:prod
+```
+
+For PR parity, run:
+
+```bash
+npm run verify
 ```
 
 If you changed the Prisma schema, also run:
 
 ```bash
-npx prisma db push --schema packages/db/prisma/schema.prisma
+npx prisma migrate dev --schema packages/db/prisma/schema.prisma
 npm run db:generate
 ```
 
@@ -53,9 +61,8 @@ Use `npx tsx scripts/seed.ts` to create one tenant, three integrations, and thre
 ## What is missing
 
 - no Jest, Vitest, Playwright, or Cypress config
-- no CI workflow to enforce checks
 - no load test or contract test harness
 
-That gap shows up in the code structure. Large files like `apps/web/components/connectors/connectors-page.tsx` and `apps/web/components/admin/admin-page.tsx` are validated mostly by type safety and manual runs.
+That gap shows up in the code structure. Large files like `apps/web/components/connectors/connectors-page.tsx` and `apps/web/components/admin/admin-page.tsx` are validated mostly by type safety, API tests, and manual runs.
 
 For day-to-day commands, go to [Development workflow](development-workflow.md). For common failures to check during smoke tests, go to [Debugging](debugging.md).
