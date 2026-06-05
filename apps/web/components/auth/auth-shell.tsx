@@ -12,7 +12,6 @@ import { Loader2 } from "lucide-react";
 import {
   clearAuthToken,
   fetchCurrentSession,
-  getAuthToken,
   logoutCurrentSession,
   type AuthSession
 } from "../../lib/api";
@@ -48,13 +47,6 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   });
 
   async function refreshSession() {
-    const token = getAuthToken();
-
-    if (!token) {
-      setState({ status: "unauthenticated", session: null });
-      return;
-    }
-
     try {
       const response = await fetchCurrentSession();
       setState({ status: "authenticated", session: response.data });

@@ -39,7 +39,8 @@ export function setAuthToken(token: string) {
     return;
   }
 
-  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  void token;
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 }
 
 export function clearAuthToken() {
@@ -54,6 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),

@@ -1,4 +1,4 @@
-import type { NextFunction, Request, Response } from "express";
+import type { CookieOptions, NextFunction, Request, Response } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@aperio/db";
 import { createOneTimeToken, hashOpaqueToken } from "@aperio/security";
@@ -16,6 +16,8 @@ export type TenantRequest = Request & {
   tenantId: string;
 };
 
+export const SESSION_COOKIE_NAME = "aperio_session";
+
 function sessionTtlMs() {
   return Number(process.env.APERIO_SESSION_TTL_HOURS ?? 12) * 60 * 60 * 1000;
 }
@@ -30,11 +32,81 @@ function tokenHashesMatch(rawToken: string, expectedHash: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function sessionTokenFromRequest(req: Request) {
+function parseCookieHeader(header: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+
+  for (const part of (header ?? "").split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    if (!rawName || rawValue.length === 0) continue;
+    cookies[rawName] = decodeURIComponent(rawValue.join("="));
+  }
+
+  return cookies;
+}
+
+function sessionTokenFromRequest(req: Request):
+  | { token: string; source: "authorization" | "cookie" }
+  | null {
   const authorization = req.header("authorization");
-  return authorization?.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length)
-    : null;
+  if (authorization?.startsWith("Bearer ")) {
+    return {
+      token: authorization.slice("Bearer ".length),
+      source: "authorization"
+    };
+  }
+
+  const cookieToken = parseCookieHeader(req.header("cookie"))[SESSION_COOKIE_NAME];
+  return cookieToken ? { token: cookieToken, source: "cookie" } : null;
+}
+
+function sessionCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/"
+  };
+}
+
+export function setSessionCookie(res: Response, token: string) {
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    ...sessionCookieOptions(),
+    maxAge: sessionTtlMs()
+  });
+}
+
+export function clearSessionCookie(res: Response) {
+  res.clearCookie(SESSION_COOKIE_NAME, sessionCookieOptions());
+}
+
+function allowedWebOrigins() {
+  return (process.env.APERIO_WEB_ORIGIN ?? "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}
+
+function requestOrigin(req: Request) {
+  const origin = req.header("origin");
+  if (origin) return origin.replace(/\/$/, "");
+
+  const referer = req.header("referer");
+  if (!referer) return null;
+
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isUnsafeMethod(method: string) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function hasAllowedCookieOrigin(req: Request) {
+  const origin = requestOrigin(req);
+  return !!origin && allowedWebOrigins().includes(origin);
 }
 
 function clientIp(req: Request) {
@@ -186,14 +258,22 @@ export async function requireAuth(
   next: NextFunction
 ) {
   try {
-    const token = sessionTokenFromRequest(req);
+    const tokenSource = sessionTokenFromRequest(req);
 
-    if (!token) {
+    if (!tokenSource) {
       (req as TenantRequest).auth = getDevelopmentAuthContext();
       return next();
     }
 
-    (req as TenantRequest).auth = await verifySessionToken(token, req);
+    if (
+      tokenSource.source === "cookie" &&
+      isUnsafeMethod(req.method) &&
+      !hasAllowedCookieOrigin(req)
+    ) {
+      return res.status(403).json({ error: "Invalid request origin" });
+    }
+
+    (req as TenantRequest).auth = await verifySessionToken(tokenSource.token, req);
     return next();
   } catch {
     return res.status(401).json({ error: "Unauthorized" });

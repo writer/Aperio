@@ -6,7 +6,7 @@ Aperio is a security product, so the most important implementation details are t
 
 ### Authentication and demo fallback
 
-`apps/api/src/middleware/security.ts` requires bearer auth in production. In non-production, it can fall back to `DEMO_USER_ID` and `DEMO_ORGANIZATION_ID`, which is convenient locally but should be understood before exposing a deployment.
+`apps/api/src/middleware/security.ts` accepts bearer tokens for API compatibility and an `HttpOnly`, `SameSite=Lax` session cookie for the web console. Cookie-backed unsafe methods require an allowed `Origin`/`Referer` derived from `APERIO_WEB_ORIGIN`. In non-production, auth can fall back to `DEMO_USER_ID` and `DEMO_ORGANIZATION_ID`, which is convenient locally but should be understood before exposing a deployment.
 
 ### Tenant isolation
 
@@ -37,8 +37,6 @@ Routes for connectors, SIEM destinations, admin settings, remediation actions, a
 
 ## Known limits in this checkout
 
-- No automated security test suite is present.
-- No CI policy enforcement is visible.
 - Local demo-mode auth can mask real auth issues if you forget the environment mode.
 - External provider tokens are stored securely, but the repo does not yet show secret rotation workflows.
 
