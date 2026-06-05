@@ -55,6 +55,14 @@ enum EventProcessingStatus {
   FAILED
 }
 
+enum IngestionJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD_LETTER
+}
+
 enum SiemKind {
   SPLUNK_HEC
   PANTHER
@@ -208,6 +216,7 @@ model Organization {
   authTokens        AuthToken[]
   sessions          UserSession[]
   oauthAppGrants    OauthAppGrant[]
+  ingestionJobs      IngestionJob[]
 
   @@map("organizations")
 }
@@ -285,6 +294,7 @@ model IntegrationConnection {
   assets                 SecurityAsset[]
   saasIdentities         SaasIdentity[]
   oauthAppGrants         OauthAppGrant[]
+  ingestionJobs          IngestionJob[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId])
@@ -314,6 +324,32 @@ model IngestedEvent {
   @@index([organizationId, provider, eventType])
   @@index([organizationId, occurredAt])
   @@map("ingested_events")
+}
+
+model IngestionJob {
+  id             String                @id @default(cuid())
+  organizationId String                @map("organization_id")
+  integrationId  String                @map("integration_id")
+  provider       SaaSProvider
+  eventType      String                @map("event_type") @db.VarChar(180)
+  source         String                @db.VarChar(180)
+  actor          String?               @db.VarChar(255)
+  occurredAt     DateTime              @map("occurred_at")
+  payload        Json
+  status         IngestionJobStatus    @default(QUEUED)
+  attempts       Int                   @default(0)
+  maxAttempts    Int                   @default(3) @map("max_attempts")
+  nextAttemptAt  DateTime              @default(now()) @map("next_attempt_at")
+  lastError      String?               @map("last_error") @db.VarChar(500)
+  processedAt    DateTime?             @map("processed_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([integrationId, status])
+  @@map("ingestion_jobs")
 }
 
 model SecurityFinding {

@@ -1,6 +1,7 @@
 import { prisma } from "@aperio/db";
 import { logger } from "./lib/logger";
 import { createApp } from "./app";
+import { startIngestionWorker } from "../../../workers/ingestion-worker";
 import { startSiemDispatcher } from "../../../workers/siem-dispatcher";
 
 const app = createApp();
@@ -12,10 +13,12 @@ const server = app.listen(port, () => {
     url: `http://localhost:${port}`
   });
 });
+const ingestionWorker = startIngestionWorker();
 const siemDispatcher = startSiemDispatcher();
 
 async function shutdown(signal: string) {
   logger.info("server.stopping", { signal });
+  clearInterval(ingestionWorker);
   clearInterval(siemDispatcher);
   server.close(async () => {
     await prisma.$disconnect();

@@ -47,9 +47,8 @@ flowchart LR
 
 ## Gaps to keep in mind
 
-- The ingestion queue in `workers/ingestion-worker.ts` is in memory.
 - Provider detection coverage is narrower than the connector catalog.
 - The web UI has some large, stateful files instead of smaller feature slices.
-- There is no formal test harness to backstop refactors.
+- Browser and API behavior has focused `node:test` coverage, but there is no end-to-end browser harness yet.
 
 For command-level tooling, go to [Tooling](tooling.md). For API surface details, go to [API surface](../api/index.md).
