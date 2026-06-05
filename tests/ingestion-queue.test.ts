@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { after, before } from "node:test";
 import { prisma } from "@aperio/db";
 import { encryptString } from "@aperio/security";
 import { createApp } from "../apps/api/src/app";
 import { drainIngestionJobs } from "../workers/ingestion-worker";
+import {
+  drainSiemDeliveries,
+  enqueueSiemDeliveries
+} from "../workers/siem-dispatcher";
 
 let server: Server;
 let baseUrl = "";
@@ -146,4 +153,99 @@ test("persists ingestion jobs and drains them into findings", async () => {
   });
   assert.ok(finding);
   assert.equal(finding.severity, "CRITICAL");
+});
+
+test("claims ingestion jobs atomically across concurrent drains", async () => {
+  const session = await signupWorkspace("lease-ingestion");
+  const integration = await createGithubIntegration(session.organization.id);
+
+  const response = await requestJson("/api/v1/ingestion/events", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.token}`
+    },
+    body: JSON.stringify({
+      integrationId: integration.id,
+      provider: "GITHUB",
+      eventType: "repository.publicized",
+      source: "github.audit",
+      actor: "owner@example.test",
+      payload: {
+        repository: {
+          full_name: "writer/concurrent-public-demo",
+          private: false,
+          visibility: "public"
+        }
+      }
+    })
+  });
+
+  assert.equal(response.status, 202);
+
+  const [first, second] = await Promise.all([
+    drainIngestionJobs(1),
+    drainIngestionJobs(1)
+  ]);
+
+  assert.equal(first.processed + second.processed, 1);
+  assert.equal(first.succeeded + second.succeeded, 1);
+
+  const completed = await prisma.ingestionJob.findUniqueOrThrow({
+    where: { id: response.body.data.jobId }
+  });
+  assert.equal(completed.status, "SUCCEEDED");
+  assert.equal(completed.attempts, 1);
+  assert.equal(completed.leaseOwner, null);
+  assert.equal(completed.leaseExpiresAt, null);
+});
+
+test("claims SIEM deliveries atomically across concurrent drains", async () => {
+  const session = await signupWorkspace("lease-siem");
+  process.env.APERIO_SIEM_EXPORT_DIR = await mkdtemp(
+    join(tmpdir(), "aperio-siem-lease-")
+  );
+
+  const destination = await prisma.siemDestination.create({
+    data: {
+      organizationId: session.organization.id,
+      kind: "JSON_FILE",
+      name: "Lease file",
+      filePath: "lease/findings.jsonl",
+      streams: ["FINDINGS"]
+    }
+  });
+
+  const enqueued = await enqueueSiemDeliveries({
+    kind: "finding",
+    organizationId: session.organization.id,
+    occurredAt: new Date().toISOString(),
+    record: {
+      title: "Concurrent SIEM finding",
+      severity: "HIGH",
+      target: "writer/concurrent-public-demo"
+    }
+  });
+
+  assert.equal(enqueued, 1);
+
+  const [first, second] = await Promise.all([
+    drainSiemDeliveries(1),
+    drainSiemDeliveries(1)
+  ]);
+
+  assert.equal(first.processed + second.processed, 1);
+  assert.equal(first.delivered + second.delivered, 1);
+
+  const delivery = await prisma.siemDelivery.findFirstOrThrow({
+    where: { destinationId: destination.id }
+  });
+  assert.equal(delivery.status, "DELIVERED");
+  assert.equal(delivery.attempts, 1);
+  assert.equal(delivery.leaseOwner, null);
+  assert.equal(delivery.leaseExpiresAt, null);
+
+  const updatedDestination = await prisma.siemDestination.findUniqueOrThrow({
+    where: { id: destination.id }
+  });
+  assert.equal(updatedDestination.deliveriesOk, 1);
 });

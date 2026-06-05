@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { pathToFileURL } from "node:url";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@aperio/db";
@@ -48,6 +49,8 @@ type PersistedIngestionJob = {
   status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "DEAD_LETTER";
   attempts: number;
   maxAttempts: number;
+  leaseOwner: string | null;
+  leaseExpiresAt: Date | null;
 };
 
 type RuleFinding = {
@@ -76,6 +79,14 @@ type ProcessResult = {
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+const WORKER_LEASE_MS = 5 * 60 * 1000;
+const WORKER_LEASE_OWNER = `${hostname()}:${process.pid}:${randomUUID()}`;
+
+function boundedDrainLimit(limit: number) {
+  const normalized = Number.isFinite(limit) ? Math.trunc(limit) : 25;
+  return Math.max(1, Math.min(normalized, 1000));
 }
 
 function nestedString(
@@ -1188,42 +1199,34 @@ async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
   const retryable = attempts < job.maxAttempts;
   const message = error instanceof Error ? error.message : "Unknown ingestion error";
 
-  await prisma.ingestionJob.update({
-    where: { id: job.id },
+  await prisma.ingestionJob.updateMany({
+    where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
     data: {
       status: retryable ? "FAILED" : "DEAD_LETTER",
       attempts,
       nextAttemptAt: retryable ? nextRetryAt(attempts) : new Date(),
+      leaseOwner: null,
+      leaseExpiresAt: null,
       lastError: message.slice(0, 500)
     }
   });
 }
 
 async function processJob(job: PersistedIngestionJob): Promise<boolean> {
-  const claimed = await prisma.ingestionJob.updateMany({
-    where: {
-      id: job.id,
-      status: { in: ["QUEUED", "FAILED", "RUNNING"] }
-    },
-    data: { status: "RUNNING" }
-  });
-
-  if (claimed.count === 0) {
-    return false;
-  }
-
   try {
     await new IngestionWorker().process(toIngestionPayload(job));
-    await prisma.ingestionJob.update({
-      where: { id: job.id },
+    const updated = await prisma.ingestionJob.updateMany({
+      where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
       data: {
         status: "SUCCEEDED",
         attempts: job.attempts + 1,
         processedAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
         lastError: null
       }
     });
-    return true;
+    return updated.count === 1;
   } catch (error) {
     await markJobFailure(job, error);
     return false;
@@ -1253,37 +1256,71 @@ export async function drainIngestionJobs(
   limit = 25
 ): Promise<IngestionQueueDrainResult> {
   const now = new Date();
-  const staleRunningBefore = new Date(now.getTime() - 5 * 60 * 1000);
-  const jobs = (await prisma.ingestionJob.findMany({
-    where: {
-      OR: [
-        {
-          status: { in: ["QUEUED", "FAILED"] },
-          nextAttemptAt: { lte: now }
-        },
-        {
-          status: "RUNNING",
-          updatedAt: { lte: staleRunningBefore }
-        }
-      ]
-    },
-    orderBy: { createdAt: "asc" },
-    take: limit
-  })) as PersistedIngestionJob[];
+  const leaseExpiresAt = new Date(now.getTime() + WORKER_LEASE_MS);
+  await prisma.$executeRaw`
+    UPDATE "ingestion_jobs"
+    SET
+      "status" = 'DEAD_LETTER'::"IngestionJobStatus",
+      "lease_owner" = NULL,
+      "lease_expires_at" = NULL,
+      "updated_at" = CURRENT_TIMESTAMP
+    WHERE
+      "attempts" >= "max_attempts"
+      AND "status" IN (
+        'QUEUED'::"IngestionJobStatus",
+        'FAILED'::"IngestionJobStatus",
+        'RUNNING'::"IngestionJobStatus"
+      )
+      AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
+  `;
+  const jobs = await prisma.$queryRaw<PersistedIngestionJob[]>`
+    UPDATE "ingestion_jobs"
+    SET
+      "status" = 'RUNNING'::"IngestionJobStatus",
+      "lease_owner" = ${WORKER_LEASE_OWNER},
+      "lease_expires_at" = ${leaseExpiresAt},
+      "updated_at" = CURRENT_TIMESTAMP
+    WHERE "id" IN (
+      SELECT "id"
+      FROM "ingestion_jobs"
+      WHERE
+        "attempts" < "max_attempts"
+        AND "next_attempt_at" <= ${now}
+        AND (
+          (
+            "status" IN ('QUEUED'::"IngestionJobStatus", 'FAILED'::"IngestionJobStatus")
+            AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
+          )
+          OR (
+            "status" = 'RUNNING'::"IngestionJobStatus"
+            AND "lease_expires_at" <= ${now}
+          )
+        )
+      ORDER BY "created_at" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${boundedDrainLimit(limit)}
+    )
+    RETURNING
+      "id",
+      "organization_id" AS "organizationId",
+      "integration_id" AS "integrationId",
+      "provider",
+      "event_type" AS "eventType",
+      "source",
+      "actor",
+      "occurred_at" AS "occurredAt",
+      "payload",
+      "status",
+      "attempts",
+      "max_attempts" AS "maxAttempts",
+      "lease_owner" AS "leaseOwner",
+      "lease_expires_at" AS "leaseExpiresAt"
+  `;
 
   let succeeded = 0;
   let failed = 0;
 
   for (const job of jobs) {
-    if (job.attempts >= job.maxAttempts) {
-      await prisma.ingestionJob.update({
-        where: { id: job.id },
-        data: { status: "DEAD_LETTER" }
-      });
-      failed += 1;
-      continue;
-    }
-
     if (await processJob(job)) {
       succeeded += 1;
     } else {
