@@ -42,6 +42,27 @@ type SiemDispatchEnvelope = {
   record: Record<string, unknown>;
 };
 
+type CerebroEntityRef = {
+  urn: string;
+  entity_type: string;
+  label: string;
+};
+
+export type CerebroClaim = {
+  id?: string;
+  subject_urn: string;
+  subject_ref: CerebroEntityRef;
+  predicate: string;
+  object_urn?: string;
+  object_ref?: CerebroEntityRef;
+  object_value?: string;
+  claim_type: "existence" | "attribute" | "relation";
+  status: "asserted";
+  source_event_id?: string;
+  observed_at: string;
+  attributes?: Record<string, string>;
+};
+
 type OutboxDrainResult = {
   processed: number;
   delivered: number;
@@ -169,6 +190,256 @@ async function postJson(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function getJson(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs = 4000
+): Promise<{ ok: boolean; status: number; message: string }> {
+  const endpointError = await assertSafeSiemEndpointUrl(url);
+  if (endpointError) {
+    return {
+      ok: false,
+      status: 0,
+      message: endpointError
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { accept: "application/json", ...headers },
+      signal: controller.signal
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      message: response.ok
+        ? `loaded (${response.status})`
+        : `${response.status} ${response.statusText}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      message: error instanceof Error ? error.message : "network error"
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function joinUrl(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function stringValue(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+function entityRef(
+  organizationId: string,
+  runtimeId: string,
+  entityType: string,
+  externalId: string,
+  label: string
+): CerebroEntityRef {
+  const encodedExternalId = encodeURIComponent(externalId).replace(/%20/g, "-");
+  return {
+    urn: [
+      "urn",
+      "cerebro",
+      organizationId,
+      "runtime",
+      runtimeId,
+      entityType,
+      encodedExternalId
+    ].join(":"),
+    entity_type: entityType,
+    label
+  };
+}
+
+function claimBase(
+  payload: SiemPayload,
+  attributes?: Record<string, string>
+) {
+  return {
+    status: "asserted" as const,
+    source_event_id: stringValue(payload.record.sourceEventId),
+    observed_at: payload.occurredAt,
+    attributes
+  };
+}
+
+function existsClaim(
+  subject: CerebroEntityRef,
+  payload: SiemPayload,
+  attributes?: Record<string, string>
+): CerebroClaim {
+  return {
+    subject_urn: subject.urn,
+    subject_ref: subject,
+    predicate: "exists",
+    claim_type: "existence",
+    ...claimBase(payload, attributes)
+  };
+}
+
+function attrClaim(
+  subject: CerebroEntityRef,
+  predicate: string,
+  value: string,
+  payload: SiemPayload
+): CerebroClaim {
+  return {
+    subject_urn: subject.urn,
+    subject_ref: subject,
+    predicate,
+    object_value: value,
+    claim_type: "attribute",
+    ...claimBase(payload)
+  };
+}
+
+function relClaim(
+  subject: CerebroEntityRef,
+  predicate: string,
+  object: CerebroEntityRef,
+  payload: SiemPayload
+): CerebroClaim {
+  return {
+    subject_urn: subject.urn,
+    subject_ref: subject,
+    predicate,
+    object_urn: object.urn,
+    object_ref: object,
+    claim_type: "relation",
+    ...claimBase(payload)
+  };
+}
+
+export function buildCerebroClaims(
+  destination: Pick<SiemDestination, "organizationId" | "index">,
+  payload: SiemPayload
+): CerebroClaim[] {
+  const runtimeId = destination.index?.trim();
+  if (!runtimeId) {
+    throw new Error("Cerebro source runtime ID is not configured");
+  }
+
+  const record = payload.record;
+  const provider = stringValue(record.provider) ?? "APERIO";
+  const title = stringValue(record.title) ?? `${payload.kind} from Aperio`;
+  const findingId =
+    stringValue(record.dedupeKey) ??
+    stringValue(record.sourceEventId) ??
+    createHmac("sha256", destination.organizationId)
+      .update(JSON.stringify(record))
+      .digest("hex");
+  const targetLabel = stringValue(record.target) ?? title;
+  const integrationId = stringValue(record.integrationId) ?? "aperio";
+  const finding = entityRef(
+    destination.organizationId,
+    runtimeId,
+    "finding",
+    findingId,
+    title
+  );
+  const target = entityRef(
+    destination.organizationId,
+    runtimeId,
+    "asset",
+    `${provider}:${targetLabel}`,
+    targetLabel
+  );
+  const integration = entityRef(
+    destination.organizationId,
+    runtimeId,
+    "integration",
+    integrationId,
+    provider
+  );
+  const attributes: Record<string, string> = {
+    aperio_schema: schemaVersion(payload.kind),
+    aperio_kind: payload.kind
+  };
+  for (const key of ["ruleId", "dedupeKey", "sourceEventId", "source", "eventType"]) {
+    const value = stringValue(record[key]);
+    if (value) attributes[key] = value;
+  }
+
+  const claims: CerebroClaim[] = [
+    existsClaim(finding, payload, attributes),
+    existsClaim(target, payload, { provider }),
+    existsClaim(integration, payload, { provider }),
+    relClaim(finding, "affects", target, payload),
+    relClaim(finding, "observed_by", integration, payload),
+    attrClaim(finding, "title", title, payload),
+    attrClaim(finding, "provider", provider, payload)
+  ];
+
+  for (const key of ["severity", "riskScore", "status", "ruleId"]) {
+    const value = stringValue(record[key]);
+    if (value) claims.push(attrClaim(finding, key, value, payload));
+  }
+
+  const description = stringValue(record.description);
+  if (description) claims.push(attrClaim(finding, "description", description, payload));
+
+  return claims;
+}
+
+async function sendCerebroClaims(
+  destination: SiemDestination,
+  payload: SiemPayload
+): Promise<DispatcherResult> {
+  if (!destination.endpointUrl || !destination.index) {
+    return {
+      destinationId: destination.id,
+      ok: false,
+      message: "Cerebro API URL or source runtime ID missing"
+    };
+  }
+  const token = decryptToken(destination);
+  if (!token) {
+    return {
+      destinationId: destination.id,
+      ok: false,
+      message: "missing Cerebro API token"
+    };
+  }
+
+  const runtimePath = `/source-runtimes/${encodeURIComponent(destination.index)}`;
+  const headers = { authorization: `Bearer ${token}` };
+  const runtime = await getJson(joinUrl(destination.endpointUrl, runtimePath), headers);
+  if (!runtime.ok) {
+    return {
+      destinationId: destination.id,
+      ok: false,
+      message: `Cerebro runtime check failed: ${runtime.message}`
+    };
+  }
+
+  const claims = buildCerebroClaims(destination, payload);
+  const res = await postJson(
+    joinUrl(destination.endpointUrl, `${runtimePath}/claims`),
+    headers,
+    JSON.stringify({
+      runtime_id: destination.index,
+      claims
+    })
+  );
+  return {
+    destinationId: destination.id,
+    ok: res.ok,
+    message: res.ok ? `wrote ${claims.length} Cerebro claims` : res.message
+  };
 }
 
 async function sendSplunk(
@@ -357,6 +628,8 @@ async function sendOne(
       return sendDatadog(destination, payload);
     case "GENERIC_WEBHOOK":
       return sendWebhook(destination, payload);
+    case "CEREBRO_CLAIMS":
+      return sendCerebroClaims(destination, payload);
     default:
       return {
         destinationId: destination.id,

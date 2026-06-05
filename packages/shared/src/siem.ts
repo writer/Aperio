@@ -7,6 +7,7 @@ export type SiemKindKey =
   | "ELASTIC"
   | "DATADOG"
   | "GENERIC_WEBHOOK"
+  | "CEREBRO_CLAIMS"
   | "JSON_FILE";
 
 export type SiemStreamKey = "FINDINGS" | "EVENTS" | "AUDIT_LOGS";
@@ -32,7 +33,7 @@ export type SiemDestinationDefinition = {
   name: string;
   vendor: string;
   description: string;
-  category: "Cloud SIEM" | "Hosted Search" | "Observability" | "Generic";
+  category: "Cloud SIEM" | "Hosted Search" | "Observability" | "Graph" | "Generic";
   docsUrl: string;
   defaultStreams: SiemStreamKey[];
   fields: SiemField[];
@@ -169,6 +170,36 @@ const webhookFields: SiemField[] = [
   }
 ];
 
+const cerebroFields: SiemField[] = [
+  {
+    key: "endpointUrl",
+    label: "Cerebro API base URL",
+    placeholder: "https://cerebro.example.com",
+    helper:
+      "Base URL for the Writer/Cerebro API. Aperio writes claims to /source-runtimes/{runtime}/claims.",
+    type: "url",
+    required: true,
+    secret: false
+  },
+  {
+    key: "token",
+    label: "Cerebro API token",
+    helper: "Bearer token with permission to write claims for the target source runtime.",
+    type: "password",
+    required: true,
+    secret: true
+  },
+  {
+    key: "index",
+    label: "Source runtime ID",
+    placeholder: "writer-aperio-sspm",
+    helper: "Existing Cerebro source runtime ID, typically backed by the sdk source.",
+    type: "text",
+    required: true,
+    secret: false
+  }
+];
+
 const fileFields: SiemField[] = [
   {
     key: "filePath",
@@ -252,6 +283,17 @@ export const siemCatalog: SiemDestinationDefinition[] = [
     fields: webhookFields
   },
   {
+    kind: "CEREBRO_CLAIMS",
+    name: "Writer/Cerebro Claims",
+    vendor: "Writer",
+    category: "Graph",
+    description:
+      "Project Aperio findings into Writer/Cerebro as source-runtime claims for graph, workflow, and reporting use cases.",
+    docsUrl: "https://github.com/writer/cerebro",
+    defaultStreams: ["FINDINGS"],
+    fields: cerebroFields
+  },
+  {
     kind: "JSON_FILE",
     name: "JSON Lines File",
     vendor: "Local",
@@ -277,6 +319,7 @@ const siemKindSchema = z.enum([
   "ELASTIC",
   "DATADOG",
   "GENERIC_WEBHOOK",
+  "CEREBRO_CLAIMS",
   "JSON_FILE"
 ]);
 
