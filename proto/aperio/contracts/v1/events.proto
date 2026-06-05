@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package aperio.contracts.v1;
+
+option go_package = "github.com/writer/aperio/gen/aperio/contracts/v1;aperiocontractsv1";
+
+import "google/protobuf/timestamp.proto";
+import "cerebro/v1/primitives.proto";
+
+message IngestionJobEvent {
+  string job_id = 1;
+  string organization_id = 2;
+  string integration_id = 3;
+  string provider = 4;
+  string event_type = 5;
+  string source = 6;
+  string actor = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+  string status = 9;
+  uint32 attempts = 10;
+  string source_event_id = 11;
+  bytes payload_json = 12;
+}
+
+message CerebroClaimsFanoutEvent {
+  string delivery_id = 1;
+  string organization_id = 2;
+  string destination_id = 3;
+  string runtime_id = 4;
+  string finding_id = 5;
+  string dedupe_key = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+  repeated cerebro.v1.Claim claims = 8;
+  string status = 9;
+  string error = 10;
+}
