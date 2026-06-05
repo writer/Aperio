@@ -1,0 +1,53 @@
+rules:
+  - id: aperio.prisma.raw-unsafe
+    message: Avoid Prisma raw unsafe APIs unless all inputs are trusted and reviewed.
+    severity: WARNING
+    languages: [typescript, javascript]
+    patterns:
+      - pattern-either:
+          - pattern: $DB.$queryRawUnsafe(...)
+          - pattern: $DB.$executeRawUnsafe(...)
+
+  - id: aperio.dynamic-code-execution
+    message: Dynamic code execution is security-sensitive.
+    severity: ERROR
+    languages: [typescript, javascript]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: aperio.child-process-exec
+    message: Shell command execution requires strict input validation.
+    severity: WARNING
+    languages: [typescript, javascript]
+    pattern-either:
+      - pattern: exec(...)
+      - pattern: execSync(...)
+
+  - id: aperio.credential-logging
+    message: Potential credential-bearing value logged.
+    severity: ERROR
+    languages: [typescript, javascript]
+    patterns:
+      - pattern-regex: console\.(log|info|warn|error)\(.*(secret|token|password|api[_-]?key|authorization)
+
+  - id: aperio.web-private-env
+    message: Non-public environment variable referenced from web app code.
+    severity: WARNING
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - apps/web/**/*.ts
+        - apps/web/**/*.tsx
+    pattern-regex: process\.env\.(?!NEXT_PUBLIC_|NODE_ENV\b)[A-Z0-9_]+
+
+  - id: aperio.workflow-unpinned-action
+    message: Pin GitHub Actions to a full commit SHA.
+    severity: WARNING
+    languages: [yaml]
+    paths:
+      include:
+        - .github/workflows/*.yml
+        - .github/workflows/*.yaml
+    patterns:
+      - pattern-regex: uses:\s+[^@\s]+@(?![a-f0-9]{40}\b)[^\s#]+
