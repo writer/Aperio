@@ -1,5 +1,6 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
@@ -68,6 +69,14 @@ type OutboxDrainResult = {
   delivered: number;
   failed: number;
 };
+
+const WORKER_LEASE_MS = 5 * 60 * 1000;
+const WORKER_LEASE_OWNER = `${hostname()}:${process.pid}:${randomUUID()}`;
+
+function boundedDrainLimit(limit: number) {
+  const normalized = Number.isFinite(limit) ? Math.trunc(limit) : 25;
+  return Math.max(1, Math.min(normalized, 1000));
+}
 
 function streamForKind(kind: SiemEnvelopeKind): SiemStreamType {
   if (kind === "finding") return "FINDINGS";
@@ -686,47 +695,37 @@ function nextRetryAt(attempt: number): Date {
 async function finishDelivery(
   delivery: SiemDelivery,
   result: DispatcherResult
-): Promise<void> {
+): Promise<boolean> {
   const attempts = delivery.attempts + 1;
   if (result.ok) {
-    await prisma.siemDelivery.update({
-      where: { id: delivery.id },
+    const updated = await prisma.siemDelivery.updateMany({
+      where: { id: delivery.id, leaseOwner: WORKER_LEASE_OWNER },
       data: {
         status: "DELIVERED",
         attempts,
         deliveredAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
         lastError: null
       }
     });
-    return;
+    return updated.count === 1;
   }
-  await prisma.siemDelivery.update({
-    where: { id: delivery.id },
+  const updated = await prisma.siemDelivery.updateMany({
+    where: { id: delivery.id, leaseOwner: WORKER_LEASE_OWNER },
     data: {
       status: attempts >= delivery.maxAttempts ? "DEAD_LETTER" : "FAILED",
       attempts,
       nextAttemptAt: nextRetryAt(attempts),
+      leaseOwner: null,
+      leaseExpiresAt: null,
       lastError: result.message.slice(0, 500)
     }
   });
+  return updated.count === 1;
 }
 
 async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult> {
-  const claimed = await prisma.siemDelivery.updateMany({
-    where: {
-      id: delivery.id,
-      status: { in: ["PENDING", "FAILED"] }
-    },
-    data: { status: "PROCESSING" }
-  });
-  if (claimed.count === 0) {
-    return {
-      destinationId: delivery.destinationId ?? "unknown",
-      ok: false,
-      message: "delivery already claimed"
-    };
-  }
-
   const payload = parseDeliveryPayload(delivery.payload);
   if (!payload || !delivery.destinationId) {
     const result = {
@@ -756,7 +755,9 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
   }
 
   const result = await sendOne(destination, payload);
-  await Promise.all([recordResult(result), finishDelivery(delivery, result)]);
+  if (await finishDelivery(delivery, result)) {
+    await recordResult(result);
+  }
   return result;
 }
 
@@ -789,25 +790,71 @@ export async function enqueueSiemDeliveries(
 export async function drainSiemDeliveries(
   limit = 25
 ): Promise<OutboxDrainResult> {
-  const deliveries = await prisma.siemDelivery.findMany({
-    where: {
-      status: { in: ["PENDING", "FAILED"] },
-      nextAttemptAt: { lte: new Date() }
-    },
-    orderBy: { createdAt: "asc" },
-    take: limit
-  });
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + WORKER_LEASE_MS);
+  await prisma.$executeRaw`
+    UPDATE "siem_deliveries"
+    SET
+      "status" = 'DEAD_LETTER'::"SiemDeliveryStatus",
+      "lease_owner" = NULL,
+      "lease_expires_at" = NULL,
+      "updated_at" = CURRENT_TIMESTAMP
+    WHERE
+      "attempts" >= "max_attempts"
+      AND "status" IN (
+        'PENDING'::"SiemDeliveryStatus",
+        'FAILED'::"SiemDeliveryStatus",
+        'PROCESSING'::"SiemDeliveryStatus"
+      )
+      AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
+  `;
+  const deliveries = await prisma.$queryRaw<SiemDelivery[]>`
+    UPDATE "siem_deliveries"
+    SET
+      "status" = 'PROCESSING'::"SiemDeliveryStatus",
+      "lease_owner" = ${WORKER_LEASE_OWNER},
+      "lease_expires_at" = ${leaseExpiresAt},
+      "updated_at" = CURRENT_TIMESTAMP
+    WHERE "id" IN (
+      SELECT "id"
+      FROM "siem_deliveries"
+      WHERE
+        "attempts" < "max_attempts"
+        AND "next_attempt_at" <= ${now}
+        AND (
+          (
+            "status" IN ('PENDING'::"SiemDeliveryStatus", 'FAILED'::"SiemDeliveryStatus")
+            AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
+          )
+          OR (
+            "status" = 'PROCESSING'::"SiemDeliveryStatus"
+            AND "lease_expires_at" <= ${now}
+          )
+        )
+      ORDER BY "created_at" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${boundedDrainLimit(limit)}
+    )
+    RETURNING
+      "id",
+      "organization_id" AS "organizationId",
+      "destination_id" AS "destinationId",
+      "stream",
+      "payload",
+      "status",
+      "attempts",
+      "max_attempts" AS "maxAttempts",
+      "next_attempt_at" AS "nextAttemptAt",
+      "lease_owner" AS "leaseOwner",
+      "lease_expires_at" AS "leaseExpiresAt",
+      "last_error" AS "lastError",
+      "delivered_at" AS "deliveredAt",
+      "created_at" AS "createdAt",
+      "updated_at" AS "updatedAt"
+  `;
   let delivered = 0;
   let failed = 0;
   for (const delivery of deliveries) {
-    if (delivery.attempts >= delivery.maxAttempts) {
-      await prisma.siemDelivery.update({
-        where: { id: delivery.id },
-        data: { status: "DEAD_LETTER" }
-      });
-      failed += 1;
-      continue;
-    }
     const result = await processDelivery(delivery);
     if (result.ok) delivered += 1;
     else failed += 1;
