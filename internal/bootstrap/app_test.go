@@ -60,6 +60,28 @@ func TestAggregateRiskScoreMatchesClampedPostureShape(t *testing.T) {
 	}
 }
 
+func TestCalculateFindingRiskScoreMirrorsTypeScriptEvidenceBonuses(t *testing.T) {
+	score := calculateFindingRiskScore(riskFinding{
+		RiskScore:  10,
+		Severity:   "LOW",
+		DetectedAt: nowMinus(t, 40*24*time.Hour),
+		Evidence: map[string]any{
+			"mailbox":     "alice@example.com",
+			"role":        "admin",
+			"mfaEnrolled": false,
+			"visibility":  "external",
+			"riskReason":  "mailbox delegate",
+			"scopeCount":  float64(3),
+			"delegates":   []any{"bob@external.example"},
+			"comboKinds":  []any{"oauth_scope", "mailbox_delegate"},
+		},
+	})
+
+	if score != 62 {
+		t.Fatalf("expected TS-compatible score 62, got %d", score)
+	}
+}
+
 // TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
 // credentials. The allowed origin must match exactly because session cookies are
 // cross-runtime auth material.

@@ -266,8 +266,8 @@ func aggregateRiskScore(findings []riskFinding) int {
 		if score >= 70 && time.Since(finding.DetectedAt) <= 7*24*time.Hour {
 			recentHighCount++
 		}
-		if finding.Provider != "" {
-			providers[finding.Provider] = struct{}{}
+		if provider := providerFromFinding(finding); provider != "" {
+			providers[provider] = struct{}{}
 		}
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(scores)))
@@ -293,6 +293,23 @@ func aggregateRiskScore(findings []riskFinding) int {
 func calculateFindingRiskScore(finding riskFinding) int {
 	score := maxInt(clampInt(finding.RiskScore, 0, 100), severityFloor(finding.Severity))
 	bonus := 0
+
+	grantedRole := strings.ToLower(stringEvidence(finding.Evidence, "grantedRole", "role"))
+	if strings.Contains(grantedRole, "super admin") {
+		bonus += 10
+	} else if strings.Contains(grantedRole, "admin") {
+		bonus += 6
+	}
+	if boolEvidenceEquals(finding.Evidence, "delegatedAdmin", true) {
+		bonus += 4
+	}
+	if boolEvidenceEquals(finding.Evidence, "mfaEnrolled", false) {
+		bonus += 10
+	}
+	if boolEvidenceEquals(finding.Evidence, "mfaEnforced", false) {
+		bonus += 8
+	}
+
 	visibility := strings.ToLower(stringEvidence(finding.Evidence, "visibility", "exposureLevel"))
 	if strings.Contains(visibility, "public") ||
 		strings.Contains(visibility, "anyone") ||
@@ -301,6 +318,26 @@ func calculateFindingRiskScore(finding riskFinding) int {
 	} else if strings.Contains(visibility, "external") {
 		bonus += 6
 	}
+
+	riskReason := strings.ToLower(stringEvidence(finding.Evidence, "riskReason"))
+	if strings.Contains(riskReason, "full mailbox") || strings.Contains(riskReason, "mailbox-settings") {
+		bonus += 8
+	} else if strings.Contains(riskReason, "mailbox") {
+		bonus += 4
+	}
+
+	scopeCount := numberEvidence(finding.Evidence, "scopeCount", len(stringArrayEvidence(finding.Evidence, "scopes")))
+	bonus += minInt(8, maxInt(0, scopeCount-1))
+
+	delegateCount := numberEvidence(finding.Evidence, "delegateCount", len(stringArrayEvidence(finding.Evidence, "delegates")))
+	sendAsCount := numberEvidence(finding.Evidence, "sendAsCount", len(stringArrayEvidence(finding.Evidence, "sendAsAliases")))
+	bonus += minInt(8, delegateCount*2+sendAsCount*2)
+
+	if len(stringArrayEvidence(finding.Evidence, "comboKinds")) > 1 {
+		bonus += 8
+	}
+	bonus += minInt(12, externalEmailCount(finding.Evidence)*3)
+
 	if time.Since(finding.DetectedAt) <= 24*time.Hour {
 		bonus += 4
 	} else if time.Since(finding.DetectedAt) <= 7*24*time.Hour {
@@ -335,6 +372,118 @@ func stringEvidence(evidence map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func boolEvidenceEquals(evidence map[string]any, key string, expected bool) bool {
+	value, ok := evidence[key].(bool)
+	return ok && value == expected
+}
+
+func numberEvidence(evidence map[string]any, key string, fallback int) int {
+	switch value := evidence[key].(type) {
+	case int:
+		return value
+	case int32:
+		return int(value)
+	case int64:
+		return int(value)
+	case float64:
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return fallback
+		}
+		return int(value)
+	case json.Number:
+		parsed, err := value.Int64()
+		if err == nil {
+			return int(parsed)
+		}
+	}
+	return fallback
+}
+
+func stringArrayEvidence(evidence map[string]any, key string) []string {
+	value, ok := evidence[key]
+	if !ok {
+		return nil
+	}
+	if entry, ok := value.(string); ok {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	}
+	values, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	entries := make([]string, 0, len(values))
+	for _, raw := range values {
+		entry, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		trimmed := strings.TrimSpace(entry)
+		if trimmed != "" {
+			entries = append(entries, trimmed)
+		}
+	}
+	return entries
+}
+
+func providerFromFinding(finding riskFinding) string {
+	if finding.Provider != "" {
+		return finding.Provider
+	}
+	return stringEvidence(finding.Evidence, "provider")
+}
+
+func externalEmailCount(evidence map[string]any) int {
+	anchorEmail := firstString(
+		stringEvidence(evidence, "mailbox"),
+		stringEvidence(evidence, "user"),
+		stringEvidence(evidence, "actor"),
+		stringEvidence(evidence, "target"),
+	)
+	anchorDomain := domainFromEmail(anchorEmail)
+	if anchorDomain == "" {
+		return 0
+	}
+
+	candidates := append([]string{}, stringArrayEvidence(evidence, "delegates")...)
+	candidates = append(candidates, stringArrayEvidence(evidence, "sendAsAliases")...)
+	candidates = append(candidates, stringArrayEvidence(evidence, "externalSendAsAliases")...)
+	candidates = append(candidates,
+		stringEvidence(evidence, "forwardedTo"),
+		stringEvidence(evidence, "recoveryEmail"),
+		stringEvidence(evidence, "externalActor"),
+		stringEvidence(evidence, "delegate"),
+	)
+	external := map[string]struct{}{}
+	for _, email := range candidates {
+		domain := domainFromEmail(email)
+		if domain != "" && domain != anchorDomain {
+			external[strings.ToLower(strings.TrimSpace(email))] = struct{}{}
+		}
+	}
+	return len(external)
+}
+
+func firstString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func domainFromEmail(email string) string {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(email)), "@")
+	if len(parts) != 2 {
+		return ""
+	}
+	return parts[1]
 }
 
 func clampInt(value, minValue, maxValue int) int {
