@@ -7,6 +7,8 @@ option go_package = "github.com/writer/aperio/gen/aperio/v1;aperiov1";
 service AperioService {
   rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
+  rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
+  rpc GetFinding(GetFindingRequest) returns (GetFindingResponse);
 }
 
 message CheckHealthRequest {}
@@ -27,4 +29,52 @@ message DashboardMetrics {
   int32 open_critical_findings = 2;
   int32 connected_apps = 3;
   int32 event_ingestion_rate = 4;
+}
+
+message ListFindingsRequest {
+  string severity = 1;
+  string status = 2;
+  string provider = 3;
+  string integration_id = 4;
+  int32 limit = 5;
+  string cursor = 6;
+}
+
+message ListFindingsResponse {
+  repeated Finding data = 1;
+  PageInfo page_info = 2;
+}
+
+message GetFindingRequest {
+  string id = 1;
+}
+
+message GetFindingResponse {
+  Finding data = 1;
+}
+
+message Finding {
+  string id = 1;
+  string asset_id = 2;
+  string title = 3;
+  string description = 4;
+  string severity = 5;
+  string status = 6;
+  int32 risk_score = 7;
+  repeated string remediation_steps = 8;
+  string evidence_json = 9;
+  string detected_at = 10;
+  string resolved_at = 11;
+  FindingIntegration integration = 12;
+}
+
+message FindingIntegration {
+  string id = 1;
+  string provider = 2;
+  string display_name = 3;
+}
+
+message PageInfo {
+  int32 total = 1;
+  string next_cursor = 2;
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"github.com/writer/aperio/gen/aperio/v1/aperiov1connect"
 	"github.com/writer/aperio/internal/config"
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 const sessionCookieName = "aperio_session"
@@ -47,6 +49,24 @@ type riskFinding struct {
 	DetectedAt time.Time
 	Evidence   map[string]any
 	Provider   string
+}
+
+type findingRow struct {
+	ID               string
+	AssetID          string
+	Title            string
+	Description      string
+	Severity         string
+	Status           string
+	RiskScore        int
+	RemediationSteps []string
+	Evidence         map[string]any
+	EvidenceJSON     string
+	DetectedAt       time.Time
+	ResolvedAt       sql.NullTime
+	IntegrationID    string
+	Provider         string
+	DisplayName      string
 }
 
 // NewApp wires routes but does not open network sockets. Tests can mount the
@@ -107,15 +127,25 @@ func (a *App) GetDashboardMetrics(
 	ctx context.Context,
 	req *connect.Request[aperiov1.GetDashboardMetricsRequest],
 ) (*connect.Response[aperiov1.GetDashboardMetricsResponse], error) {
+	started := time.Now()
+	organizationID := ""
+	status := "success"
+	defer func() {
+		a.emitRPCWideEvent("GetDashboardMetrics", organizationID, status, started, nil, nil)
+	}()
 	if a.db == nil {
+		status = "unavailable"
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
 	}
-	organizationID, err := a.organizationIDFromSession(ctx, req.Header())
+	var err error
+	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
 	if err != nil {
+		status = "unauthenticated"
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
 	metrics, err := a.dashboardMetrics(ctx, organizationID)
 	if err != nil {
+		status = "internal"
 		return nil, connect.NewError(connect.CodeInternal, errors.New("dashboard metrics unavailable"))
 	}
 	return connect.NewResponse(&aperiov1.GetDashboardMetricsResponse{
@@ -126,6 +156,129 @@ func (a *App) GetDashboardMetrics(
 			EventIngestionRate:   metrics.EventIngestionRate,
 		},
 	}), nil
+}
+
+func (a *App) ListFindings(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListFindingsRequest],
+) (*connect.Response[aperiov1.ListFindingsResponse], error) {
+	started := time.Now()
+	organizationID := ""
+	status := "success"
+	defer func() {
+		a.emitRPCWideEvent("ListFindings", organizationID, status, started, map[string]string{
+			"filter.severity": req.Msg.Severity,
+			"filter.status":   req.Msg.Status,
+			"filter.provider": req.Msg.Provider,
+		}, nil)
+	}()
+	if a.db == nil {
+		status = "unavailable"
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
+	}
+	var err error
+	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
+	if err != nil {
+		status = "unauthenticated"
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := validateFindingFilters(req.Msg.Severity, req.Msg.Status, req.Msg.Provider); err != nil {
+		status = "invalid_argument"
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	findings, total, err := a.listFindings(ctx, organizationID, req.Msg)
+	if err != nil {
+		status = "internal"
+		return nil, connect.NewError(connect.CodeInternal, errors.New("findings unavailable"))
+	}
+	response := &aperiov1.ListFindingsResponse{
+		Data: make([]*aperiov1.Finding, 0, len(findings)),
+		PageInfo: &aperiov1.PageInfo{
+			Total: int32(total),
+		},
+	}
+	limit := normalizedLimit(req.Msg.Limit)
+	if len(findings) == limit {
+		response.PageInfo.NextCursor = findings[len(findings)-1].ID
+	}
+	for _, finding := range findings {
+		response.Data = append(response.Data, finding.toProto())
+	}
+	a.emitRPCWideEvent("ListFindings.result", organizationID, "success", started, nil, map[string]int64{
+		"result.count": int64(len(findings)),
+		"result.total": int64(total),
+	})
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) GetFinding(
+	ctx context.Context,
+	req *connect.Request[aperiov1.GetFindingRequest],
+) (*connect.Response[aperiov1.GetFindingResponse], error) {
+	started := time.Now()
+	organizationID := ""
+	status := "success"
+	defer func() {
+		a.emitRPCWideEvent("GetFinding", organizationID, status, started, nil, nil)
+	}()
+	if a.db == nil {
+		status = "unavailable"
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
+	}
+	var err error
+	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
+	if err != nil {
+		status = "unauthenticated"
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	findingID := strings.TrimSpace(req.Msg.Id)
+	if findingID == "" {
+		status = "invalid_argument"
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("finding id is required"))
+	}
+	finding, err := a.getFinding(ctx, organizationID, findingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		status = "not_found"
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
+	}
+	if err != nil {
+		status = "internal"
+		return nil, connect.NewError(connect.CodeInternal, errors.New("finding unavailable"))
+	}
+	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
+}
+
+func (a *App) emitRPCWideEvent(
+	method string,
+	organizationID string,
+	status string,
+	started time.Time,
+	dimensions map[string]string,
+	measurements map[string]int64,
+) {
+	mergedDimensions := map[string]string{
+		"rpc.system": "connect",
+		"rpc.method": method,
+		"status":     status,
+	}
+	for key, value := range dimensions {
+		if strings.TrimSpace(value) != "" {
+			mergedDimensions[key] = value
+		}
+	}
+	mergedMeasurements := map[string]int64{
+		"duration_ms": time.Since(started).Milliseconds(),
+	}
+	for key, value := range measurements {
+		mergedMeasurements[key] = value
+	}
+	telemetry.EmitWide(telemetry.WideEvent{
+		Name:         "aperio.connect_rpc",
+		Organization: organizationID,
+		Service:      "aperio-go-connect",
+		Dimensions:   mergedDimensions,
+		Measurements: mergedMeasurements,
+	})
 }
 
 // organizationIDFromSession validates Aperio's HttpOnly cookie session against
@@ -207,6 +360,224 @@ func (a *App) dashboardMetrics(ctx context.Context, organizationID string) (dash
 		&metrics.EventIngestionRate,
 	)
 	return metrics, err
+}
+
+func (a *App) listFindings(
+	ctx context.Context,
+	organizationID string,
+	req *aperiov1.ListFindingsRequest,
+) ([]findingRow, int, error) {
+	where, args := findingFilterWhere(organizationID, req)
+	countQuery := `SELECT COUNT(*)::int FROM security_findings sf JOIN integration_connections ic ON ic.id = sf.integration_id WHERE ` + strings.Join(where, " AND ")
+	var total int
+	if err := a.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	listWhere := append([]string{}, where...)
+	listArgs := append([]any{}, args...)
+	if cursor := strings.TrimSpace(req.Cursor); cursor != "" {
+		var cursorDetectedAt time.Time
+		err := a.db.QueryRowContext(ctx, `
+			SELECT detected_at
+			FROM security_findings
+			WHERE organization_id = $1 AND id = $2
+		`, organizationID, cursor).Scan(&cursorDetectedAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return []findingRow{}, total, nil
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		listArgs = append(listArgs, cursorDetectedAt, cursor)
+		listWhere = append(listWhere, "(sf.detected_at, sf.id) < ($"+intPlaceholder(len(listArgs)-1)+", $"+intPlaceholder(len(listArgs))+")")
+	}
+
+	listArgs = append(listArgs, normalizedLimit(req.Limit))
+	query := `
+		SELECT
+			sf.id,
+			COALESCE(sf.asset_id, ''),
+			sf.title,
+			sf.description,
+			sf.severity::text,
+			sf.status::text,
+			sf.risk_score,
+			COALESCE(to_json(sf.remediation_steps)::text, '[]'),
+			sf.evidence::text,
+			sf.detected_at,
+			sf.resolved_at,
+			ic.id,
+			ic.provider::text,
+			ic.display_name
+		FROM security_findings sf
+		JOIN integration_connections ic ON ic.id = sf.integration_id
+		WHERE ` + strings.Join(listWhere, " AND ") + `
+		ORDER BY sf.detected_at DESC, sf.id DESC
+		LIMIT $` + intPlaceholder(len(listArgs))
+	rows, err := a.db.QueryContext(ctx, query, listArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	findings, err := scanFindingRows(rows)
+	return findings, total, err
+}
+
+func (a *App) getFinding(ctx context.Context, organizationID string, findingID string) (findingRow, error) {
+	row := a.db.QueryRowContext(ctx, `
+		SELECT
+			sf.id,
+			COALESCE(sf.asset_id, ''),
+			sf.title,
+			sf.description,
+			sf.severity::text,
+			sf.status::text,
+			sf.risk_score,
+			COALESCE(to_json(sf.remediation_steps)::text, '[]'),
+			sf.evidence::text,
+			sf.detected_at,
+			sf.resolved_at,
+			ic.id,
+			ic.provider::text,
+			ic.display_name
+		FROM security_findings sf
+		JOIN integration_connections ic ON ic.id = sf.integration_id
+		WHERE sf.organization_id = $1 AND sf.id = $2
+	`, organizationID, findingID)
+	return scanFindingRow(row)
+}
+
+func findingFilterWhere(organizationID string, req *aperiov1.ListFindingsRequest) ([]string, []any) {
+	where := []string{"sf.organization_id = $1"}
+	args := []any{organizationID}
+	appendFilter := func(condition string, value string) {
+		args = append(args, value)
+		where = append(where, condition+" $"+intPlaceholder(len(args)))
+	}
+	if status := strings.TrimSpace(req.Status); status != "" && status != "ALL" {
+		appendFilter("sf.status::text =", status)
+	}
+	if severity := strings.TrimSpace(req.Severity); severity != "" {
+		appendFilter("sf.severity::text =", severity)
+	}
+	if provider := strings.TrimSpace(req.Provider); provider != "" {
+		appendFilter("ic.provider::text =", provider)
+	}
+	if integrationID := strings.TrimSpace(req.IntegrationId); integrationID != "" {
+		appendFilter("sf.integration_id =", integrationID)
+	}
+	return where, args
+}
+
+type findingScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanFindingRows(rows *sql.Rows) ([]findingRow, error) {
+	var findings []findingRow
+	for rows.Next() {
+		finding, err := scanFindingRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
+func scanFindingRow(scanner findingScanner) (findingRow, error) {
+	var finding findingRow
+	var remediationJSON string
+	if err := scanner.Scan(
+		&finding.ID,
+		&finding.AssetID,
+		&finding.Title,
+		&finding.Description,
+		&finding.Severity,
+		&finding.Status,
+		&finding.RiskScore,
+		&remediationJSON,
+		&finding.EvidenceJSON,
+		&finding.DetectedAt,
+		&finding.ResolvedAt,
+		&finding.IntegrationID,
+		&finding.Provider,
+		&finding.DisplayName,
+	); err != nil {
+		return finding, err
+	}
+	_ = json.Unmarshal([]byte(remediationJSON), &finding.RemediationSteps)
+	_ = json.Unmarshal([]byte(finding.EvidenceJSON), &finding.Evidence)
+	return finding, nil
+}
+
+func (finding findingRow) toProto() *aperiov1.Finding {
+	riskScore := calculateFindingRiskScore(riskFinding{
+		RiskScore:  finding.RiskScore,
+		Severity:   finding.Severity,
+		DetectedAt: finding.DetectedAt,
+		Evidence:   finding.Evidence,
+		Provider:   finding.Provider,
+	})
+	resolvedAt := ""
+	if finding.ResolvedAt.Valid {
+		resolvedAt = finding.ResolvedAt.Time.UTC().Format(time.RFC3339Nano)
+	}
+	return &aperiov1.Finding{
+		Id:               finding.ID,
+		AssetId:          finding.AssetID,
+		Title:            finding.Title,
+		Description:      finding.Description,
+		Severity:         finding.Severity,
+		Status:           finding.Status,
+		RiskScore:        int32(riskScore),
+		RemediationSteps: finding.RemediationSteps,
+		EvidenceJson:     finding.EvidenceJSON,
+		DetectedAt:       finding.DetectedAt.UTC().Format(time.RFC3339Nano),
+		ResolvedAt:       resolvedAt,
+		Integration: &aperiov1.FindingIntegration{
+			Id:          finding.IntegrationID,
+			Provider:    finding.Provider,
+			DisplayName: finding.DisplayName,
+		},
+	}
+}
+
+func validateFindingFilters(severity string, status string, provider string) error {
+	if severity != "" && !allowedValue(severity, "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO") {
+		return errors.New("invalid severity filter")
+	}
+	if status != "" && !allowedValue(status, "OPEN", "RESOLVED", "MUTED", "ALL") {
+		return errors.New("invalid status filter")
+	}
+	if provider != "" && !allowedValue(provider, "GITHUB", "SLACK", "GOOGLE_WORKSPACE", "ONE_PASSWORD", "OKTA", "MICROSOFT_365", "ATLASSIAN") {
+		return errors.New("invalid provider filter")
+	}
+	return nil
+}
+
+func allowedValue(value string, allowed ...string) bool {
+	for _, entry := range allowed {
+		if value == entry {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedLimit(limit int32) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > 100 {
+		return 100
+	}
+	return int(limit)
+}
+
+func intPlaceholder(value int) string {
+	return strconv.Itoa(value)
 }
 
 // openFindings loads the same finding fields used by the TypeScript risk

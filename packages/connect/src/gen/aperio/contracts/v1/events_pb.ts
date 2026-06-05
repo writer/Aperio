@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperio/contracts/v1/events.proto.
  */
 export const file_aperio_contracts_v1_events: GenFile = /*@__PURE__*/
-  fileDesc("CiBhcGVyaW8vY29udHJhY3RzL3YxL2V2ZW50cy5wcm90bxITYXBlcmlvLmNvbnRyYWN0cy52MSKbAgoRSW5nZXN0aW9uSm9iRXZlbnQSDgoGam9iX2lkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCRISCgpldmVudF90eXBlGAUgASgJEg4KBnNvdXJjZRgGIAEoCRINCgVhY3RvchgHIAEoCRIvCgtvY2N1cnJlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGc3RhdHVzGAkgASgJEhAKCGF0dGVtcHRzGAogASgNEhcKD3NvdXJjZV9ldmVudF9pZBgLIAEoCRIUCgxwYXlsb2FkX2pzb24YDCABKAwijwIKGENlcmVicm9DbGFpbXNGYW5vdXRFdmVudBITCgtkZWxpdmVyeV9pZBgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSFgoOZGVzdGluYXRpb25faWQYAyABKAkSEgoKcnVudGltZV9pZBgEIAEoCRISCgpmaW5kaW5nX2lkGAUgASgJEhIKCmRlZHVwZV9rZXkYBiABKAkSLwoLb2NjdXJyZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiEKBmNsYWltcxgIIAMoCzIRLmNlcmVicm8udjEuQ2xhaW0SDgoGc3RhdHVzGAkgASgJEg0KBWVycm9yGAogASgJQkRaQmdpdGh1Yi5jb20vd3JpdGVyL2FwZXJpby9nZW4vYXBlcmlvL2NvbnRyYWN0cy92MTthcGVyaW9jb250cmFjdHN2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_cerebro_v1_primitives]);
+  fileDesc("CiBhcGVyaW8vY29udHJhY3RzL3YxL2V2ZW50cy5wcm90bxITYXBlcmlvLmNvbnRyYWN0cy52MSKbAgoRSW5nZXN0aW9uSm9iRXZlbnQSDgoGam9iX2lkGAEgASgJEhcKD29yZ2FuaXphdGlvbl9pZBgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCRISCgpldmVudF90eXBlGAUgASgJEg4KBnNvdXJjZRgGIAEoCRINCgVhY3RvchgHIAEoCRIvCgtvY2N1cnJlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGc3RhdHVzGAkgASgJEhAKCGF0dGVtcHRzGAogASgNEhcKD3NvdXJjZV9ldmVudF9pZBgLIAEoCRIUCgxwYXlsb2FkX2pzb24YDCABKAwijwIKGENlcmVicm9DbGFpbXNGYW5vdXRFdmVudBITCgtkZWxpdmVyeV9pZBgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSFgoOZGVzdGluYXRpb25faWQYAyABKAkSEgoKcnVudGltZV9pZBgEIAEoCRISCgpmaW5kaW5nX2lkGAUgASgJEhIKCmRlZHVwZV9rZXkYBiABKAkSLwoLb2NjdXJyZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiEKBmNsYWltcxgIIAMoCzIRLmNlcmVicm8udjEuQ2xhaW0SDgoGc3RhdHVzGAkgASgJEg0KBWVycm9yGAogASgJIu4CCglXaWRlRXZlbnQSEgoKZXZlbnRfbmFtZRgBIAEoCRIXCg9vcmdhbml6YXRpb25faWQYAiABKAkSDwoHc2VydmljZRgDIAEoCRIvCgtvY2N1cnJlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASQgoKZGltZW5zaW9ucxgFIAMoCzIuLmFwZXJpby5jb250cmFjdHMudjEuV2lkZUV2ZW50LkRpbWVuc2lvbnNFbnRyeRJGCgxtZWFzdXJlbWVudHMYBiADKAsyMC5hcGVyaW8uY29udHJhY3RzLnYxLldpZGVFdmVudC5NZWFzdXJlbWVudHNFbnRyeRoxCg9EaW1lbnNpb25zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARozChFNZWFzdXJlbWVudHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAM6AjgBQkRaQmdpdGh1Yi5jb20vd3JpdGVyL2FwZXJpby9nZW4vYXBlcmlvL2NvbnRyYWN0cy92MTthcGVyaW9jb250cmFjdHN2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_cerebro_v1_primitives]);
 
 /**
  * @generated from message aperio.contracts.v1.IngestionJobEvent
@@ -149,4 +149,46 @@ export type CerebroClaimsFanoutEvent = Message<"aperio.contracts.v1.CerebroClaim
  */
 export const CerebroClaimsFanoutEventSchema: GenMessage<CerebroClaimsFanoutEvent> = /*@__PURE__*/
   messageDesc(file_aperio_contracts_v1_events, 1);
+
+/**
+ * @generated from message aperio.contracts.v1.WideEvent
+ */
+export type WideEvent = Message<"aperio.contracts.v1.WideEvent"> & {
+  /**
+   * @generated from field: string event_name = 1;
+   */
+  eventName: string;
+
+  /**
+   * @generated from field: string organization_id = 2;
+   */
+  organizationId: string;
+
+  /**
+   * @generated from field: string service = 3;
+   */
+  service: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp occurred_at = 4;
+   */
+  occurredAt?: Timestamp;
+
+  /**
+   * @generated from field: map<string, string> dimensions = 5;
+   */
+  dimensions: { [key: string]: string };
+
+  /**
+   * @generated from field: map<string, int64> measurements = 6;
+   */
+  measurements: { [key: string]: bigint };
+};
+
+/**
+ * Describes the message aperio.contracts.v1.WideEvent.
+ * Use `create(WideEventSchema)` to create a new message.
+ */
+export const WideEventSchema: GenMessage<WideEvent> = /*@__PURE__*/
+  messageDesc(file_aperio_contracts_v1_events, 2);
 

@@ -431,6 +431,9 @@ export async function fetchDashboardMetrics() {
 }
 
 export async function fetchFindings(filters?: FindingsFilters) {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listFindings(filters);
+  }
   const params = new URLSearchParams();
   params.set("limit", String(filters?.limit ?? 50));
   if (!filters || filters.status !== "ALL") {
@@ -447,6 +450,9 @@ export async function fetchFindings(filters?: FindingsFilters) {
 }
 
 export async function fetchFinding(id: string) {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.getFinding(id);
+  }
   return request<{ data: Finding }>(`/api/v1/findings/${encodeURIComponent(id)}`);
 }
 

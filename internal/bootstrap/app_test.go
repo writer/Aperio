@@ -82,6 +82,49 @@ func TestCalculateFindingRiskScoreMirrorsTypeScriptEvidenceBonuses(t *testing.T)
 	}
 }
 
+func TestFindingRowToProtoMatchesRestShape(t *testing.T) {
+	finding := findingRow{
+		ID:               "finding_1",
+		AssetID:          "asset_1",
+		Title:            "External delegate",
+		Description:      "Mailbox has an external delegate",
+		Severity:         "HIGH",
+		Status:           "OPEN",
+		RiskScore:        50,
+		RemediationSteps: []string{"Review delegate"},
+		Evidence:         map[string]any{"visibility": "external"},
+		EvidenceJSON:     `{"visibility":"external"}`,
+		DetectedAt:       nowMinus(t, time.Hour),
+		IntegrationID:    "integration_1",
+		Provider:         "GOOGLE_WORKSPACE",
+		DisplayName:      "Google Workspace",
+	}
+
+	proto := finding.toProto()
+
+	if proto.Id != finding.ID {
+		t.Fatalf("expected id %s, got %s", finding.ID, proto.Id)
+	}
+	if proto.RiskScore <= int32(finding.RiskScore) {
+		t.Fatalf("expected calculated risk score above base, got %d", proto.RiskScore)
+	}
+	if proto.EvidenceJson != finding.EvidenceJSON {
+		t.Fatal("expected evidence JSON to round-trip")
+	}
+	if proto.Integration.Provider != "GOOGLE_WORKSPACE" {
+		t.Fatalf("expected provider, got %s", proto.Integration.Provider)
+	}
+}
+
+func TestValidateFindingFiltersRejectsUnknownValues(t *testing.T) {
+	if err := validateFindingFilters("HIGH", "OPEN", "GITHUB"); err != nil {
+		t.Fatalf("expected valid filters, got %v", err)
+	}
+	if err := validateFindingFilters("SEVERE", "OPEN", "GITHUB"); err == nil {
+		t.Fatal("expected invalid severity to fail")
+	}
+}
+
 // TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
 // credentials. The allowed origin must match exactly because session cookies are
 // cross-runtime auth material.
