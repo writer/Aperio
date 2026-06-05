@@ -11,10 +11,12 @@ import type {
 } from "@prisma/client";
 import { prisma } from "@aperio/db";
 import { decryptString } from "@aperio/security";
+import { encodeCerebroClaimsFanoutEvent } from "@aperio/shared/protobuf-contracts";
 import {
   assertSafeSiemEndpointUrl,
   normalizeSiemFilePath
 } from "@aperio/shared/siem-security";
+import { publishAperioEvent } from "./event-bus";
 
 export type SiemEnvelopeKind = "finding" | "event" | "audit_log";
 export type SiemEvelopeKind = SiemEnvelopeKind;
@@ -30,6 +32,10 @@ type DispatcherResult = {
   destinationId: string;
   ok: boolean;
   message: string;
+  cerebroClaims?: CerebroClaim[];
+  cerebroRuntimeId?: string;
+  findingId?: string;
+  dedupeKey?: string;
 };
 
 type SiemDispatchEnvelope = {
@@ -251,6 +257,28 @@ function stringValue(value: unknown): string | undefined {
   return undefined;
 }
 
+async function publishCerebroFanoutEvent(
+  delivery: SiemDelivery,
+  result: DispatcherResult,
+  payload: SiemPayload
+) {
+  if (!result.cerebroClaims || !result.cerebroRuntimeId) return;
+  await publishAperioEvent(
+    await encodeCerebroClaimsFanoutEvent({
+      deliveryId: delivery.id,
+      organizationId: delivery.organizationId,
+      destinationId: result.destinationId,
+      runtimeId: result.cerebroRuntimeId,
+      findingId: result.findingId,
+      dedupeKey: result.dedupeKey,
+      occurredAt: payload.occurredAt,
+      claims: result.cerebroClaims,
+      status: result.ok ? "delivered" : "failed",
+      error: result.ok ? undefined : result.message
+    })
+  );
+}
+
 function entityRef(
   organizationId: string,
   runtimeId: string,
@@ -447,7 +475,11 @@ async function sendCerebroClaims(
   return {
     destinationId: destination.id,
     ok: res.ok,
-    message: res.ok ? `wrote ${claims.length} Cerebro claims` : res.message
+    message: res.ok ? `wrote ${claims.length} Cerebro claims` : res.message,
+    cerebroClaims: claims,
+    cerebroRuntimeId: destination.index,
+    findingId: stringValue(payload.record.findingId) ?? stringValue(payload.record.id),
+    dedupeKey: stringValue(payload.record.dedupeKey)
   };
 }
 
@@ -757,6 +789,7 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
   const result = await sendOne(destination, payload);
   if (await finishDelivery(delivery, result)) {
     await recordResult(result);
+    await publishCerebroFanoutEvent(delivery, result, payload);
   }
   return result;
 }

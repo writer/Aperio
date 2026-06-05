@@ -5,11 +5,13 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@aperio/db";
 import { decryptString } from "@aperio/security";
 import type { Provider, Severity } from "@aperio/shared";
+import { encodeIngestionJobEvent } from "@aperio/shared/protobuf-contracts";
 import { calculateFindingRiskScore } from "@aperio/shared/risk-scoring";
 import {
   drainSiemDeliveries,
   enqueueSiemDeliveries
 } from "./siem-dispatcher";
+import { publishAperioEvent } from "./event-bus";
 
 type IngestionPayload = {
   organizationId: string;
@@ -87,6 +89,34 @@ const WORKER_LEASE_OWNER = `${hostname()}:${process.pid}:${randomUUID()}`;
 function boundedDrainLimit(limit: number) {
   const normalized = Number.isFinite(limit) ? Math.trunc(limit) : 25;
   return Math.max(1, Math.min(normalized, 1000));
+}
+
+function payloadRecord(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+async function publishIngestionJobEvent(
+  job: PersistedIngestionJob,
+  status: "queued" | "running" | "succeeded" | "failed",
+  attempts = job.attempts
+) {
+  await publishAperioEvent(
+    await encodeIngestionJobEvent({
+      jobId: job.id,
+      organizationId: job.organizationId,
+      integrationId: job.integrationId,
+      provider: job.provider,
+      eventType: job.eventType,
+      source: job.source,
+      actor: job.actor,
+      occurredAt: job.occurredAt,
+      status,
+      attempts,
+      payload: payloadRecord(job.payload)
+    })
+  );
 }
 
 function nestedString(
@@ -1210,10 +1240,12 @@ async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
       lastError: message.slice(0, 500)
     }
   });
+  await publishIngestionJobEvent(job, "failed", attempts);
 }
 
 async function processJob(job: PersistedIngestionJob): Promise<boolean> {
   try {
+    await publishIngestionJobEvent(job, "running");
     await new IngestionWorker().process(toIngestionPayload(job));
     const updated = await prisma.ingestionJob.updateMany({
       where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
@@ -1226,6 +1258,9 @@ async function processJob(job: PersistedIngestionJob): Promise<boolean> {
         lastError: null
       }
     });
+    if (updated.count === 1) {
+      await publishIngestionJobEvent(job, "succeeded", job.attempts + 1);
+    }
     return updated.count === 1;
   } catch (error) {
     await markJobFailure(job, error);
@@ -1249,6 +1284,7 @@ export async function enqueueIngestionPayload(
     }
   });
 
+  await publishIngestionJobEvent(job as PersistedIngestionJob, "queued");
   return toApiJob(job as PersistedIngestionJob);
 }
 
