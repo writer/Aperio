@@ -7,6 +7,8 @@ import {
   findConnector,
   type RemediationActionKey
 } from "@aperio/shared/connectors";
+import { encodeFindingLifecycleEvent } from "@aperio/shared/protobuf-contracts";
+import { publishAperioEvent } from "../../../../workers/event-bus";
 import { requireRole, type TenantRequest } from "../middleware/security";
 import { executeRemediation } from "../remediation/executor";
 
@@ -126,6 +128,22 @@ const remediate: RequestHandler = async (
         }
       });
     });
+
+    if (result.success) {
+      await publishAperioEvent(
+        await encodeFindingLifecycleEvent({
+          findingId: finding.id,
+          organizationId: tenantReq.tenantId,
+          integrationId: finding.integration.id,
+          previousStatus: finding.status,
+          nextStatus: "RESOLVED",
+          actorUserId: tenantReq.auth.userId,
+          statusSource: "user",
+          occurredAt: new Date(),
+          resolutionNote: parsed.data.note ?? null
+        })
+      );
+    }
 
     return res.json({
       data: {

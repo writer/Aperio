@@ -6,7 +6,9 @@ import {
   findingsQuerySchema,
   resolveFindingSchema
 } from "@aperio/shared";
+import { encodeFindingLifecycleEvent } from "@aperio/shared/protobuf-contracts";
 import { calculateFindingRiskScore } from "@aperio/shared/risk-scoring";
+import { publishAperioEvent } from "../../../../workers/event-bus";
 import { requireRole, type TenantRequest } from "../middleware/security";
 
 export const findingsRouter = Router();
@@ -168,7 +170,7 @@ const resolveFindingHandler: RequestHandler = async (
         return res.status(400).json({ error: "Finding id is required" });
       }
 
-      const updated = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         const existing = await tx.securityFinding.findFirst({
           where: {
             id: findingId,
@@ -226,12 +228,31 @@ const resolveFindingHandler: RequestHandler = async (
           }
         });
 
-        return updatedFinding;
+        return {
+          previousStatus: existing.status,
+          resolverId: resolver?.id ?? null,
+          updatedFinding
+        };
       });
 
-      if (!updated) {
+      if (!result) {
         return res.status(404).json({ error: "Finding not found" });
       }
+
+      const updated = result.updatedFinding;
+      await publishAperioEvent(
+        await encodeFindingLifecycleEvent({
+          findingId: updated.id,
+          organizationId: tenantReq.tenantId,
+          integrationId: updated.integration.id,
+          previousStatus: result.previousStatus,
+          nextStatus: updated.status,
+          actorUserId: result.resolverId,
+          statusSource: "user",
+          occurredAt: updated.resolvedAt ?? new Date(),
+          resolutionNote: parsed.data.resolutionNote ?? null
+        })
+      );
 
       return res.json({
         data: {

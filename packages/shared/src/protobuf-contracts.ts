@@ -11,13 +11,36 @@ export const APERIO_EVENT_KINDS = {
   ingestionSucceeded: "aperio.ingestion_job.succeeded",
   ingestionFailed: "aperio.ingestion_job.failed",
   claimFanoutDelivered: "aperio.claim_fanout.delivered",
-  claimFanoutFailed: "aperio.claim_fanout.failed"
+  claimFanoutFailed: "aperio.claim_fanout.failed",
+  findingOpened: "aperio.finding.opened",
+  findingReopened: "aperio.finding.reopened",
+  findingResolved: "aperio.finding.resolved",
+  findingMuted: "aperio.finding.muted"
 } as const;
 
 export const APERIO_SCHEMA_REFS = {
   ingestionJob: "aperio/ingestion_job/v1",
-  claimFanout: "aperio/claim_fanout/v1"
+  claimFanout: "aperio/claim_fanout/v1",
+  findingLifecycle: "aperio/finding_lifecycle/v1"
 } as const;
+
+const EVENT_KIND_PATTERN = /^[a-z][a-z0-9]*(?:[._][a-z0-9]+)*$/;
+const SCHEMA_REF_PATTERN = /^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*\/v[0-9]+$/;
+
+const REQUIRED_ATTRIBUTES_BY_SCHEMA_REF: Record<string, string[]> = {
+  [APERIO_SCHEMA_REFS.ingestionJob]: ["job_id", "integration_id", "provider"],
+  [APERIO_SCHEMA_REFS.claimFanout]: [
+    "delivery_id",
+    "destination_id",
+    "source_runtime_id"
+  ],
+  [APERIO_SCHEMA_REFS.findingLifecycle]: [
+    "finding_id",
+    "previous_status",
+    "next_status",
+    "status_source"
+  ]
+};
 
 type TimestampLike = Date | string | number;
 
@@ -72,12 +95,26 @@ export type CerebroClaimsFanoutEventInput = {
   error?: string;
 };
 
+export type FindingLifecycleEventInput = {
+  findingId: string;
+  organizationId: string;
+  integrationId: string;
+  previousStatus: "OPEN" | "RESOLVED" | "MUTED" | string;
+  nextStatus: "OPEN" | "RESOLVED" | "MUTED" | string;
+  actorUserId?: string | null;
+  statusSource: "user" | "system" | "agent" | string;
+  occurredAt: TimestampLike;
+  resolutionNote?: string | null;
+};
+
 export type EncodedAperioEvent = {
   id: string;
   kind: string;
   schemaRef: string;
+  sourceId: string;
   subject: string;
   tenantId: string;
+  occurredAt: string;
   payload: Uint8Array;
   attributes: Record<string, string>;
 };
@@ -147,26 +184,79 @@ async function encodeEnvelope(input: {
   const root = await protobufRoot();
   const EventEnvelope = root.lookupType("cerebro.v1.EventEnvelope");
   const id = randomUUID();
+  const occurredAt = timestamp(input.occurredAt);
   const message = EventEnvelope.create({
     id,
     tenantId: input.tenantId,
     sourceId: APERIO_EVENT_SOURCE_ID,
     kind: input.kind,
-    occurredAt: timestamp(input.occurredAt),
+    occurredAt,
     schemaRef: input.schemaRef,
     payload: input.payload,
     attributes: input.attributes
   });
 
-  return {
+  return validateEncodedAperioEvent({
     id,
     kind: input.kind,
     schemaRef: input.schemaRef,
+    sourceId: APERIO_EVENT_SOURCE_ID,
     subject: natsSubject(input.kind),
     tenantId: input.tenantId,
+    occurredAt: new Date(
+      Number(occurredAt.seconds) * 1000 + Math.floor(occurredAt.nanos / 1_000_000)
+    ).toISOString(),
     payload: EventEnvelope.encode(message).finish(),
     attributes: input.attributes
+  });
+}
+
+export function validateEncodedAperioEvent(
+  event: EncodedAperioEvent
+): EncodedAperioEvent {
+  const requiredStringFields = {
+    id: event.id,
+    kind: event.kind,
+    schemaRef: event.schemaRef,
+    sourceId: event.sourceId,
+    subject: event.subject,
+    tenantId: event.tenantId,
+    occurredAt: event.occurredAt
   };
+  for (const [field, value] of Object.entries(requiredStringFields)) {
+    if (!value || value.trim() !== value) {
+      throw new Error(`Invalid event envelope ${field}`);
+    }
+  }
+  if (event.sourceId !== APERIO_EVENT_SOURCE_ID) {
+    throw new Error("Invalid event envelope sourceId");
+  }
+  if (!EVENT_KIND_PATTERN.test(event.kind)) {
+    throw new Error("Invalid event envelope kind");
+  }
+  if (!SCHEMA_REF_PATTERN.test(event.schemaRef)) {
+    throw new Error("Invalid event envelope schemaRef");
+  }
+  if (event.subject !== natsSubject(event.kind)) {
+    throw new Error("Invalid event envelope subject");
+  }
+  if (Number.isNaN(new Date(event.occurredAt).getTime())) {
+    throw new Error("Invalid event envelope occurredAt");
+  }
+  if (event.payload.byteLength === 0) {
+    throw new Error("Invalid event envelope payload");
+  }
+  for (const [key, value] of Object.entries(event.attributes)) {
+    if (!key || key.trim() !== key || value.trim() !== value) {
+      throw new Error("Invalid event envelope attribute");
+    }
+  }
+  for (const required of REQUIRED_ATTRIBUTES_BY_SCHEMA_REF[event.schemaRef] ?? []) {
+    if (!event.attributes[required]) {
+      throw new Error(`Missing event envelope attribute ${required}`);
+    }
+  }
+  return event;
 }
 
 export async function encodeIngestionJobEvent(
@@ -280,6 +370,52 @@ export async function encodeCerebroClaimsFanoutEvent(
       source_runtime_id: input.runtimeId,
       finding_id: input.findingId,
       dedupe_key: input.dedupeKey
+    })
+  });
+}
+
+export async function encodeFindingLifecycleEvent(
+  input: FindingLifecycleEventInput
+): Promise<EncodedAperioEvent> {
+  const root = await protobufRoot();
+  const FindingLifecycleEvent = root.lookupType(
+    "aperio.contracts.v1.FindingLifecycleEvent"
+  );
+  const payload = FindingLifecycleEvent.encode(
+    FindingLifecycleEvent.create({
+      findingId: input.findingId,
+      organizationId: input.organizationId,
+      integrationId: input.integrationId,
+      previousStatus: input.previousStatus,
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId ?? "",
+      statusSource: input.statusSource,
+      occurredAt: timestamp(input.occurredAt),
+      resolutionNote: input.resolutionNote ?? ""
+    })
+  ).finish();
+  const kind =
+    input.previousStatus === "RESOLVED" && input.nextStatus === "OPEN"
+      ? APERIO_EVENT_KINDS.findingReopened
+      : input.nextStatus === "OPEN"
+        ? APERIO_EVENT_KINDS.findingOpened
+        : input.nextStatus === "MUTED"
+          ? APERIO_EVENT_KINDS.findingMuted
+          : APERIO_EVENT_KINDS.findingResolved;
+
+  return encodeEnvelope({
+    tenantId: input.organizationId,
+    kind,
+    schemaRef: APERIO_SCHEMA_REFS.findingLifecycle,
+    occurredAt: input.occurredAt,
+    payload,
+    attributes: compactAttributes({
+      finding_id: input.findingId,
+      integration_id: input.integrationId,
+      previous_status: input.previousStatus,
+      next_status: input.nextStatus,
+      actor_user_id: input.actorUserId ?? undefined,
+      status_source: input.statusSource
     })
   });
 }

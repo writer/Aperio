@@ -22,6 +22,7 @@ import (
 	"github.com/writer/aperio/gen/aperio/v1/aperiov1connect"
 	"github.com/writer/aperio/internal/config"
 	"github.com/writer/aperio/internal/telemetry"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const sessionCookieName = "aperio_session"
@@ -97,6 +98,7 @@ func (a *App) Handler() http.Handler {
 // gRPC, and gRPC-Web compatibility for the same service implementation.
 func (a *App) routes() {
 	a.mux.HandleFunc("/healthz", a.handleHealthz)
+	a.mux.HandleFunc("/readyz", a.handleReadyz)
 	path, handler := aperiov1connect.NewAperioServiceHandler(a)
 	a.mux.Handle(path, handler)
 }
@@ -111,17 +113,81 @@ func (a *App) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "aperio-go-connect"})
 }
 
+func (a *App) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	health := a.healthStatus(r.Context())
+	status := http.StatusOK
+	if health.Status != "ok" {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, health)
+}
+
 // CheckHealth is the first ConnectRPC method exposed by the Go service. It
 // matches Cerebro's generated-handler pattern and gives TypeScript clients a
 // stable endpoint to verify transport compatibility.
 func (a *App) CheckHealth(
-	context.Context,
-	*connect.Request[aperiov1.CheckHealthRequest],
+	ctx context.Context,
+	_ *connect.Request[aperiov1.CheckHealthRequest],
 ) (*connect.Response[aperiov1.CheckHealthResponse], error) {
+	health := a.healthStatus(ctx)
+	components := make([]*aperiov1.HealthComponent, 0, len(health.Components))
+	for _, component := range health.Components {
+		components = append(components, &aperiov1.HealthComponent{
+			Name:   component.Name,
+			Status: component.Status,
+			Detail: component.Detail,
+		})
+	}
 	return connect.NewResponse(&aperiov1.CheckHealthResponse{
-		Status:  "ok",
-		Service: "aperio-go-connect",
+		Status:     health.Status,
+		Service:    health.Service,
+		CheckedAt:  timestamppb.New(health.CheckedAt),
+		Components: components,
 	}), nil
+}
+
+type healthComponent struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type healthReport struct {
+	Status     string            `json:"status"`
+	Service    string            `json:"service"`
+	CheckedAt  time.Time         `json:"checkedAt"`
+	Components []healthComponent `json:"components"`
+}
+
+func (a *App) healthStatus(ctx context.Context) healthReport {
+	report := healthReport{
+		Status:    "ok",
+		Service:   "aperio-go-connect",
+		CheckedAt: time.Now().UTC(),
+		Components: []healthComponent{
+			{Name: "process", Status: "ok"},
+		},
+	}
+	database := healthComponent{Name: "database", Status: "ok"}
+	if a.db == nil {
+		database.Status = "degraded"
+		database.Detail = "not_configured"
+		report.Status = "degraded"
+	} else {
+		pingCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		if err := a.db.PingContext(pingCtx); err != nil {
+			database.Status = "degraded"
+			database.Detail = "unhealthy"
+			report.Status = "degraded"
+		}
+	}
+	report.Components = append(report.Components, database)
+	return report
 }
 
 // GetDashboardMetrics is the first product endpoint migrated behind

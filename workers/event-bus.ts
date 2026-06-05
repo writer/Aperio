@@ -1,4 +1,7 @@
-import type { EncodedAperioEvent } from "@aperio/shared/protobuf-contracts";
+import {
+  validateEncodedAperioEvent,
+  type EncodedAperioEvent
+} from "@aperio/shared/protobuf-contracts";
 
 type EventPublisher = {
   publish(event: EncodedAperioEvent): Promise<void>;
@@ -85,6 +88,7 @@ export function getEventPublisher(): EventPublisher {
 
 export async function publishAperioEvent(event: EncodedAperioEvent): Promise<void> {
   try {
+    validateEncodedAperioEvent(event);
     await getEventPublisher().publish(event);
   } catch (error) {
     console.warn(

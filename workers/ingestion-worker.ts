@@ -5,7 +5,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@aperio/db";
 import { decryptString } from "@aperio/security";
 import type { Provider, Severity } from "@aperio/shared";
-import { encodeIngestionJobEvent } from "@aperio/shared/protobuf-contracts";
+import {
+  encodeFindingLifecycleEvent,
+  encodeIngestionJobEvent
+} from "@aperio/shared/protobuf-contracts";
 import { calculateFindingRiskScore } from "@aperio/shared/risk-scoring";
 import {
   drainSiemDeliveries,
@@ -68,8 +71,10 @@ type RuleFinding = {
 };
 
 type ProcessedFinding = {
+  findingId: string;
   ruleId: string;
   dedupeKey: string;
+  previousStatus: "OPEN" | "RESOLVED" | "MUTED" | "NEW";
   status: "OPEN" | "MUTED";
   outcome: "created" | "reopened" | "updated" | "accepted";
 };
@@ -1088,8 +1093,9 @@ export class IngestionWorker {
               ? "reopened"
               : "updated";
 
+        let findingId: string;
         if (existingFinding) {
-          await tx.securityFinding.update({
+          const updatedFinding = await tx.securityFinding.update({
             where: { id: existingFinding.id },
             data: {
               title: finding.title,
@@ -1105,10 +1111,12 @@ export class IngestionWorker {
               resolvedById:
                 nextStatus === "MUTED" ? existingFinding.resolvedById : null,
               evidence: buildFindingEvidence(payload, finding, event.id)
-            }
+            },
+            select: { id: true }
           });
+          findingId = updatedFinding.id;
         } else {
-          await tx.securityFinding.create({
+          const createdFinding = await tx.securityFinding.create({
             data: {
               organizationId: payload.organizationId,
               integrationId: integration.id,
@@ -1121,13 +1129,17 @@ export class IngestionWorker {
               riskScore: finding.riskScore,
               remediationSteps: finding.remediationSteps,
               evidence: buildFindingEvidence(payload, finding, event.id)
-            }
+            },
+            select: { id: true }
           });
+          findingId = createdFinding.id;
         }
 
         processedFindings.push({
+          findingId,
           ruleId: finding.ruleId,
           dedupeKey: currentDedupeKey,
+          previousStatus: existingFinding?.status ?? "NEW",
           status: nextStatus,
           outcome
         });
@@ -1149,6 +1161,32 @@ export class IngestionWorker {
         data: { lastSyncAt: new Date() }
       });
     });
+
+    await Promise.all(
+      processedFindings
+        .filter(
+          (finding) =>
+            finding.previousStatus === "NEW" ||
+            finding.previousStatus !== finding.status
+        )
+        .map(async (finding) =>
+          publishAperioEvent(
+            await encodeFindingLifecycleEvent({
+              findingId: finding.findingId,
+              organizationId: payload.organizationId,
+              integrationId: integration.id,
+              previousStatus: finding.previousStatus,
+              nextStatus: finding.status,
+              statusSource: "system",
+              occurredAt: payload.occurredAt,
+              resolutionNote:
+                finding.outcome === "reopened"
+                  ? "Finding observed again during ingestion"
+                  : "Finding observed during ingestion"
+            })
+          )
+        )
+    );
 
     if (findings.length > 0) {
       const occurredIso =
