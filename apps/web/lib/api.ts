@@ -1,3 +1,5 @@
+import { aperioConnectClient } from "@aperio/connect/client";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://localhost:4000";
@@ -422,6 +424,9 @@ export async function disableMfa(payload: {
 }
 
 export async function fetchDashboardMetrics() {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.getDashboardMetrics();
+  }
   return request<{ data: DashboardMetrics }>("/api/v1/dashboard/metrics");
 }
 

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package aperio.v1;
+
+option go_package = "github.com/writer/aperio/gen/aperio/v1;aperiov1";
+
+service AperioService {
+  rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
+  rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
+}
+
+message CheckHealthRequest {}
+
+message CheckHealthResponse {
+  string status = 1;
+  string service = 2;
+}
+
+message GetDashboardMetricsRequest {}
+
+message GetDashboardMetricsResponse {
+  DashboardMetrics data = 1;
+}
+
+message DashboardMetrics {
+  int32 total_risk_score = 1;
+  int32 open_critical_findings = 2;
+  int32 connected_apps = 3;
+  int32 event_ingestion_rate = 4;
+}
