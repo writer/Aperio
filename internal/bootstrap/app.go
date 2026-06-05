@@ -206,7 +206,7 @@ func (a *App) ListFindings(
 		status = "unauthenticated"
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	if err := validateFindingFilters(req.Msg.Severity, req.Msg.Status, req.Msg.Provider); err != nil {
+	if err := validateFindingListRequest(req.Msg); err != nil {
 		status = "invalid_argument"
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -643,10 +643,14 @@ func normalizedLimit(limit int32) int {
 	if limit <= 0 {
 		return 50
 	}
-	if limit > 100 {
-		return 100
-	}
 	return int(limit)
+}
+
+func validateFindingListRequest(req *aperiov1.ListFindingsRequest) error {
+	if req.Limit > 100 {
+		return errors.New("limit must be less than or equal to 100")
+	}
+	return validateFindingFilters(req.Severity, req.Status, req.Provider)
 }
 
 func intPlaceholder(value int) string {

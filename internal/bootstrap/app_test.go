@@ -125,6 +125,15 @@ func TestValidateFindingFiltersRejectsUnknownValues(t *testing.T) {
 	}
 }
 
+func TestValidateFindingListRequestRejectsLimitAboveRestMax(t *testing.T) {
+	if err := validateFindingListRequest(&aperiov1.ListFindingsRequest{Limit: 100}); err != nil {
+		t.Fatalf("expected REST-compatible limit to pass, got %v", err)
+	}
+	if err := validateFindingListRequest(&aperiov1.ListFindingsRequest{Limit: 101}); err == nil {
+		t.Fatal("expected limit above REST max to fail")
+	}
+}
+
 func TestRPCWideEventCarriesCanonicalDebugDimensions(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	event := app.buildRPCWideEvent(rpcWideEvent{
