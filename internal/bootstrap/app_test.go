@@ -82,6 +82,93 @@ func TestCalculateFindingRiskScoreMirrorsTypeScriptEvidenceBonuses(t *testing.T)
 	}
 }
 
+func TestFindingRowToProtoMatchesRestShape(t *testing.T) {
+	finding := findingRow{
+		ID:               "finding_1",
+		AssetID:          "asset_1",
+		Title:            "External delegate",
+		Description:      "Mailbox has an external delegate",
+		Severity:         "HIGH",
+		Status:           "OPEN",
+		RiskScore:        50,
+		RemediationSteps: []string{"Review delegate"},
+		Evidence:         map[string]any{"visibility": "external"},
+		EvidenceJSON:     `{"visibility":"external"}`,
+		DetectedAt:       nowMinus(t, time.Hour),
+		IntegrationID:    "integration_1",
+		Provider:         "GOOGLE_WORKSPACE",
+		DisplayName:      "Google Workspace",
+	}
+
+	proto := finding.toProto()
+
+	if proto.Id != finding.ID {
+		t.Fatalf("expected id %s, got %s", finding.ID, proto.Id)
+	}
+	if proto.RiskScore <= int32(finding.RiskScore) {
+		t.Fatalf("expected calculated risk score above base, got %d", proto.RiskScore)
+	}
+	if proto.EvidenceJson != finding.EvidenceJSON {
+		t.Fatal("expected evidence JSON to round-trip")
+	}
+	if proto.Integration.Provider != "GOOGLE_WORKSPACE" {
+		t.Fatalf("expected provider, got %s", proto.Integration.Provider)
+	}
+}
+
+func TestValidateFindingFiltersRejectsUnknownValues(t *testing.T) {
+	if err := validateFindingFilters("HIGH", "OPEN", "GITHUB"); err != nil {
+		t.Fatalf("expected valid filters, got %v", err)
+	}
+	if err := validateFindingFilters("SEVERE", "OPEN", "GITHUB"); err == nil {
+		t.Fatal("expected invalid severity to fail")
+	}
+}
+
+func TestValidateFindingListRequestRejectsLimitAboveRestMax(t *testing.T) {
+	if err := validateFindingListRequest(&aperiov1.ListFindingsRequest{Limit: 100}); err != nil {
+		t.Fatalf("expected REST-compatible limit to pass, got %v", err)
+	}
+	if err := validateFindingListRequest(&aperiov1.ListFindingsRequest{Limit: 101}); err == nil {
+		t.Fatal("expected limit above REST max to fail")
+	}
+}
+
+func TestRPCWideEventCarriesCanonicalDebugDimensions(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	event := app.buildRPCWideEvent(rpcWideEvent{
+		Method:         "ListFindings",
+		OrganizationID: "org_123",
+		Status:         "success",
+		Started:        time.Now().Add(-25 * time.Millisecond),
+		Dimensions: map[string]string{
+			"http.route.query.status": "OPEN",
+		},
+		Measurements: map[string]int64{
+			"result.count": 3,
+		},
+	})
+
+	if event.Dimensions["main"] != "true" {
+		t.Fatal("expected canonical main wide-event marker")
+	}
+	if event.Dimensions["unit_of_work"] != "connect_rpc" {
+		t.Fatal("expected unit-of-work dimension")
+	}
+	if event.Dimensions["rpc.method"] != "ListFindings" {
+		t.Fatal("expected rpc method dimension")
+	}
+	if event.Dimensions["user.org.id"] != "org_123" {
+		t.Fatal("expected tenant dimension")
+	}
+	if event.Measurements["duration_ms"] < 0 {
+		t.Fatal("expected non-negative duration")
+	}
+	if event.Measurements["result.count"] != 3 {
+		t.Fatal("expected result count measurement")
+	}
+}
+
 // TestConnectCORSPreflight verifies browser clients can call ConnectRPC with
 // credentials. The allowed origin must match exactly because session cookies are
 // cross-runtime auth material.

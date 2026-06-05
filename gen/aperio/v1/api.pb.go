@@ -257,6 +257,474 @@ func (x *DashboardMetrics) GetEventIngestionRate() int32 {
 	return 0
 }
 
+type ListFindingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Severity      string                 `protobuf:"bytes,1,opt,name=severity,proto3" json:"severity,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	IntegrationId string                 `protobuf:"bytes,4,opt,name=integration_id,json=integrationId,proto3" json:"integration_id,omitempty"`
+	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Cursor        string                 `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFindingsRequest) Reset() {
+	*x = ListFindingsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFindingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFindingsRequest) ProtoMessage() {}
+
+func (x *ListFindingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFindingsRequest.ProtoReflect.Descriptor instead.
+func (*ListFindingsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ListFindingsRequest) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *ListFindingsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListFindingsRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ListFindingsRequest) GetIntegrationId() string {
+	if x != nil {
+		return x.IntegrationId
+	}
+	return ""
+}
+
+func (x *ListFindingsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListFindingsRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+type ListFindingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*Finding             `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	PageInfo      *PageInfo              `protobuf:"bytes,2,opt,name=page_info,json=pageInfo,proto3" json:"page_info,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFindingsResponse) Reset() {
+	*x = ListFindingsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFindingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFindingsResponse) ProtoMessage() {}
+
+func (x *ListFindingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFindingsResponse.ProtoReflect.Descriptor instead.
+func (*ListFindingsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListFindingsResponse) GetData() []*Finding {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ListFindingsResponse) GetPageInfo() *PageInfo {
+	if x != nil {
+		return x.PageInfo
+	}
+	return nil
+}
+
+type GetFindingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFindingRequest) Reset() {
+	*x = GetFindingRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFindingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFindingRequest) ProtoMessage() {}
+
+func (x *GetFindingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFindingRequest.ProtoReflect.Descriptor instead.
+func (*GetFindingRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GetFindingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetFindingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          *Finding               `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFindingResponse) Reset() {
+	*x = GetFindingResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFindingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFindingResponse) ProtoMessage() {}
+
+func (x *GetFindingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFindingResponse.ProtoReflect.Descriptor instead.
+func (*GetFindingResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetFindingResponse) GetData() *Finding {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type Finding struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AssetId          string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	Title            string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	Description      string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Severity         string                 `protobuf:"bytes,5,opt,name=severity,proto3" json:"severity,omitempty"`
+	Status           string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	RiskScore        int32                  `protobuf:"varint,7,opt,name=risk_score,json=riskScore,proto3" json:"risk_score,omitempty"`
+	RemediationSteps []string               `protobuf:"bytes,8,rep,name=remediation_steps,json=remediationSteps,proto3" json:"remediation_steps,omitempty"`
+	EvidenceJson     string                 `protobuf:"bytes,9,opt,name=evidence_json,json=evidenceJson,proto3" json:"evidence_json,omitempty"`
+	DetectedAt       string                 `protobuf:"bytes,10,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
+	ResolvedAt       string                 `protobuf:"bytes,11,opt,name=resolved_at,json=resolvedAt,proto3" json:"resolved_at,omitempty"`
+	Integration      *FindingIntegration    `protobuf:"bytes,12,opt,name=integration,proto3" json:"integration,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Finding) Reset() {
+	*x = Finding{}
+	mi := &file_aperio_v1_api_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Finding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Finding) ProtoMessage() {}
+
+func (x *Finding) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Finding.ProtoReflect.Descriptor instead.
+func (*Finding) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Finding) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Finding) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
+}
+
+func (x *Finding) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *Finding) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *Finding) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *Finding) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Finding) GetRiskScore() int32 {
+	if x != nil {
+		return x.RiskScore
+	}
+	return 0
+}
+
+func (x *Finding) GetRemediationSteps() []string {
+	if x != nil {
+		return x.RemediationSteps
+	}
+	return nil
+}
+
+func (x *Finding) GetEvidenceJson() string {
+	if x != nil {
+		return x.EvidenceJson
+	}
+	return ""
+}
+
+func (x *Finding) GetDetectedAt() string {
+	if x != nil {
+		return x.DetectedAt
+	}
+	return ""
+}
+
+func (x *Finding) GetResolvedAt() string {
+	if x != nil {
+		return x.ResolvedAt
+	}
+	return ""
+}
+
+func (x *Finding) GetIntegration() *FindingIntegration {
+	if x != nil {
+		return x.Integration
+	}
+	return nil
+}
+
+type FindingIntegration struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindingIntegration) Reset() {
+	*x = FindingIntegration{}
+	mi := &file_aperio_v1_api_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindingIntegration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindingIntegration) ProtoMessage() {}
+
+func (x *FindingIntegration) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindingIntegration.ProtoReflect.Descriptor instead.
+func (*FindingIntegration) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *FindingIntegration) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FindingIntegration) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *FindingIntegration) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+type PageInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Total         int32                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PageInfo) Reset() {
+	*x = PageInfo{}
+	mi := &file_aperio_v1_api_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PageInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PageInfo) ProtoMessage() {}
+
+func (x *PageInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PageInfo.ProtoReflect.Descriptor instead.
+func (*PageInfo) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PageInfo) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *PageInfo) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
 var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
@@ -273,10 +741,52 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x10total_risk_score\x18\x01 \x01(\x05R\x0etotalRiskScore\x124\n" +
 	"\x16open_critical_findings\x18\x02 \x01(\x05R\x14openCriticalFindings\x12%\n" +
 	"\x0econnected_apps\x18\x03 \x01(\x05R\rconnectedApps\x120\n" +
-	"\x14event_ingestion_rate\x18\x04 \x01(\x05R\x12eventIngestionRate2\xc3\x01\n" +
+	"\x14event_ingestion_rate\x18\x04 \x01(\x05R\x12eventIngestionRate\"\xba\x01\n" +
+	"\x13ListFindingsRequest\x12\x1a\n" +
+	"\bseverity\x18\x01 \x01(\tR\bseverity\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1a\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\x12%\n" +
+	"\x0eintegration_id\x18\x04 \x01(\tR\rintegrationId\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06cursor\x18\x06 \x01(\tR\x06cursor\"p\n" +
+	"\x14ListFindingsResponse\x12&\n" +
+	"\x04data\x18\x01 \x03(\v2\x12.aperio.v1.FindingR\x04data\x120\n" +
+	"\tpage_info\x18\x02 \x01(\v2\x13.aperio.v1.PageInfoR\bpageInfo\"#\n" +
+	"\x11GetFindingRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"<\n" +
+	"\x12GetFindingResponse\x12&\n" +
+	"\x04data\x18\x01 \x01(\v2\x12.aperio.v1.FindingR\x04data\"\x94\x03\n" +
+	"\aFinding\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\basset_id\x18\x02 \x01(\tR\aassetId\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x1a\n" +
+	"\bseverity\x18\x05 \x01(\tR\bseverity\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"risk_score\x18\a \x01(\x05R\triskScore\x12+\n" +
+	"\x11remediation_steps\x18\b \x03(\tR\x10remediationSteps\x12#\n" +
+	"\revidence_json\x18\t \x01(\tR\fevidenceJson\x12\x1f\n" +
+	"\vdetected_at\x18\n" +
+	" \x01(\tR\n" +
+	"detectedAt\x12\x1f\n" +
+	"\vresolved_at\x18\v \x01(\tR\n" +
+	"resolvedAt\x12?\n" +
+	"\vintegration\x18\f \x01(\v2\x1d.aperio.v1.FindingIntegrationR\vintegration\"c\n" +
+	"\x12FindingIntegration\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"A\n" +
+	"\bPageInfo\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x05R\x05total\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor2\xdf\x02\n" +
 	"\rAperioService\x12L\n" +
 	"\vCheckHealth\x12\x1d.aperio.v1.CheckHealthRequest\x1a\x1e.aperio.v1.CheckHealthResponse\x12d\n" +
-	"\x13GetDashboardMetrics\x12%.aperio.v1.GetDashboardMetricsRequest\x1a&.aperio.v1.GetDashboardMetricsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
+	"\x13GetDashboardMetrics\x12%.aperio.v1.GetDashboardMetricsRequest\x1a&.aperio.v1.GetDashboardMetricsResponse\x12O\n" +
+	"\fListFindings\x12\x1e.aperio.v1.ListFindingsRequest\x1a\x1f.aperio.v1.ListFindingsResponse\x12I\n" +
+	"\n" +
+	"GetFinding\x12\x1c.aperio.v1.GetFindingRequest\x1a\x1d.aperio.v1.GetFindingResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
 
 var (
 	file_aperio_v1_api_proto_rawDescOnce sync.Once
@@ -290,25 +800,40 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_aperio_v1_api_proto_goTypes = []any{
 	(*CheckHealthRequest)(nil),          // 0: aperio.v1.CheckHealthRequest
 	(*CheckHealthResponse)(nil),         // 1: aperio.v1.CheckHealthResponse
 	(*GetDashboardMetricsRequest)(nil),  // 2: aperio.v1.GetDashboardMetricsRequest
 	(*GetDashboardMetricsResponse)(nil), // 3: aperio.v1.GetDashboardMetricsResponse
 	(*DashboardMetrics)(nil),            // 4: aperio.v1.DashboardMetrics
+	(*ListFindingsRequest)(nil),         // 5: aperio.v1.ListFindingsRequest
+	(*ListFindingsResponse)(nil),        // 6: aperio.v1.ListFindingsResponse
+	(*GetFindingRequest)(nil),           // 7: aperio.v1.GetFindingRequest
+	(*GetFindingResponse)(nil),          // 8: aperio.v1.GetFindingResponse
+	(*Finding)(nil),                     // 9: aperio.v1.Finding
+	(*FindingIntegration)(nil),          // 10: aperio.v1.FindingIntegration
+	(*PageInfo)(nil),                    // 11: aperio.v1.PageInfo
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
-	4, // 0: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
-	0, // 1: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	2, // 2: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	1, // 3: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	3, // 4: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	4,  // 0: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
+	9,  // 1: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
+	11, // 2: aperio.v1.ListFindingsResponse.page_info:type_name -> aperio.v1.PageInfo
+	9,  // 3: aperio.v1.GetFindingResponse.data:type_name -> aperio.v1.Finding
+	10, // 4: aperio.v1.Finding.integration:type_name -> aperio.v1.FindingIntegration
+	0,  // 5: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	2,  // 6: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	5,  // 7: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	7,  // 8: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	1,  // 9: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	3,  // 10: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	6,  // 11: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	8,  // 12: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -322,7 +847,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

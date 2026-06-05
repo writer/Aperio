@@ -39,12 +39,20 @@ const (
 	// AperioServiceGetDashboardMetricsProcedure is the fully-qualified name of the AperioService's
 	// GetDashboardMetrics RPC.
 	AperioServiceGetDashboardMetricsProcedure = "/aperio.v1.AperioService/GetDashboardMetrics"
+	// AperioServiceListFindingsProcedure is the fully-qualified name of the AperioService's
+	// ListFindings RPC.
+	AperioServiceListFindingsProcedure = "/aperio.v1.AperioService/ListFindings"
+	// AperioServiceGetFindingProcedure is the fully-qualified name of the AperioService's GetFinding
+	// RPC.
+	AperioServiceGetFindingProcedure = "/aperio.v1.AperioService/GetFinding"
 )
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
 type AperioServiceClient interface {
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
+	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
+	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
 }
 
 // NewAperioServiceClient constructs a client for the aperio.v1.AperioService service. By default,
@@ -70,6 +78,18 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("GetDashboardMetrics")),
 			connect.WithClientOptions(opts...),
 		),
+		listFindings: connect.NewClient[v1.ListFindingsRequest, v1.ListFindingsResponse](
+			httpClient,
+			baseURL+AperioServiceListFindingsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListFindings")),
+			connect.WithClientOptions(opts...),
+		),
+		getFinding: connect.NewClient[v1.GetFindingRequest, v1.GetFindingResponse](
+			httpClient,
+			baseURL+AperioServiceGetFindingProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -77,6 +97,8 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type aperioServiceClient struct {
 	checkHealth         *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
 	getDashboardMetrics *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
+	listFindings        *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
+	getFinding          *connect.Client[v1.GetFindingRequest, v1.GetFindingResponse]
 }
 
 // CheckHealth calls aperio.v1.AperioService.CheckHealth.
@@ -89,10 +111,22 @@ func (c *aperioServiceClient) GetDashboardMetrics(ctx context.Context, req *conn
 	return c.getDashboardMetrics.CallUnary(ctx, req)
 }
 
+// ListFindings calls aperio.v1.AperioService.ListFindings.
+func (c *aperioServiceClient) ListFindings(ctx context.Context, req *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error) {
+	return c.listFindings.CallUnary(ctx, req)
+}
+
+// GetFinding calls aperio.v1.AperioService.GetFinding.
+func (c *aperioServiceClient) GetFinding(ctx context.Context, req *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error) {
+	return c.getFinding.CallUnary(ctx, req)
+}
+
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
+	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
+	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
 }
 
 // NewAperioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -114,12 +148,28 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("GetDashboardMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceListFindingsHandler := connect.NewUnaryHandler(
+		AperioServiceListFindingsProcedure,
+		svc.ListFindings,
+		connect.WithSchema(aperioServiceMethods.ByName("ListFindings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetFindingHandler := connect.NewUnaryHandler(
+		AperioServiceGetFindingProcedure,
+		svc.GetFinding,
+		connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AperioServiceCheckHealthProcedure:
 			aperioServiceCheckHealthHandler.ServeHTTP(w, r)
 		case AperioServiceGetDashboardMetricsProcedure:
 			aperioServiceGetDashboardMetricsHandler.ServeHTTP(w, r)
+		case AperioServiceListFindingsProcedure:
+			aperioServiceListFindingsHandler.ServeHTTP(w, r)
+		case AperioServiceGetFindingProcedure:
+			aperioServiceGetFindingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -135,4 +185,12 @@ func (UnimplementedAperioServiceHandler) CheckHealth(context.Context, *connect.R
 
 func (UnimplementedAperioServiceHandler) GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetDashboardMetrics is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListFindings is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetFinding is not implemented"))
 }

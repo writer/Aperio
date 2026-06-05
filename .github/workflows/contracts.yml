@@ -1,0 +1,41 @@
+name: Contracts
+
+on:
+  pull_request:
+    paths:
+      - "proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "gen/**"
+      - "packages/connect/src/gen/**"
+      - ".github/workflows/contracts.yml"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  protobuf-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - run: go mod download
+
+      - name: Lint protobuf contracts
+        run: go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint
+
+      - name: Check protobuf compatibility
+        run: go run github.com/bufbuild/buf/cmd/buf@v1.59.0 breaking --against '.git#branch=origin/main'
+
+      - name: Verify generated outputs
+        run: |
+          go run github.com/bufbuild/buf/cmd/buf@v1.59.0 generate
+          git diff --exit-code -- gen packages/connect/src/gen
+          test -z "$(git status --porcelain -- gen packages/connect/src/gen)"
