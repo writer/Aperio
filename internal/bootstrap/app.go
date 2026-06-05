@@ -513,12 +513,12 @@ func hashOpaqueToken(token string) string {
 }
 
 // withCORS allows the browser-based Connect client to include the HttpOnly
-// session cookie. It only reflects the configured web origin and treats OPTIONS
-// as a transport preflight, leaving auth enforcement to individual RPCs.
+// session cookie. It only reflects configured web origins and treats OPTIONS as
+// a transport preflight, leaving auth enforcement to individual RPCs.
 func (a *App) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := strings.TrimRight(r.Header.Get("Origin"), "/")
-		if origin != "" && origin == a.cfg.WebOrigin {
+		if origin != "" && a.isAllowedWebOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
@@ -557,7 +557,17 @@ func (a *App) hasAllowedRequestOrigin(r *http.Request) bool {
 			}
 		}
 	}
-	return origin != "" && origin == a.cfg.WebOrigin
+	return origin != "" && a.isAllowedWebOrigin(origin)
+}
+
+func (a *App) isAllowedWebOrigin(origin string) bool {
+	normalized := strings.TrimRight(strings.TrimSpace(origin), "/")
+	for _, allowed := range strings.Split(a.cfg.WebOrigin, ",") {
+		if normalized == strings.TrimRight(strings.TrimSpace(allowed), "/") {
+			return true
+		}
+	}
+	return false
 }
 
 // writeJSON is used only by non-Connect compatibility endpoints such as

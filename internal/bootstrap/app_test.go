@@ -104,6 +104,22 @@ func TestConnectCORSPreflight(t *testing.T) {
 	}
 }
 
+func TestConnectCORSPreflightAllowsCommaSeparatedOrigins(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "https://app.example.com, http://localhost:3000/"}, nil)
+	req := httptest.NewRequest(http.MethodOptions, "/aperio.v1.AperioService/GetDashboardMetrics", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+		t.Fatal("expected matching CORS origin from allow-list")
+	}
+}
+
 func TestCookieBackedConnectRequiresAllowedOrigin(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	req := httptest.NewRequest(

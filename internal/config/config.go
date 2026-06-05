@@ -16,7 +16,7 @@ type Config struct {
 	DatabaseURL string
 	// SessionIdleMinutes mirrors APERIO_SESSION_IDLE_MINUTES from the TypeScript API.
 	SessionIdleMinutes int
-	// WebOrigin is the single browser origin allowed to send credentialed RPCs.
+	// WebOrigin is the comma-separated browser origin allow-list used for credentialed RPCs.
 	WebOrigin string
 }
 
