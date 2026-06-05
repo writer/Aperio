@@ -230,7 +230,7 @@ Use the full preflight before opening a PR:
 npm run verify
 ```
 
-Production deployments should pair Aperio's process-local route limits with edge or load-balancer rate limiting. Ingestion queueing is currently process-local; use a durable queue or database-backed job runner before relying on it for production event durability.
+Production deployments should pair Aperio's process-local route limits with edge or load-balancer rate limiting. Ingestion and SIEM delivery both use database-backed queues so accepted events and outbound deliveries survive API restarts.
 
 ---
 

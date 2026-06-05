@@ -35,7 +35,7 @@ const enqueueEvent: RequestHandler = async (
       return res.status(404).json({ error: "Integration not found" });
     }
 
-    const job = enqueueIngestionPayload({
+    const job = await enqueueIngestionPayload({
       organizationId: tenantReq.tenantId,
       ...parsed.data,
       occurredAt: parsed.data.occurredAt

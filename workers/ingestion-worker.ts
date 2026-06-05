@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@aperio/db";
@@ -23,11 +23,31 @@ type IngestionPayload = {
 
 type IngestionJob = {
   id: string;
-  payload: IngestionPayload;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "failed" | "dead_letter";
   attempts: number;
   maxAttempts: number;
-  error?: string;
+  error?: string | null;
+};
+
+type IngestionQueueDrainResult = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+};
+
+type PersistedIngestionJob = {
+  id: string;
+  organizationId: string;
+  integrationId: string;
+  provider: Provider;
+  eventType: string;
+  source: string;
+  actor: string | null;
+  occurredAt: Date;
+  payload: Prisma.JsonValue;
+  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "DEAD_LETTER";
+  attempts: number;
+  maxAttempts: number;
 };
 
 type RuleFinding = {
@@ -1132,66 +1152,162 @@ export class IngestionWorker {
   }
 }
 
-class InMemoryIngestionQueue {
-  private readonly jobs = new Map<string, IngestionJob>();
-  private readonly worker = new IngestionWorker();
-  private processing = false;
+function nextRetryAt(attempt: number): Date {
+  const delaySeconds = Math.min(60 * 30, 2 ** Math.max(0, attempt - 1) * 30);
+  return new Date(Date.now() + delaySeconds * 1000);
+}
 
-  enqueue(payload: IngestionPayload): IngestionJob {
-    const job: IngestionJob = {
-      id: randomUUID(),
-      payload,
-      status: "queued",
-      attempts: 0,
-      maxAttempts: 3
-    };
+function apiJobStatus(status: PersistedIngestionJob["status"]): IngestionJob["status"] {
+  return status.toLowerCase() as IngestionJob["status"];
+}
 
-    this.jobs.set(job.id, job);
-    void this.drain();
-    return job;
+function toIngestionPayload(job: PersistedIngestionJob): IngestionPayload {
+  return {
+    organizationId: job.organizationId,
+    integrationId: job.integrationId,
+    provider: job.provider,
+    eventType: job.eventType,
+    source: job.source,
+    actor: job.actor ?? undefined,
+    occurredAt: job.occurredAt,
+    payload: (job.payload ?? {}) as Record<string, unknown>
+  };
+}
+
+function toApiJob(job: PersistedIngestionJob): IngestionJob {
+  return {
+    id: job.id,
+    status: apiJobStatus(job.status),
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts
+  };
+}
+
+async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
+  const attempts = job.attempts + 1;
+  const retryable = attempts < job.maxAttempts;
+  const message = error instanceof Error ? error.message : "Unknown ingestion error";
+
+  await prisma.ingestionJob.update({
+    where: { id: job.id },
+    data: {
+      status: retryable ? "FAILED" : "DEAD_LETTER",
+      attempts,
+      nextAttemptAt: retryable ? nextRetryAt(attempts) : new Date(),
+      lastError: message.slice(0, 500)
+    }
+  });
+}
+
+async function processJob(job: PersistedIngestionJob): Promise<boolean> {
+  const claimed = await prisma.ingestionJob.updateMany({
+    where: {
+      id: job.id,
+      status: { in: ["QUEUED", "FAILED", "RUNNING"] }
+    },
+    data: { status: "RUNNING" }
+  });
+
+  if (claimed.count === 0) {
+    return false;
   }
 
-  private async drain(): Promise<void> {
-    if (this.processing) {
-      return;
-    }
-
-    this.processing = true;
-
-    try {
-      for (const job of this.jobs.values()) {
-        if (job.status !== "queued") {
-          continue;
-        }
-
-        job.status = "running";
-        job.attempts += 1;
-
-        try {
-          await this.worker.process(job.payload);
-          job.status = "succeeded";
-        } catch (error) {
-          job.error =
-            error instanceof Error ? error.message : "Unknown ingestion error";
-          job.status = job.attempts >= job.maxAttempts ? "failed" : "queued";
-        }
+  try {
+    await new IngestionWorker().process(toIngestionPayload(job));
+    await prisma.ingestionJob.update({
+      where: { id: job.id },
+      data: {
+        status: "SUCCEEDED",
+        attempts: job.attempts + 1,
+        processedAt: new Date(),
+        lastError: null
       }
-    } finally {
-      this.processing = false;
-
-      if ([...this.jobs.values()].some((job) => job.status === "queued")) {
-        setTimeout(() => void this.drain(), 1_000);
-      }
-    }
+    });
+    return true;
+  } catch (error) {
+    await markJobFailure(job, error);
+    return false;
   }
 }
 
-const ingestionQueue = new InMemoryIngestionQueue();
+export async function enqueueIngestionPayload(
+  payload: IngestionPayload
+): Promise<IngestionJob> {
+  const job = await prisma.ingestionJob.create({
+    data: {
+      organizationId: payload.organizationId,
+      integrationId: payload.integrationId,
+      provider: payload.provider,
+      eventType: payload.eventType,
+      source: payload.source,
+      actor: payload.actor ?? null,
+      occurredAt: payload.occurredAt,
+      payload: jsonSafe(payload.payload)
+    }
+  });
 
-export function enqueueIngestionPayload(payload: IngestionPayload): IngestionJob {
-  return ingestionQueue.enqueue(payload);
+  return toApiJob(job as PersistedIngestionJob);
+}
+
+export async function drainIngestionJobs(
+  limit = 25
+): Promise<IngestionQueueDrainResult> {
+  const now = new Date();
+  const staleRunningBefore = new Date(now.getTime() - 5 * 60 * 1000);
+  const jobs = (await prisma.ingestionJob.findMany({
+    where: {
+      OR: [
+        {
+          status: { in: ["QUEUED", "FAILED"] },
+          nextAttemptAt: { lte: now }
+        },
+        {
+          status: "RUNNING",
+          updatedAt: { lte: staleRunningBefore }
+        }
+      ]
+    },
+    orderBy: { createdAt: "asc" },
+    take: limit
+  })) as PersistedIngestionJob[];
+
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const job of jobs) {
+    if (job.attempts >= job.maxAttempts) {
+      await prisma.ingestionJob.update({
+        where: { id: job.id },
+        data: { status: "DEAD_LETTER" }
+      });
+      failed += 1;
+      continue;
+    }
+
+    if (await processJob(job)) {
+      succeeded += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  return { processed: jobs.length, succeeded, failed };
+}
+
+export function startIngestionWorker(intervalMs = 15_000): NodeJS.Timeout {
+  let running = false;
+  const tick = () => {
+    if (running) return;
+    running = true;
+    void drainIngestionJobs().finally(() => {
+      running = false;
+    });
+  };
+  void tick();
+  return setInterval(tick, intervalMs);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startIngestionWorker();
   console.log("Aperio ingestion worker is ready for queued SaaS security events.");
 }

@@ -67,7 +67,7 @@ xychart-beta
 
 - Every API route under `/api/v1` passes through `requireAuth` and `requireTenant` in `apps/api/src/middleware/security.ts`.
 - Connectors, SIEM destinations, and A2A workflows are all catalog or schema driven, which keeps the UI and API in sync through shared files in `packages/shared/src`.
-- The ingestion queue in `workers/ingestion-worker.ts` is in memory, while SIEM delivery in `workers/siem-dispatcher.ts` is durable because it writes `SiemDelivery` rows before fanout.
+- Ingestion and SIEM delivery both use database-backed queues before fanout, which keeps accepted events and outbound deliveries durable across API restarts.
 - Remediation is intentionally narrower than detection. Only a few handlers in `apps/api/src/remediation/executor.ts` do real work today; the rest are explicit stubs.
 
 For setup details, go to [Getting started](getting-started.md). For the runtime surfaces, go to [Apps](../apps/index.md).
