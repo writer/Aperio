@@ -66,8 +66,9 @@ cd Aperio
 
 docker compose up -d                # local Postgres on :5432
 npm install
+cp .env.example .env                # fill in local secrets before sharing
 npm run db:generate
-npx prisma db push --schema packages/db/prisma/schema.prisma
+npx prisma migrate dev --schema packages/db/prisma/schema.prisma
 
 # create your local .env (see Configuration below for the full reference)
 cat > .env <<EOF
@@ -216,6 +217,7 @@ npm run mcp:broker             # stdio MCP broker
 npm run build:web              # production Next.js build
 npm run typecheck              # tsc --noEmit
 npm run test:api               # node --test (tsx loader)
+npm run verify                 # typecheck + API tests + Prisma validate + production audit
 npm run db:generate            # prisma generate
 npm run db:validate            # prisma validate
 npm run backup:check           # backup-readiness preflight
@@ -225,8 +227,10 @@ npm run audit:prod             # npm audit --omit=dev
 Use the full preflight before opening a PR:
 
 ```bash
-npm run typecheck && npm run test:api && npm run db:validate
+npm run verify
 ```
+
+Production deployments should pair Aperio's process-local route limits with edge or load-balancer rate limiting. Ingestion queueing is currently process-local; use a durable queue or database-backed job runner before relying on it for production event durability.
 
 ---
 

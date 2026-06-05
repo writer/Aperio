@@ -46,7 +46,14 @@ export function createApp() {
   app.disable("x-powered-by");
   app.use(
     helmet({
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'none'"],
+          baseUri: ["'none'"],
+          formAction: ["'none'"],
+          frameAncestors: ["'none'"]
+        }
+      },
       crossOriginResourcePolicy: { policy: "same-site" }
     })
   );

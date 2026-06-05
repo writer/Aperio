@@ -36,9 +36,9 @@ aperio/
 4. If SIEM destinations exist, `workers/siem-dispatcher.ts` drains the durable outbox and forwards canonical payloads to Splunk, Panther, Panopticon, Elastic, Datadog, webhooks, or JSONL files.
 5. Agent clients can use `apps/api/src/routes/agents.ts` or `apps/mcp/src/server.ts` to register agents, create tasks, exchange messages, and propose remediations.
 
-## What is missing in this checkout
+## Guardrails in this checkout
 
-This working copy has no `.git` directory, no `README.md`, no CI configuration, and no automated test suite. The wiki therefore leans on source files and runtime scripts rather than repository history or contributor metadata.
+The repository now has a root `README.md`, `.env.example`, a GitHub Actions workflow, and focused `node:test` coverage under `tests/`. The wiki still leans on source files and runtime scripts for volatile implementation details.
 
 ## Quick links
 

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify-shard:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: typecheck
+            command: npm run typecheck
+          - name: api-tests
+            command: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma && npm run test:api
+          - name: prisma
+            command: npm run db:validate
+          - name: web-build
+            command: npm run build:web
+          - name: prod-audit
+            command: npm run audit:prod
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aperio
+          POSTGRES_PASSWORD: aperio
+          POSTGRES_DB: aperio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aperio -d aperio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://aperio:aperio@localhost:5432/aperio?schema=public
+      APERIO_ENCRYPTION_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APERIO_AUTH_SECRET: ci-auth-secret-at-least-thirty-two-chars
+      APERIO_WEB_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:generate
+
+      - name: Run ${{ matrix.name }}
+        run: ${{ matrix.command }}
+
+  verify:
+    runs-on: ubuntu-latest
+    needs: [verify-shard]
+    if: always()
+    steps:
+      - name: Check verify shards
+        run: |
+          if [ "${{ needs.verify-shard.result }}" != "success" ]; then
+            echo "One or more verify shards failed"
+            exit 1
+          fi
+          echo "All verify shards passed"
