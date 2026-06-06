@@ -949,7 +949,7 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	if mode != "REMEDIATION" {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("this connection is read-only. Reconnect with remediation scopes to enable write actions."))
 	}
-	if _, err := compatDecryptString(encryptedAccessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccount, "access_token")); err != nil {
+	if _, err := compatDecryptIntegrationSecret(encryptedAccessToken, auth.OrganizationID, integrationID, provider, externalAccount, "access_token"); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("integration credential is unavailable"))
 	}
 
@@ -1783,6 +1783,25 @@ func asMap(value any) map[string]any {
 
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
 	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
+}
+
+func compatLegacyIntegrationSecretAAD(organizationID string, integrationID string, suffix string) string {
+	return organizationID + ":" + integrationID + ":" + suffix
+}
+
+func compatDecryptIntegrationSecret(encryptedValue string, organizationID string, integrationID string, provider string, externalAccountID string, suffix string) (string, error) {
+	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, provider, externalAccountID, suffix))
+	if err == nil {
+		return canonical, nil
+	}
+	if strings.TrimSpace(integrationID) == "" {
+		return "", err
+	}
+	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, suffix))
+	if legacyErr == nil {
+		return legacy, nil
+	}
+	return "", err
 }
 
 func encryptedOptionalSecret(body map[string]any, key string, aad string) (*string, error) {

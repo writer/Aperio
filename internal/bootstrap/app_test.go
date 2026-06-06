@@ -393,6 +393,48 @@ func TestCompatEncryptStringUsesSharedEnvelope(t *testing.T) {
 	}
 }
 
+func TestCompatDecryptIntegrationSecretAcceptsCanonicalAndLegacyAAD(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	organizationID := "org_demo"
+	integrationID := "int_demo"
+	provider := "GITHUB"
+	externalAccountID := "writer"
+	nonce := []byte("123456789012")
+
+	canonical, err := compatEncryptStringWithNonce(
+		"canonical-token",
+		compatIntegrationSecretAAD(organizationID, provider, externalAccountID, "access_token"),
+		nonce,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := compatDecryptIntegrationSecret(canonical, organizationID, integrationID, provider, externalAccountID, "access_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "canonical-token" {
+		t.Fatalf("unexpected canonical plaintext %q", got)
+	}
+
+	legacy, err := compatEncryptStringWithNonce(
+		"legacy-token",
+		compatLegacyIntegrationSecretAAD(organizationID, integrationID, "access_token"),
+		nonce,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = compatDecryptIntegrationSecret(legacy, organizationID, integrationID, provider, externalAccountID, "access_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "legacy-token" {
+		t.Fatalf("unexpected legacy plaintext %q", got)
+	}
+}
+
 func TestTypedCatalogProjectionsUseCompatDefinitions(t *testing.T) {
 	connectors := connectorCatalogProto()
 	if len(connectors) == 0 {

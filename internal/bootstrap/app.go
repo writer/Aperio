@@ -502,11 +502,16 @@ func (a *App) RemediateFinding(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	result, err := a.compatRemediateFinding(ctx, strings.TrimSpace(req.Msg.FindingId), map[string]any{
+	id := strings.TrimSpace(req.Msg.FindingId)
+	body := map[string]any{
 		"action":           req.Msg.Action,
 		"targetIdentifier": req.Msg.TargetIdentifier,
 		"note":             req.Msg.Note,
-	}, auth)
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/findings/"+url.PathEscape(id)+"/remediate", typedRateLimitSubjectBody(auth)); err != nil {
+		return nil, err
+	}
+	result, err := a.compatRemediateFinding(ctx, id, body, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +740,11 @@ func (a *App) ForceSyncIntegration(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	result, err := a.compatForceSync(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/integrations/"+url.PathEscape(id)+"/force-sync", typedRateLimitSubjectBody(auth)); err != nil {
+		return nil, err
+	}
+	result, err := a.compatForceSync(ctx, id, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -1067,6 +1076,10 @@ func optionalStringFromAny(value any) string {
 func boolFromAny(value any) bool {
 	typed, _ := value.(bool)
 	return typed
+}
+
+func typedRateLimitSubjectBody(auth compatAuth) map[string]any {
+	return map[string]any{"email": auth.Email}
 }
 
 func (a *App) ListShadowItOauthApps(
