@@ -2,18 +2,31 @@ import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AperioService,
+  type AuditLogEntry as ProtoAuditLogEntry,
+  type AuthSession as ProtoAuthSession,
   type ConnectorDefinition as ProtoConnectorDefinition,
   type Finding as ProtoFinding,
   type GoogleMailboxScanConfig as ProtoGoogleMailboxScanConfig,
   type IntegrationCheckState as ProtoIntegrationCheckState,
   type IntegrationConnection as ProtoIntegrationConnection,
+  type InvitationResult as ProtoInvitationResult,
+  type MfaEnrollment as ProtoMfaEnrollment,
+  type PasswordResetResult as ProtoPasswordResetResult,
   type RemediationResult as ProtoRemediationResult,
   type RiskException as ProtoRiskException,
+  type SecurityGraph as ProtoSecurityGraph,
+  type SecurityGraphEdge as ProtoSecurityGraphEdge,
+  type SecurityGraphNode as ProtoSecurityGraphNode,
+  type SecurityIdentity as ProtoSecurityIdentity,
+  type SecurityOverview as ProtoSecurityOverview,
   type SecurityAsset as ProtoSecurityAsset,
   type SiemDestination as ProtoSiemDestination,
   type SiemDestinationDefinition as ProtoSiemDestinationDefinition,
   type ShadowItOauthApp as ProtoShadowItOauthApp,
-  type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant
+  type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant,
+  type TenantMember as ProtoTenantMember,
+  type TenantSettings as ProtoTenantSettings,
+  type WorkspaceMembership as ProtoWorkspaceMembership
 } from "./gen/aperio/v1/api_pb";
 
 const CONNECT_BASE_URL =
@@ -63,6 +76,45 @@ export type ConnectFindingsFilters = {
 };
 
 type ConnectProvider = ConnectFinding["integration"]["provider"];
+
+type ConnectTenantRole = "OWNER" | "ADMIN" | "SECURITY_ANALYST" | "VIEWER";
+
+export type ConnectAuthSession = {
+  token: string;
+  user: {
+    id: string;
+    email: string;
+    displayName: string | null;
+    mfaEnabled: boolean;
+    role: ConnectTenantRole;
+  };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+export type ConnectWorkspaceMembership = {
+  id: string;
+  name: string;
+  slug: string;
+  role: ConnectTenantRole;
+  current: boolean;
+};
+
+export type ConnectPasswordResetResult = {
+  accepted: boolean;
+  delivery?: "manual_link" | "email";
+  resetUrl?: string;
+  expiresAt?: string;
+  organizationName?: string;
+};
+
+export type ConnectMfaEnrollment = {
+  secret: string;
+  otpauthUrl: string;
+};
 
 export type ConnectIntegrationConnection = {
   id: string;
@@ -251,7 +303,7 @@ export type ConnectSecurityAsset = {
   externalId: string | null;
   labels: string[];
   criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  exposureLevel: "PUBLIC" | "PARTNER" | "INTERNAL" | "RESTRICTED";
+  exposureLevel: "INTERNAL" | "TRUSTED_EXTERNAL" | "PUBLIC";
   ownershipStatus: "ASSIGNED" | "UNASSIGNED" | "REVIEW_REQUIRED";
   containsSensitiveData: boolean;
   isPrivileged: boolean;
@@ -317,6 +369,184 @@ export type ConnectRiskException = {
   } | null;
 };
 
+export type ConnectTenantSettings = {
+  id: string;
+  name: string;
+  slug: string;
+  notificationEmail: string | null;
+  dataRetentionDays: number;
+  criticalRiskThreshold: number;
+  defaultSlaHours: number;
+  autoResolveLowSeverity: boolean;
+  enforceSsoOnly: boolean;
+  webhookAlertUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConnectTenantSettingsUpdate = Partial<{
+  name: string;
+  notificationEmail: string;
+  dataRetentionDays: number;
+  criticalRiskThreshold: number;
+  defaultSlaHours: number;
+  autoResolveLowSeverity: boolean;
+  enforceSsoOnly: boolean;
+  webhookAlertUrl: string;
+}>;
+
+export type ConnectTenantMember = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  isActive: boolean;
+  mfaEnabled: boolean;
+  lastLoginAt: string | null;
+  isBreakGlass: boolean;
+  role: ConnectTenantRole;
+  authState: "ACTIVE" | "INVITED" | "PASSWORD_RESET_PENDING";
+  pendingActionExpiresAt: string | null;
+  createdAt: string;
+};
+
+export type ConnectInvitationResult = {
+  delivery: "manual_link" | "email";
+  url?: string;
+  expiresAt: string;
+};
+
+export type ConnectAuditLogEntry = {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  actor: string;
+  createdAt: string;
+  metadata: Record<string, unknown> | null;
+};
+
+export type ConnectSecurityIdentity = {
+  id: string;
+  entityId: string;
+  kind: "USER" | "SERVICE_ACCOUNT" | "BOT";
+  name: string;
+  email: string | null;
+  provider: ConnectProvider | null;
+  integration: {
+    id: string;
+    provider: ConnectProvider;
+    displayName: string;
+  } | null;
+  role: string;
+  privileged: boolean;
+  mfaEnabled: boolean | null;
+  status: "ACTIVE" | "SUSPENDED" | "DORMANT";
+  isExternal: boolean;
+  lastObservedAt: string | null;
+  linkedAssetCount: number;
+  riskScore: number;
+};
+
+export type ConnectSecurityOverview = {
+  summary: {
+    privilegedIdentities: number;
+    adminIdentitiesWithoutMfa: number;
+    riskyOauthApps: number;
+    exposedDataAssets: number;
+    unownedAssets: number;
+    activeExceptions: number;
+    topBlastRadiusScore: number;
+  };
+  identities: ConnectSecurityIdentity[];
+  graph: {
+    nodes: {
+      id: string;
+      label: string;
+      kind: string;
+      riskScore: number;
+      privileged: boolean;
+      exposureLevel: string;
+      criticality: string;
+    }[];
+    edges: {
+      id: string;
+      sourceId: string;
+      targetId: string;
+      relationshipType: string;
+    }[];
+  };
+  oauthApps: ConnectSecurityAsset[];
+  dataAssets: ConnectSecurityAsset[];
+  attackPaths: {
+    id: string;
+    title: string;
+    score: number;
+    findingTitle: string;
+    entryPoint: string;
+    target: string;
+    owner: string;
+    exposureLevel: string;
+    criticality: string;
+    reason: string;
+    path: string[];
+  }[];
+  ownershipGaps: ConnectSecurityAsset[];
+  exceptions: ConnectRiskException[];
+  domainWideDelegations: {
+    integrationId: string;
+    provider: "GOOGLE_WORKSPACE";
+    displayName: string;
+    workspaceDomain: string;
+    serviceAccountClientEmail: string | null;
+    scopes: string[];
+    status: "ENABLED" | "NOT_CONFIGURED";
+    integrationStatus: "CONNECTED" | "DISABLED" | "ERROR";
+    mode: "READ_ONLY" | "REMEDIATION";
+    openMailboxFindings: number;
+    lastSyncAt: string | null;
+    configuredAt: string;
+  }[];
+};
+
+export type ConnectCreateSecurityAssetPayload = {
+  integrationId?: string;
+  ownerUserId?: string;
+  businessOwnerUserId?: string;
+  type: string;
+  provider?: ConnectProvider;
+  name: string;
+  summary?: string;
+  externalId?: string;
+  labels: string[];
+  criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  exposureLevel: "INTERNAL" | "TRUSTED_EXTERNAL" | "PUBLIC";
+  ownershipStatus?: "ASSIGNED" | "UNASSIGNED" | "REVIEW_REQUIRED";
+  containsSensitiveData: boolean;
+  isPrivileged: boolean;
+  riskScore: number;
+  lastObservedAt?: string;
+};
+
+export type ConnectUpdateSecurityAssetPayload =
+  Partial<ConnectCreateSecurityAssetPayload>;
+
+export type ConnectCreateRiskExceptionPayload = {
+  assetId?: string;
+  findingId?: string;
+  title: string;
+  rationale: string;
+  compensatingControls: string[];
+  expiresAt?: string;
+};
+
+export type ConnectUpdateRiskExceptionPayload = Partial<{
+  title: string;
+  rationale: string;
+  compensatingControls: string[];
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  expiresAt: string;
+}>;
+
 export type ConnectRemediationResult = {
   findingId: string;
   action: string;
@@ -352,6 +582,69 @@ function parseEvidence(evidenceJson: string) {
   return parsed && typeof parsed === "object"
     ? (parsed as Record<string, unknown>)
     : undefined;
+}
+
+function parseMetadata(metadataJson: string): Record<string, unknown> | null {
+  if (!metadataJson) {
+    return null;
+  }
+  const parsed = JSON.parse(metadataJson) as unknown;
+  return parsed && typeof parsed === "object"
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
+function authSessionFromProto(session: ProtoAuthSession): ConnectAuthSession {
+  return {
+    token: session.token,
+    user: {
+      id: session.user?.id ?? "",
+      email: session.user?.email ?? "",
+      displayName: session.user?.displayName || null,
+      mfaEnabled: session.user?.mfaEnabled ?? false,
+      role: (session.user?.role ?? "VIEWER") as ConnectTenantRole
+    },
+    organization: {
+      id: session.organization?.id ?? "",
+      name: session.organization?.name ?? "",
+      slug: session.organization?.slug ?? ""
+    }
+  };
+}
+
+function workspaceMembershipFromProto(
+  workspace: ProtoWorkspaceMembership
+): ConnectWorkspaceMembership {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    role: workspace.role as ConnectTenantRole,
+    current: workspace.current
+  };
+}
+
+function passwordResetResultFromProto(
+  result: ProtoPasswordResetResult
+): ConnectPasswordResetResult {
+  return {
+    accepted: result.accepted,
+    delivery: result.delivery
+      ? (result.delivery as ConnectPasswordResetResult["delivery"])
+      : undefined,
+    resetUrl: result.resetUrl || undefined,
+    expiresAt: result.expiresAt || undefined,
+    organizationName: result.organizationName || undefined
+  };
+}
+
+function mfaEnrollmentFromProto(
+  enrollment: ProtoMfaEnrollment
+): ConnectMfaEnrollment {
+  return {
+    secret: enrollment.secret,
+    otpauthUrl: enrollment.otpauthUrl
+  };
 }
 
 function findingFromProto(finding: ProtoFinding): ConnectFinding {
@@ -654,6 +947,173 @@ function riskExceptionFromProto(
   };
 }
 
+function tenantSettingsFromProto(
+  settings: ProtoTenantSettings
+): ConnectTenantSettings {
+  return {
+    id: settings.id,
+    name: settings.name,
+    slug: settings.slug,
+    notificationEmail: settings.notificationEmail || null,
+    dataRetentionDays: settings.dataRetentionDays,
+    criticalRiskThreshold: settings.criticalRiskThreshold,
+    defaultSlaHours: settings.defaultSlaHours,
+    autoResolveLowSeverity: settings.autoResolveLowSeverity,
+    enforceSsoOnly: settings.enforceSsoOnly,
+    webhookAlertUrl: settings.webhookAlertUrl || null,
+    createdAt: settings.createdAt,
+    updatedAt: settings.updatedAt
+  };
+}
+
+function tenantMemberFromProto(member: ProtoTenantMember): ConnectTenantMember {
+  return {
+    id: member.id,
+    email: member.email,
+    displayName: member.displayName || null,
+    isActive: member.isActive,
+    mfaEnabled: member.mfaEnabled,
+    lastLoginAt: member.lastLoginAt || null,
+    isBreakGlass: member.isBreakGlass,
+    role: member.role as ConnectTenantRole,
+    authState: member.authState as ConnectTenantMember["authState"],
+    pendingActionExpiresAt: member.pendingActionExpiresAt || null,
+    createdAt: member.createdAt
+  };
+}
+
+function invitationResultFromProto(
+  invitation: ProtoInvitationResult
+): ConnectInvitationResult {
+  return {
+    delivery: invitation.delivery as ConnectInvitationResult["delivery"],
+    url: invitation.url || undefined,
+    expiresAt: invitation.expiresAt
+  };
+}
+
+function auditLogFromProto(log: ProtoAuditLogEntry): ConnectAuditLogEntry {
+  return {
+    id: log.id,
+    action: log.action,
+    targetType: log.targetType,
+    targetId: log.targetId,
+    actor: log.actor,
+    createdAt: log.createdAt,
+    metadata: parseMetadata(log.metadataJson)
+  };
+}
+
+function securityIdentityFromProto(
+  identity: ProtoSecurityIdentity
+): ConnectSecurityIdentity {
+  return {
+    id: identity.id,
+    entityId: identity.entityId,
+    kind: identity.kind as ConnectSecurityIdentity["kind"],
+    name: identity.name,
+    email: identity.email || null,
+    provider: identity.provider ? (identity.provider as ConnectProvider) : null,
+    integration: identity.integration
+      ? {
+          id: identity.integration.id,
+          provider: identity.integration.provider as ConnectProvider,
+          displayName: identity.integration.displayName
+        }
+      : null,
+    role: identity.role,
+    privileged: identity.privileged,
+    mfaEnabled: identity.mfaEnabled,
+    status: identity.status as ConnectSecurityIdentity["status"],
+    isExternal: identity.isExternal,
+    lastObservedAt: identity.lastObservedAt || null,
+    linkedAssetCount: identity.linkedAssetCount,
+    riskScore: identity.riskScore
+  };
+}
+
+function securityGraphNodeFromProto(node: ProtoSecurityGraphNode) {
+  return {
+    id: node.id,
+    label: node.label,
+    kind: node.kind,
+    riskScore: node.riskScore,
+    privileged: node.privileged,
+    exposureLevel: node.exposureLevel,
+    criticality: node.criticality
+  };
+}
+
+function securityGraphEdgeFromProto(edge: ProtoSecurityGraphEdge) {
+  return {
+    id: edge.id,
+    sourceId: edge.sourceId,
+    targetId: edge.targetId,
+    relationshipType: edge.relationshipType
+  };
+}
+
+function securityGraphFromProto(graph?: ProtoSecurityGraph | null) {
+  return {
+    nodes: graph?.nodes.map(securityGraphNodeFromProto) ?? [],
+    edges: graph?.edges.map(securityGraphEdgeFromProto) ?? []
+  };
+}
+
+function securityOverviewFromProto(
+  overview: ProtoSecurityOverview
+): ConnectSecurityOverview {
+  return {
+    summary: {
+      privilegedIdentities: overview.summary?.privilegedIdentities ?? 0,
+      adminIdentitiesWithoutMfa:
+        overview.summary?.adminIdentitiesWithoutMfa ?? 0,
+      riskyOauthApps: overview.summary?.riskyOauthApps ?? 0,
+      exposedDataAssets: overview.summary?.exposedDataAssets ?? 0,
+      unownedAssets: overview.summary?.unownedAssets ?? 0,
+      activeExceptions: overview.summary?.activeExceptions ?? 0,
+      topBlastRadiusScore: overview.summary?.topBlastRadiusScore ?? 0
+    },
+    identities: overview.identities.map(securityIdentityFromProto),
+    graph: securityGraphFromProto(overview.graph),
+    oauthApps: overview.oauthApps.map(securityAssetFromProto),
+    dataAssets: overview.dataAssets.map(securityAssetFromProto),
+    attackPaths: overview.attackPaths.map((path) => ({
+      id: path.id,
+      title: path.title,
+      score: path.score,
+      findingTitle: path.findingTitle,
+      entryPoint: path.entryPoint,
+      target: path.target,
+      owner: path.owner,
+      exposureLevel: path.exposureLevel,
+      criticality: path.criticality,
+      reason: path.reason,
+      path: path.path
+    })),
+    ownershipGaps: overview.ownershipGaps.map(securityAssetFromProto),
+    exceptions: overview.exceptions.map(riskExceptionFromProto),
+    domainWideDelegations: overview.domainWideDelegations.map((delegation) => ({
+      integrationId: delegation.integrationId,
+      provider: delegation.provider as "GOOGLE_WORKSPACE",
+      displayName: delegation.displayName,
+      workspaceDomain: delegation.workspaceDomain,
+      serviceAccountClientEmail:
+        delegation.serviceAccountClientEmail || null,
+      scopes: delegation.scopes,
+      status: delegation.status as "ENABLED" | "NOT_CONFIGURED",
+      integrationStatus: delegation.integrationStatus as
+        | "CONNECTED"
+        | "DISABLED"
+        | "ERROR",
+      mode: delegation.mode as "READ_ONLY" | "REMEDIATION",
+      openMailboxFindings: delegation.openMailboxFindings,
+      lastSyncAt: delegation.lastSyncAt || null,
+      configuredAt: delegation.configuredAt
+    }))
+  };
+}
+
 export const aperioConnectClient = {
   async callApi<T>(input: {
     method: string;
@@ -668,6 +1128,140 @@ export const aperioConnectClient = {
       bodyJson: input.body === undefined ? "" : JSON.stringify(input.body)
     });
     return JSON.parse(response.bodyJson || "{}") as T;
+  },
+  async signup(payload: {
+    organizationName: string;
+    organizationSlug: string;
+    notificationEmail?: string;
+    ownerEmail: string;
+    ownerDisplayName?: string;
+    password: string;
+  }): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.signup({
+      organizationName: payload.organizationName,
+      organizationSlug: payload.organizationSlug,
+      notificationEmail: payload.notificationEmail ?? "",
+      ownerEmail: payload.ownerEmail,
+      ownerDisplayName: payload.ownerDisplayName ?? "",
+      password: payload.password
+    });
+    if (!response.data) {
+      throw new Error("Signup failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async login(payload: {
+    organizationSlug: string;
+    email: string;
+    password: string;
+    totpCode?: string;
+  }): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.login({
+      organizationSlug: payload.organizationSlug,
+      email: payload.email,
+      password: payload.password,
+      totpCode: payload.totpCode ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Login failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async getCurrentSession(): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.getCurrentSession({});
+    if (!response.data) {
+      throw new Error("Session unavailable");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async logoutCurrentSession(): Promise<{ data: { ok: boolean } }> {
+    const response = await client.logoutCurrentSession({});
+    return { data: { ok: response.data?.ok ?? true } };
+  },
+  async listWorkspaces(): Promise<{ data: ConnectWorkspaceMembership[] }> {
+    const response = await client.listWorkspaces({});
+    return { data: response.data.map(workspaceMembershipFromProto) };
+  },
+  async switchWorkspace(
+    organizationSlug: string,
+    totpCode?: string
+  ): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.switchWorkspace({
+      organizationSlug,
+      totpCode: totpCode ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Workspace switch failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async requestPasswordReset(payload: {
+    organizationSlug: string;
+    email: string;
+  }): Promise<{ data: ConnectPasswordResetResult }> {
+    const response = await client.requestPasswordReset({
+      organizationSlug: payload.organizationSlug,
+      email: payload.email
+    });
+    if (!response.data) {
+      throw new Error("Password reset request failed");
+    }
+    return { data: passwordResetResultFromProto(response.data) };
+  },
+  async resetPassword(payload: {
+    token: string;
+    password: string;
+  }): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.resetPassword({
+      token: payload.token,
+      password: payload.password
+    });
+    if (!response.data) {
+      throw new Error("Password reset failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async acceptInvite(payload: {
+    token: string;
+    displayName?: string;
+    password: string;
+  }): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.acceptInvite({
+      token: payload.token,
+      displayName: payload.displayName ?? "",
+      password: payload.password
+    });
+    if (!response.data) {
+      throw new Error("Invite accept failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async beginMfaEnrollment(): Promise<{ data: ConnectMfaEnrollment }> {
+    const response = await client.beginMfaEnrollment({});
+    if (!response.data) {
+      throw new Error("MFA setup failed");
+    }
+    return { data: mfaEnrollmentFromProto(response.data) };
+  },
+  async enableMfa(code: string): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.enableMfa({ code });
+    if (!response.data) {
+      throw new Error("MFA enable failed");
+    }
+    return { data: authSessionFromProto(response.data) };
+  },
+  async disableMfa(payload: {
+    password: string;
+    code?: string;
+  }): Promise<{ data: ConnectAuthSession }> {
+    const response = await client.disableMfa({
+      password: payload.password,
+      code: payload.code ?? ""
+    });
+    if (!response.data) {
+      throw new Error("MFA disable failed");
+    }
+    return { data: authSessionFromProto(response.data) };
   },
   checkHealth() {
     return client.checkHealth({});
@@ -926,6 +1520,90 @@ export const aperioConnectClient = {
       }
     };
   },
+  async getTenantSettings(): Promise<{ data: ConnectTenantSettings }> {
+    const response = await client.getTenantSettings({});
+    if (!response.data) {
+      throw new Error("Tenant settings unavailable");
+    }
+    return { data: tenantSettingsFromProto(response.data) };
+  },
+  async updateTenantSettings(
+    payload: ConnectTenantSettingsUpdate
+  ): Promise<{ data: ConnectTenantSettings }> {
+    const response = await client.updateTenantSettings({
+      name: payload.name,
+      notificationEmail: payload.notificationEmail,
+      dataRetentionDays: payload.dataRetentionDays,
+      criticalRiskThreshold: payload.criticalRiskThreshold,
+      defaultSlaHours: payload.defaultSlaHours,
+      autoResolveLowSeverity: payload.autoResolveLowSeverity,
+      enforceSsoOnly: payload.enforceSsoOnly,
+      webhookAlertUrl: payload.webhookAlertUrl
+    });
+    if (!response.data) {
+      throw new Error("Tenant settings update failed");
+    }
+    return { data: tenantSettingsFromProto(response.data) };
+  },
+  async listTenantMembers(): Promise<{ data: ConnectTenantMember[] }> {
+    const response = await client.listTenantMembers({});
+    return { data: response.data.map(tenantMemberFromProto) };
+  },
+  async createTenantMember(payload: {
+    email: string;
+    displayName?: string;
+    roleName: ConnectTenantRole;
+  }): Promise<{
+    data: ConnectTenantMember;
+    invitation: ConnectInvitationResult;
+  }> {
+    const response = await client.createTenantMember({
+      email: payload.email,
+      displayName: payload.displayName ?? "",
+      roleName: payload.roleName
+    });
+    if (!response.data || !response.invitation) {
+      throw new Error("Tenant member create failed");
+    }
+    return {
+      data: tenantMemberFromProto(response.data),
+      invitation: invitationResultFromProto(response.invitation)
+    };
+  },
+  async createMemberResetLink(id: string): Promise<{
+    data: ConnectTenantMember;
+    reset: ConnectInvitationResult;
+  }> {
+    const response = await client.createMemberResetLink({ id });
+    if (!response.data || !response.reset) {
+      throw new Error("Member reset link create failed");
+    }
+    return {
+      data: tenantMemberFromProto(response.data),
+      reset: invitationResultFromProto(response.reset)
+    };
+  },
+  async updateMemberRole(
+    id: string,
+    roleName: ConnectTenantRole
+  ): Promise<{ data: ConnectTenantMember }> {
+    const response = await client.updateMemberRole({ id, roleName });
+    if (!response.data) {
+      throw new Error("Member role update failed");
+    }
+    return { data: tenantMemberFromProto(response.data) };
+  },
+  async listAuditLogs(): Promise<{ data: ConnectAuditLogEntry[] }> {
+    const response = await client.listAuditLogs({});
+    return { data: response.data.map(auditLogFromProto) };
+  },
+  async getSecurityOverview(): Promise<{ data: ConnectSecurityOverview }> {
+    const response = await client.getSecurityOverview({});
+    if (!response.data) {
+      throw new Error("Security overview unavailable");
+    }
+    return { data: securityOverviewFromProto(response.data) };
+  },
   async listSecurityAssets(
     filters?: ConnectSecurityAssetsFilters
   ): Promise<{ data: ConnectSecurityAsset[] }> {
@@ -936,8 +1614,98 @@ export const aperioConnectClient = {
     });
     return { data: response.data.map(securityAssetFromProto) };
   },
+  async createSecurityAsset(
+    payload: ConnectCreateSecurityAssetPayload
+  ): Promise<{ data: ConnectSecurityAsset }> {
+    const response = await client.createSecurityAsset({
+      integrationId: payload.integrationId ?? "",
+      ownerUserId: payload.ownerUserId ?? "",
+      businessOwnerUserId: payload.businessOwnerUserId ?? "",
+      type: payload.type,
+      provider: payload.provider ?? "",
+      name: payload.name,
+      summary: payload.summary ?? "",
+      externalId: payload.externalId ?? "",
+      labels: payload.labels,
+      criticality: payload.criticality,
+      exposureLevel: payload.exposureLevel,
+      ownershipStatus: payload.ownershipStatus ?? "",
+      containsSensitiveData: payload.containsSensitiveData,
+      isPrivileged: payload.isPrivileged,
+      riskScore: payload.riskScore,
+      lastObservedAt: payload.lastObservedAt ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Security asset create failed");
+    }
+    return { data: securityAssetFromProto(response.data) };
+  },
+  async updateSecurityAsset(
+    id: string,
+    payload: ConnectUpdateSecurityAssetPayload
+  ): Promise<{ data: ConnectSecurityAsset }> {
+    const response = await client.updateSecurityAsset({
+      id,
+      integrationId: payload.integrationId,
+      ownerUserId: payload.ownerUserId,
+      businessOwnerUserId: payload.businessOwnerUserId,
+      type: payload.type,
+      provider: payload.provider,
+      name: payload.name,
+      summary: payload.summary,
+      externalId: payload.externalId,
+      labels: payload.labels ?? [],
+      labelsPresent: payload.labels !== undefined,
+      criticality: payload.criticality,
+      exposureLevel: payload.exposureLevel,
+      ownershipStatus: payload.ownershipStatus,
+      containsSensitiveData: payload.containsSensitiveData,
+      isPrivileged: payload.isPrivileged,
+      riskScore: payload.riskScore,
+      lastObservedAt: payload.lastObservedAt
+    });
+    if (!response.data) {
+      throw new Error("Security asset update failed");
+    }
+    return { data: securityAssetFromProto(response.data) };
+  },
   async listRiskExceptions(): Promise<{ data: ConnectRiskException[] }> {
     const response = await client.listRiskExceptions({});
     return { data: response.data.map(riskExceptionFromProto) };
+  },
+  async createRiskException(
+    payload: ConnectCreateRiskExceptionPayload
+  ): Promise<{ data: ConnectRiskException }> {
+    const response = await client.createRiskException({
+      assetId: payload.assetId ?? "",
+      findingId: payload.findingId ?? "",
+      title: payload.title,
+      rationale: payload.rationale,
+      compensatingControls: payload.compensatingControls,
+      expiresAt: payload.expiresAt ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Risk exception create failed");
+    }
+    return { data: riskExceptionFromProto(response.data) };
+  },
+  async updateRiskException(
+    id: string,
+    payload: ConnectUpdateRiskExceptionPayload
+  ): Promise<{ data: ConnectRiskException }> {
+    const response = await client.updateRiskException({
+      id,
+      title: payload.title,
+      rationale: payload.rationale,
+      compensatingControls: payload.compensatingControls ?? [],
+      compensatingControlsPresent:
+        payload.compensatingControls !== undefined,
+      status: payload.status,
+      expiresAt: payload.expiresAt
+    });
+    if (!response.data) {
+      throw new Error("Risk exception update failed");
+    }
+    return { data: riskExceptionFromProto(response.data) };
   }
 };

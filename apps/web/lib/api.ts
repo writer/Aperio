@@ -50,20 +50,6 @@ export function clearAuthToken() {
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // Legacy web helpers still speak REST-shaped paths. The Connect client tunnels
-  // them through CallApi until each endpoint has a first-class protobuf method.
-  const body =
-    typeof init?.body === "string" && init.body.length > 0
-      ? JSON.parse(init.body)
-      : undefined;
-  return aperioConnectClient.callApi<T>({
-    method: init?.method ?? "GET",
-    path,
-    body
-  });
-}
-
 export type DashboardMetrics = {
   totalRiskScore: number;
   openCriticalFindings: number;
@@ -281,28 +267,21 @@ export type RemediationResult = {
 };
 
 export async function signup(payload: SignupPayload) {
-  return request<{ data: AuthSession }>("/api/v1/auth/signup", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.signup(payload) as Promise<{ data: AuthSession }>;
 }
 
 export async function login(payload: LoginPayload) {
-  return request<{ data: AuthSession }>("/api/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.login(payload) as Promise<{ data: AuthSession }>;
 }
 
 export async function fetchCurrentSession() {
-  return request<{ data: AuthSession }>("/api/v1/auth/me");
+  return aperioConnectClient.getCurrentSession() as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export async function logoutCurrentSession() {
-  return request<{ data: { ok: boolean } }>("/api/v1/auth/logout", {
-    method: "POST",
-    body: JSON.stringify({})
-  });
+  return aperioConnectClient.logoutCurrentSession();
 }
 
 export type WorkspaceMembership = {
@@ -314,41 +293,38 @@ export type WorkspaceMembership = {
 };
 
 export async function fetchWorkspaces() {
-  return request<{ data: WorkspaceMembership[] }>("/api/v1/auth/workspaces");
+  return aperioConnectClient.listWorkspaces() as Promise<{
+    data: WorkspaceMembership[];
+  }>;
 }
 
 export async function switchWorkspace(organizationSlug: string) {
-  return request<{ data: AuthSession }>("/api/v1/auth/workspaces/switch", {
-    method: "POST",
-    body: JSON.stringify({ organizationSlug })
-  });
+  return aperioConnectClient.switchWorkspace(organizationSlug) as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export async function requestPasswordReset(payload: {
   organizationSlug: string;
   email: string;
 }) {
-  return request<{
+  return aperioConnectClient.requestPasswordReset(payload) as Promise<{
     data: {
       accepted: boolean;
       delivery?: "manual_link" | "email";
       resetUrl?: string;
       expiresAt?: string;
     };
-  }>("/api/v1/auth/forgot-password", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  }>;
 }
 
 export async function resetPassword(payload: {
   token: string;
   password: string;
 }) {
-  return request<{ data: AuthSession }>("/api/v1/auth/reset-password", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.resetPassword(payload) as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export async function acceptInvite(payload: {
@@ -356,13 +332,9 @@ export async function acceptInvite(payload: {
   displayName?: string;
   password: string;
 }) {
-  return request<{ data: AuthSession }>(
-    "/api/v1/auth/invitations/accept",
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.acceptInvite(payload) as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export type MfaEnrollment = {
@@ -371,27 +343,24 @@ export type MfaEnrollment = {
 };
 
 export async function beginMfaEnrollment() {
-  return request<{ data: MfaEnrollment }>("/api/v1/auth/mfa/setup", {
-    method: "POST",
-    body: JSON.stringify({})
-  });
+  return aperioConnectClient.beginMfaEnrollment() as Promise<{
+    data: MfaEnrollment;
+  }>;
 }
 
 export async function enableMfa(code: string) {
-  return request<{ data: AuthSession }>("/api/v1/auth/mfa/enable", {
-    method: "POST",
-    body: JSON.stringify({ code })
-  });
+  return aperioConnectClient.enableMfa(code) as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export async function disableMfa(payload: {
   password: string;
   code?: string;
 }) {
-  return request<{ data: AuthSession }>("/api/v1/auth/mfa/disable", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.disableMfa(payload) as Promise<{
+    data: AuthSession;
+  }>;
 }
 
 export async function fetchDashboardMetrics() {
@@ -812,18 +781,21 @@ export type TenantSettingsUpdate = Partial<{
 }>;
 
 export async function fetchTenantSettings() {
-  return request<{ data: TenantSettings }>("/api/v1/admin/settings");
+  return aperioConnectClient.getTenantSettings() as Promise<{
+    data: TenantSettings;
+  }>;
 }
 
 export async function updateTenantSettings(payload: TenantSettingsUpdate) {
-  return request<{ data: TenantSettings }>("/api/v1/admin/settings", {
-    method: "PATCH",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.updateTenantSettings(payload) as Promise<{
+    data: TenantSettings;
+  }>;
 }
 
 export async function fetchTenantMembers() {
-  return request<{ data: TenantMember[] }>("/api/v1/admin/members");
+  return aperioConnectClient.listTenantMembers() as Promise<{
+    data: TenantMember[];
+  }>;
 }
 
 export type CreateMemberPayload = {
@@ -839,41 +811,35 @@ export type InvitationResult = {
 };
 
 export async function createTenantMember(payload: CreateMemberPayload) {
-  return request<{ data: TenantMember; invitation: InvitationResult }>(
-    "/api/v1/admin/members",
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.createTenantMember(payload) as Promise<{
+    data: TenantMember;
+    invitation: InvitationResult;
+  }>;
 }
 
 export async function createMemberResetLink(id: string) {
-  return request<{ data: TenantMember; reset: InvitationResult }>(
-    `/api/v1/admin/members/${encodeURIComponent(id)}/reset-link`,
-    {
-    method: "POST",
-      body: JSON.stringify({})
-    }
-  );
+  return aperioConnectClient.createMemberResetLink(id) as Promise<{
+    data: TenantMember;
+    reset: InvitationResult;
+  }>;
 }
 
 export async function updateMemberRole(id: string, roleName: TenantRole) {
-  return request<{ data: TenantMember }>(
-    `/api/v1/admin/members/${encodeURIComponent(id)}/role`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ roleName })
-    }
-  );
+  return aperioConnectClient.updateMemberRole(id, roleName) as Promise<{
+    data: TenantMember;
+  }>;
 }
 
 export async function fetchAuditLogs() {
-  return request<{ data: AuditLogEntry[] }>("/api/v1/admin/audit-logs");
+  return aperioConnectClient.listAuditLogs() as Promise<{
+    data: AuditLogEntry[];
+  }>;
 }
 
 export async function fetchSecurityOverview() {
-  return request<{ data: SecurityOverview }>("/api/v1/security/overview");
+  return aperioConnectClient.getSecurityOverview() as Promise<{
+    data: SecurityOverview;
+  }>;
 }
 
 export async function fetchSecurityAssets() {
@@ -883,23 +849,18 @@ export async function fetchSecurityAssets() {
 }
 
 export async function createSecurityAsset(payload: CreateSecurityAssetPayload) {
-  return request<{ data: SecurityAsset }>("/api/v1/security/assets", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.createSecurityAsset(payload) as Promise<{
+    data: SecurityAsset;
+  }>;
 }
 
 export async function updateSecurityAsset(
   id: string,
   payload: UpdateSecurityAssetPayload
 ) {
-  return request<{ data: SecurityAsset }>(
-    `/api/v1/security/assets/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.updateSecurityAsset(id, payload) as Promise<{
+    data: SecurityAsset;
+  }>;
 }
 
 export async function fetchRiskExceptions() {
@@ -909,23 +870,18 @@ export async function fetchRiskExceptions() {
 }
 
 export async function createRiskException(payload: CreateRiskExceptionPayload) {
-  return request<{ data: RiskException }>("/api/v1/security/exceptions", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.createRiskException(payload) as Promise<{
+    data: RiskException;
+  }>;
 }
 
 export async function updateRiskException(
   id: string,
   payload: UpdateRiskExceptionPayload
 ) {
-  return request<{ data: RiskException }>(
-    `/api/v1/security/exceptions/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.updateRiskException(id, payload) as Promise<{
+    data: RiskException;
+  }>;
 }
 
 export type ShadowItOauthApp = {

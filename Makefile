@@ -112,10 +112,20 @@ worker-ingestion: require-env ## Run the ingestion worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) npx tsx workers/ingestion-worker.ts
 
+.PHONY: worker-ingestion-go
+worker-ingestion-go: require-env ## Run the Go ingestion worker
+	@$(MAKE) --no-print-directory db-up
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/ingestion-worker
+
 .PHONY: worker-siem
 worker-siem: require-env ## Run the SIEM dispatcher worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) npx tsx workers/siem-dispatcher.ts
+
+.PHONY: worker-siem-go
+worker-siem-go: require-env ## Run the Go SIEM dispatcher worker
+	@$(MAKE) --no-print-directory db-up
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/siem-dispatcher
 
 .PHONY: mcp
 mcp: require-env ## Run the stdio MCP broker
