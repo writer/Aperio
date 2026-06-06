@@ -79,12 +79,42 @@ jobs:
 
   go-connect:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aperio
+          POSTGRES_PASSWORD: aperio
+          POSTGRES_DB: aperio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aperio -d aperio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://aperio:aperio@127.0.0.1:5432/aperio?schema=public
+      APERIO_TEST_DATABASE_URL: postgresql://aperio:aperio@127.0.0.1:5432/aperio?sslmode=disable
+      APERIO_ENCRYPTION_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APERIO_AUTH_SECRET: ci-auth-secret-at-least-thirty-two-chars
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:generate
+
+      - run: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
 
       - run: go mod download
 

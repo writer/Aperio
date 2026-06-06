@@ -69,8 +69,18 @@ func resolveGoogleOAuthConfig() *googleOAuthConfig {
 	if clientID == "" || clientSecret == "" || redirectURI == "" {
 		return nil
 	}
-	webOrigin := strings.TrimRight(envOrDefault("APERIO_WEB_ORIGIN", envOrDefault("NEXT_PUBLIC_APP_BASE_URL", "http://localhost:3000")), "/")
+	webOrigin := firstConfiguredWebOrigin(envOrDefault("APERIO_WEB_ORIGIN", envOrDefault("NEXT_PUBLIC_APP_BASE_URL", "http://localhost:3000")))
 	return &googleOAuthConfig{clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI, webOrigin: webOrigin}
+}
+
+func firstConfiguredWebOrigin(raw string) string {
+	for _, candidate := range strings.Split(raw, ",") {
+		origin := strings.TrimRight(strings.TrimSpace(candidate), "/")
+		if origin != "" {
+			return origin
+		}
+	}
+	return "http://localhost:3000"
 }
 
 func oauthStateSecret() ([]byte, error) {
@@ -189,7 +199,7 @@ func (a *App) compatGoogleOAuthStart(body map[string]any, auth compatAuth) (any,
 
 func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	config := resolveGoogleOAuthConfig()
-	fallbackOrigin := strings.TrimRight(envOrDefault("APERIO_WEB_ORIGIN", "http://localhost:3000"), "/")
+	fallbackOrigin := firstConfiguredWebOrigin(envOrDefault("APERIO_WEB_ORIGIN", "http://localhost:3000"))
 	if config != nil {
 		fallbackOrigin = config.webOrigin
 	}
@@ -223,6 +233,19 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 		redirectError(err.Error())
 		return
 	}
+	liveAuth, err := a.compatAuthFromSession(r.Context(), r.Header)
+	if err != nil {
+		redirectError("OAuth session expired. Please sign in and reconnect Google Workspace.")
+		return
+	}
+	if liveAuth.OrganizationID != state.OrganizationID || liveAuth.UserID != state.UserID {
+		redirectError("OAuth session changed. Please restart Google Workspace connection.")
+		return
+	}
+	if err := requireCompatRole(liveAuth, "OWNER", "ADMIN"); err != nil {
+		redirectError("Insufficient permissions to connect Google Workspace.")
+		return
+	}
 	tokens, err := exchangeGoogleAuthCode(r.Context(), config, code)
 	if err != nil {
 		redirectError("Unable to exchange Google authorization code")
@@ -250,8 +273,8 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := a.upsertGoogleWorkspaceIntegration(r.Context(), googleIntegrationUpsert{
-		organizationID:    state.OrganizationID,
-		userID:            state.UserID,
+		organizationID:    liveAuth.OrganizationID,
+		userID:            liveAuth.UserID,
 		externalAccountID: hostedDomain,
 		displayName:       "Google Workspace – " + hostedDomain,
 		mode:              state.Mode,

@@ -199,9 +199,7 @@ func computeSecurityOverview(
 		if asset.Type == "APPLICATION" && asset.IntegrationID != "" {
 			// The application asset represents the SaaS control plane for a
 			// provider connection; child assets and identities route through it.
-			if _, exists := applicationByIntegration[asset.IntegrationID]; !exists {
-				applicationByIntegration[asset.IntegrationID] = asset
-			}
+			applicationByIntegration[asset.IntegrationID] = asset
 		}
 	}
 

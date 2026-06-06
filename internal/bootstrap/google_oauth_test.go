@@ -106,6 +106,13 @@ func TestCompatGoogleOAuthStartBuildsAuthorizationURL(t *testing.T) {
 	}
 }
 
+func TestFirstConfiguredWebOriginUsesFirstCommaSeparatedOrigin(t *testing.T) {
+	origin := firstConfiguredWebOrigin(" https://app.example.com/, https://staging.example.com ")
+	if origin != "https://app.example.com" {
+		t.Fatalf("unexpected origin %q", origin)
+	}
+}
+
 func TestCompatGoogleOAuthStartUnconfigured(t *testing.T) {
 	t.Setenv("APERIO_AUTH_SECRET", testAuthSecret)
 	t.Setenv("GOOGLE_WORKSPACE_CLIENT_ID", "")

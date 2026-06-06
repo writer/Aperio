@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperio/v1/api.proto.
  */
 export const file_aperio_v1_api: GenFile = /*@__PURE__*/
-  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiQQoOQ2FsbEFwaVJlcXVlc3QSDgoGbWV0aG9kGAEgASgJEgwKBHBhdGgYAiABKAkSEQoJYm9keV9qc29uGAMgASgJIiQKD0NhbGxBcGlSZXNwb25zZRIRCglib2R5X2pzb24YASABKAkiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCSJbChlMaXN0U2VjdXJpdHlBc3NldHNSZXF1ZXN0EgwKBHR5cGUYASABKAkSGAoQb3duZXJzaGlwX3N0YXR1cxgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCSJEChpMaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlNlY3VyaXR5QXNzZXQipwQKDVNlY3VyaXR5QXNzZXQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3N1bW1hcnkYBSABKAkSEwoLZXh0ZXJuYWxfaWQYBiABKAkSDgoGbGFiZWxzGAcgAygJEhMKC2NyaXRpY2FsaXR5GAggASgJEhYKDmV4cG9zdXJlX2xldmVsGAkgASgJEhgKEG93bmVyc2hpcF9zdGF0dXMYCiABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCyABKAgSFQoNaXNfcHJpdmlsZWdlZBgMIAEoCBISCgpyaXNrX3Njb3JlGA0gASgFEhgKEGxhc3Rfb2JzZXJ2ZWRfYXQYDiABKAkSEgoKY3JlYXRlZF9hdBgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJEjIKC2ludGVncmF0aW9uGBEgASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbhIrCgVvd25lchgSIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBI0Cg5idXNpbmVzc19vd25lchgTIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIaChJvcGVuX2ZpbmRpbmdfY291bnQYFCABKAUSHgoWYWN0aXZlX2V4Y2VwdGlvbl9jb3VudBgVIAEoBSJEChFTZWN1cml0eVByaW5jaXBhbBIKCgJpZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkiGwoZTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdCJEChpMaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlJpc2tFeGNlcHRpb24iggMKDVJpc2tFeGNlcHRpb24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEQoJcmF0aW9uYWxlGAMgASgJEh0KFWNvbXBlbnNhdGluZ19jb250cm9scxgEIAMoCRIOCgZzdGF0dXMYBSABKAkSEgoKZXhwaXJlc19hdBgGIAEoCRITCgthcHByb3ZlZF9hdBgHIAEoCRISCgpjcmVhdGVkX2F0GAggASgJEhIKCnVwZGF0ZWRfYXQYCSABKAkSLAoFYXNzZXQYCiABKAsyHS5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkFzc2V0EjAKB2ZpbmRpbmcYCyABKAsyHy5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkZpbmRpbmcSMAoKY3JlYXRlZF9ieRgMIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIxCgthcHByb3ZlZF9ieRgNIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbCI8ChJSaXNrRXhjZXB0aW9uQXNzZXQSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJIlMKFFJpc2tFeGNlcHRpb25GaW5kaW5nEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEhAKCHNldmVyaXR5GAMgASgJEg4KBnN0YXR1cxgEIAEoCTKUCAoNQXBlcmlvU2VydmljZRJACgdDYWxsQXBpEhkuYXBlcmlvLnYxLkNhbGxBcGlSZXF1ZXN0GhouYXBlcmlvLnYxLkNhbGxBcGlSZXNwb25zZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZRJbChBMaXN0SW50ZWdyYXRpb25zEiIuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0GiMuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRJnChRMaXN0U2llbURlc3RpbmF0aW9ucxImLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QaJy5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRJqChVMaXN0U2hhZG93SXRPYXV0aEFwcHMSJy5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVxdWVzdBooLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXNwb25zZRJ5ChpMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50cxIsLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QaLS5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRJhChJMaXN0U2VjdXJpdHlBc3NldHMSJC5hcGVyaW8udjEuTGlzdFNlY3VyaXR5QXNzZXRzUmVxdWVzdBolLmFwZXJpby52MS5MaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRJhChJMaXN0Umlza0V4Y2VwdGlvbnMSJC5hcGVyaW8udjEuTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdBolLmFwZXJpby52MS5MaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiQQoOQ2FsbEFwaVJlcXVlc3QSDgoGbWV0aG9kGAEgASgJEgwKBHBhdGgYAiABKAkSEQoJYm9keV9qc29uGAMgASgJIiQKD0NhbGxBcGlSZXNwb25zZRIRCglib2R5X2pzb24YASABKAkiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmciUQoaVXBkYXRlRmluZGluZ1N0YXR1c1JlcXVlc3QSCgoCaWQYASABKAkSDgoGc3RhdHVzGAIgASgJEhcKD3Jlc29sdXRpb25fbm90ZRgDIAEoCSJLChtVcGRhdGVGaW5kaW5nU3RhdHVzUmVzcG9uc2USLAoEZGF0YRgBIAEoCzIeLmFwZXJpby52MS5GaW5kaW5nU3RhdHVzVXBkYXRlIjEKE0ZpbmRpbmdTdGF0dXNVcGRhdGUSCgoCaWQYASABKAkSDgoGc3RhdHVzGAIgASgJImYKF1JlbWVkaWF0ZUZpbmRpbmdSZXF1ZXN0EhIKCmZpbmRpbmdfaWQYASABKAkSDgoGYWN0aW9uGAIgASgJEhkKEXRhcmdldF9pZGVudGlmaWVyGAMgASgJEgwKBG5vdGUYBCABKAkiRgoYUmVtZWRpYXRlRmluZGluZ1Jlc3BvbnNlEioKBGRhdGEYASABKAsyHC5hcGVyaW8udjEuUmVtZWRpYXRpb25SZXN1bHQihwEKEVJlbWVkaWF0aW9uUmVzdWx0EhIKCmZpbmRpbmdfaWQYASABKAkSDgoGYWN0aW9uGAIgASgJEg8KB3N1Y2Nlc3MYAyABKAgSDwoHbWVzc2FnZRgEIAEoCRIbChNwcm92aWRlcl9yZXF1ZXN0X2lkGAUgASgJEg8KB2VmZmVjdHMYBiADKAkikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIdChtMaXN0Q29ubmVjdG9yQ2F0YWxvZ1JlcXVlc3QiTAocTGlzdENvbm5lY3RvckNhdGFsb2dSZXNwb25zZRIsCgRkYXRhGAEgAygLMh4uYXBlcmlvLnYxLkNvbm5lY3RvckRlZmluaXRpb24i5AIKE0Nvbm5lY3RvckRlZmluaXRpb24SEAoIcHJvdmlkZXIYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjYXRlZ29yeRgDIAEoCRIUCgxhdmFpbGFiaWxpdHkYBCABKAkSFgoOcmVhZGluZXNzX25vdGUYBSABKAkSEwoLZGVzY3JpcHRpb24YBiABKAkSEwoLcmVhZF9zY29wZXMYByADKAkSGgoScmVtZWRpYXRpb25fc2NvcGVzGAggAygJEjkKE3JlbWVkaWF0aW9uX2FjdGlvbnMYCSADKAsyHC5hcGVyaW8udjEuUmVtZWRpYXRpb25BY3Rpb24SLwoOZmluZGluZ19jaGVja3MYCiADKAsyFy5hcGVyaW8udjEuRmluZGluZ0NoZWNrEhAKCGRvY3NfdXJsGAsgASgJEikKBmZpZWxkcxgMIAMoCzIZLmFwZXJpby52MS5Db25uZWN0b3JGaWVsZCKBAQoOQ29ubmVjdG9yRmllbGQSCwoDa2V5GAEgASgJEg0KBWxhYmVsGAIgASgJEhMKC3BsYWNlaG9sZGVyGAMgASgJEg4KBmhlbHBlchgEIAEoCRIMCgR0eXBlGAUgASgJEhAKCHJlcXVpcmVkGAYgASgIEg4KBnNlY3JldBgHIAEoCCJbChFSZW1lZGlhdGlvbkFjdGlvbhILCgNrZXkYASABKAkSDQoFbGFiZWwYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSFQoNc2V2ZXJpdHlfaGludBgEIAEoCSJvCgxGaW5kaW5nQ2hlY2sSCwoDa2V5GAEgASgJEg0KBXRpdGxlGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEhUKDXNldmVyaXR5X2hpbnQYBCABKAkSFwoPZGVmYXVsdF9lbmFibGVkGAUgASgIIhkKF0xpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0IkoKGExpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRIuCgRkYXRhGAEgAygLMiAuYXBlcmlvLnYxLkludGVncmF0aW9uQ29ubmVjdGlvbiKoAgoVSW50ZWdyYXRpb25Db25uZWN0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIbChNleHRlcm5hbF9hY2NvdW50X2lkGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRtb2RlGAYgASgJEg4KBnNjb3BlcxgHIAMoCRIXCg9kaXNhYmxlZF9jaGVja3MYCCADKAkSIwobZ29vZ2xlX21haWxib3hfc2Nhbl9lbmFibGVkGAkgASgIEigKIGdvb2dsZV9tYWlsYm94X3NjYW5fY2xpZW50X2VtYWlsGAogASgJEhQKDGxhc3Rfc3luY19hdBgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJIqUBChhDcmVhdGVJbnRlZ3JhdGlvblJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhsKE2V4dGVybmFsX2FjY291bnRfaWQYAyABKAkSDAoEbW9kZRgEIAEoCRI2CgtjcmVkZW50aWFscxgFIAEoCzIhLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNyZWRlbnRpYWxzIl0KFkludGVncmF0aW9uQ3JlZGVudGlhbHMSFAoMYWNjZXNzX3Rva2VuGAEgASgJEhUKDXJlZnJlc2hfdG9rZW4YAiABKAkSFgoOd2ViaG9va19zZWNyZXQYAyABKAkiSwoZQ3JlYXRlSW50ZWdyYXRpb25SZXNwb25zZRIuCgRkYXRhGAEgASgLMiAuYXBlcmlvLnYxLkludGVncmF0aW9uQ29ubmVjdGlvbiImChhEZWxldGVJbnRlZ3JhdGlvblJlcXVlc3QSCgoCaWQYASABKAkiQgoZRGVsZXRlSW50ZWdyYXRpb25SZXNwb25zZRIlCgRkYXRhGAEgASgLMhcuYXBlcmlvLnYxLkRlbGV0ZVJlc3VsdCIaCgxEZWxldGVSZXN1bHQSCgoCb2sYASABKAgiNQobR2V0SW50ZWdyYXRpb25DaGVja3NSZXF1ZXN0EhYKDmludGVncmF0aW9uX2lkGAEgASgJIk4KHEdldEludGVncmF0aW9uQ2hlY2tzUmVzcG9uc2USLgoEZGF0YRgBIAEoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNoZWNrU3RhdGUiUQoeVXBkYXRlSW50ZWdyYXRpb25DaGVja3NSZXF1ZXN0EhYKDmludGVncmF0aW9uX2lkGAEgASgJEhcKD2Rpc2FibGVkX2NoZWNrcxgCIAMoCSJRCh9VcGRhdGVJbnRlZ3JhdGlvbkNoZWNrc1Jlc3BvbnNlEi4KBGRhdGEYASABKAsyIC5hcGVyaW8udjEuSW50ZWdyYXRpb25DaGVja1N0YXRlIncKFUludGVncmF0aW9uQ2hlY2tTdGF0ZRIWCg5pbnRlZ3JhdGlvbl9pZBgBIAEoCRIXCg9kaXNhYmxlZF9jaGVja3MYAiADKAkSLQoGY2hlY2tzGAMgAygLMh0uYXBlcmlvLnYxLkZpbmRpbmdDaGVja1N0YXR1cyKGAQoSRmluZGluZ0NoZWNrU3RhdHVzEgsKA2tleRgBIAEoCRINCgV0aXRsZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIVCg1zZXZlcml0eV9oaW50GAQgASgJEhcKD2RlZmF1bHRfZW5hYmxlZBgFIAEoCBIPCgdlbmFibGVkGAYgASgIIjsKIUdldEdvb2dsZU1haWxib3hTY2FuQ29uZmlnUmVxdWVzdBIWCg5pbnRlZ3JhdGlvbl9pZBgBIAEoCSJWCiJHZXRHb29nbGVNYWlsYm94U2NhbkNvbmZpZ1Jlc3BvbnNlEjAKBGRhdGEYASABKAsyIi5hcGVyaW8udjEuR29vZ2xlTWFpbGJveFNjYW5Db25maWciigEKJFVwZGF0ZUdvb2dsZU1haWxib3hTY2FuQ29uZmlnUmVxdWVzdBIWCg5pbnRlZ3JhdGlvbl9pZBgBIAEoCRIPCgdlbmFibGVkGAIgASgIEiQKHHNlcnZpY2VfYWNjb3VudF9jbGllbnRfZW1haWwYAyABKAkSEwoLcHJpdmF0ZV9rZXkYBCABKAkiWQolVXBkYXRlR29vZ2xlTWFpbGJveFNjYW5Db25maWdSZXNwb25zZRIwCgRkYXRhGAEgASgLMiIuYXBlcmlvLnYxLkdvb2dsZU1haWxib3hTY2FuQ29uZmlnIlAKF0dvb2dsZU1haWxib3hTY2FuQ29uZmlnEg8KB2VuYWJsZWQYASABKAgSJAocc2VydmljZV9hY2NvdW50X2NsaWVudF9lbWFpbBgCIAEoCSIwCiBTdGFydEdvb2dsZVdvcmtzcGFjZU9BdXRoUmVxdWVzdBIMCgRtb2RlGAEgASgJIkgKIVN0YXJ0R29vZ2xlV29ya3NwYWNlT0F1dGhSZXNwb25zZRIjCgRkYXRhGAEgASgLMhUuYXBlcmlvLnYxLk9BdXRoU3RhcnQiGQoKT0F1dGhTdGFydBILCgN1cmwYASABKAkiNQobRm9yY2VTeW5jSW50ZWdyYXRpb25SZXF1ZXN0EhYKDmludGVncmF0aW9uX2lkGAEgASgJInQKHEZvcmNlU3luY0ludGVncmF0aW9uUmVzcG9uc2USLgoEZGF0YRgBIAEoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24SJAoEc3luYxgCIAEoCzIWLmFwZXJpby52MS5TeW5jU3VtbWFyeSJmCgtTeW5jU3VtbWFyeRIUCgxzYW1wbGVfY291bnQYASABKAUSFwoPZXZlbnRzX2luZ2VzdGVkGAIgASgFEhcKD2ZpbmRpbmdzX29wZW5lZBgDIAEoBRIPCgdzb3VyY2VzGAQgAygJIhgKFkxpc3RTaWVtQ2F0YWxvZ1JlcXVlc3QiTQoXTGlzdFNpZW1DYXRhbG9nUmVzcG9uc2USMgoEZGF0YRgBIAMoCzIkLmFwZXJpby52MS5TaWVtRGVzdGluYXRpb25EZWZpbml0aW9uIr8BChlTaWVtRGVzdGluYXRpb25EZWZpbml0aW9uEgwKBGtpbmQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZ2ZW5kb3IYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIY2F0ZWdvcnkYBSABKAkSEAoIZG9jc191cmwYBiABKAkSFwoPZGVmYXVsdF9zdHJlYW1zGAcgAygJEiQKBmZpZWxkcxgIIAMoCzIULmFwZXJpby52MS5TaWVtRmllbGQifAoJU2llbUZpZWxkEgsKA2tleRgBIAEoCRINCgVsYWJlbBgCIAEoCRITCgtwbGFjZWhvbGRlchgDIAEoCRIOCgZoZWxwZXIYBCABKAkSDAoEdHlwZRgFIAEoCRIQCghyZXF1aXJlZBgGIAEoCBIOCgZzZWNyZXQYByABKAgiHQobTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXF1ZXN0IkgKHExpc3RTaWVtRGVzdGluYXRpb25zUmVzcG9uc2USKAoEZGF0YRgBIAMoCzIaLmFwZXJpby52MS5TaWVtRGVzdGluYXRpb24ihAIKD1NpZW1EZXN0aW5hdGlvbhIKCgJpZBgBIAEoCRIMCgRraW5kGAIgASgJEgwKBG5hbWUYAyABKAkSFAoMZW5kcG9pbnRfdXJsGAQgASgJEhEKCWZpbGVfcGF0aBgFIAEoCRINCgVpbmRleBgGIAEoCRIPCgdzdHJlYW1zGAcgAygJEg4KBnN0YXR1cxgIIAEoCRIYChBsYXN0X2RlbGl2ZXJ5X2F0GAkgASgJEhIKCmxhc3RfZXJyb3IYCiABKAkSFQoNZGVsaXZlcmllc19vaxgLIAEoBRIXCg9kZWxpdmVyaWVzX2ZhaWwYDCABKAUSEgoKY3JlYXRlZF9hdBgNIAEoCSKSAQocQ3JlYXRlU2llbURlc3RpbmF0aW9uUmVxdWVzdBIMCgRraW5kGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMZW5kcG9pbnRfdXJsGAMgASgJEhEKCWZpbGVfcGF0aBgEIAEoCRINCgVpbmRleBgFIAEoCRINCgV0b2tlbhgGIAEoCRIPCgdzdHJlYW1zGAcgAygJIkkKHUNyZWF0ZVNpZW1EZXN0aW5hdGlvblJlc3BvbnNlEigKBGRhdGEYASABKAsyGi5hcGVyaW8udjEuU2llbURlc3RpbmF0aW9uIioKHERlbGV0ZVNpZW1EZXN0aW5hdGlvblJlcXVlc3QSCgoCaWQYASABKAkiRgodRGVsZXRlU2llbURlc3RpbmF0aW9uUmVzcG9uc2USJQoEZGF0YRgBIAEoCzIXLmFwZXJpby52MS5EZWxldGVSZXN1bHQiKAoaVGVzdFNpZW1EZXN0aW5hdGlvblJlcXVlc3QSCgoCaWQYASABKAkiRgobVGVzdFNpZW1EZXN0aW5hdGlvblJlc3BvbnNlEicKBGRhdGEYASABKAsyGS5hcGVyaW8udjEuU2llbVRlc3RSZXN1bHQiRQoOU2llbVRlc3RSZXN1bHQSFgoOZGVzdGluYXRpb25faWQYASABKAkSCgoCb2sYAiABKAgSDwoHbWVzc2FnZRgDIAEoCSIeChxMaXN0U2hhZG93SXRPYXV0aEFwcHNSZXF1ZXN0IkoKHUxpc3RTaGFkb3dJdE9hdXRoQXBwc1Jlc3BvbnNlEikKBGRhdGEYASADKAsyGy5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcCKwAgoQU2hhZG93SXRPYXV0aEFwcBIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIMCgRuYW1lGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSEwoLZXh0ZXJuYWxfaWQYBSABKAkSDgoGbGFiZWxzGAYgAygJEhMKC2NyaXRpY2FsaXR5GAcgASgJEh8KF2NvbnRhaW5zX3NlbnNpdGl2ZV9kYXRhGAggASgIEhIKCnJpc2tfc2NvcmUYCSABKAUSGAoQbGFzdF9vYnNlcnZlZF9hdBgKIAEoCRISCgp1c2VyX2NvdW50GAsgASgFEg4KBnNjb3BlcxgMIAMoCRIyCgtpbnRlZ3JhdGlvbhgNIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iNQohTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXF1ZXN0EhAKCGFzc2V0X2lkGAEgASgJIlUKIkxpc3RTaGFkb3dJdE9hdXRoQXBwR3JhbnRzUmVzcG9uc2USLwoEZGF0YRgBIAEoCzIhLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwRGV0YWlsIncKFlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwSKwoDYXBwGAEgASgLMh4uYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBSZWYSMAoGZ3JhbnRzGAIgAygLMiAuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBHcmFudCJWChNTaGFkb3dJdE9hdXRoQXBwUmVmEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZXh0ZXJuYWxfaWQYAyABKAkSEAoIcHJvdmlkZXIYBCABKAkivQEKFVNoYWRvd0l0T2F1dGhBcHBHcmFudBIKCgJpZBgBIAEoCRISCgp1c2VyX2VtYWlsGAIgASgJEhgKEHVzZXJfZXh0ZXJuYWxfaWQYAyABKAkSGQoRdXNlcl9kaXNwbGF5X25hbWUYBCABKAkSDgoGc2NvcGVzGAUgAygJEhEKCWFub255bW91cxgGIAEoCBISCgpuYXRpdmVfYXBwGAcgASgIEhgKEGxhc3Rfb2JzZXJ2ZWRfYXQYCCABKAkiWwoZTGlzdFNlY3VyaXR5QXNzZXRzUmVxdWVzdBIMCgR0eXBlGAEgASgJEhgKEG93bmVyc2hpcF9zdGF0dXMYAiABKAkSFgoOaW50ZWdyYXRpb25faWQYAyABKAkiRAoaTGlzdFNlY3VyaXR5QXNzZXRzUmVzcG9uc2USJgoEZGF0YRgBIAMoCzIYLmFwZXJpby52MS5TZWN1cml0eUFzc2V0IqcECg1TZWN1cml0eUFzc2V0EgoKAmlkGAEgASgJEgwKBHR5cGUYAiABKAkSEAoIcHJvdmlkZXIYAyABKAkSDAoEbmFtZRgEIAEoCRIPCgdzdW1tYXJ5GAUgASgJEhMKC2V4dGVybmFsX2lkGAYgASgJEg4KBmxhYmVscxgHIAMoCRITCgtjcml0aWNhbGl0eRgIIAEoCRIWCg5leHBvc3VyZV9sZXZlbBgJIAEoCRIYChBvd25lcnNoaXBfc3RhdHVzGAogASgJEh8KF2NvbnRhaW5zX3NlbnNpdGl2ZV9kYXRhGAsgASgIEhUKDWlzX3ByaXZpbGVnZWQYDCABKAgSEgoKcmlza19zY29yZRgNIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GA4gASgJEhIKCmNyZWF0ZWRfYXQYDyABKAkSEgoKdXBkYXRlZF9hdBgQIAEoCRIyCgtpbnRlZ3JhdGlvbhgRIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24SKwoFb3duZXIYEiABKAsyHC5hcGVyaW8udjEuU2VjdXJpdHlQcmluY2lwYWwSNAoOYnVzaW5lc3Nfb3duZXIYEyABKAsyHC5hcGVyaW8udjEuU2VjdXJpdHlQcmluY2lwYWwSGgoSb3Blbl9maW5kaW5nX2NvdW50GBQgASgFEh4KFmFjdGl2ZV9leGNlcHRpb25fY291bnQYFSABKAUiRAoRU2VjdXJpdHlQcmluY2lwYWwSCgoCaWQYASABKAkSDQoFZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIhsKGUxpc3RSaXNrRXhjZXB0aW9uc1JlcXVlc3QiRAoaTGlzdFJpc2tFeGNlcHRpb25zUmVzcG9uc2USJgoEZGF0YRgBIAMoCzIYLmFwZXJpby52MS5SaXNrRXhjZXB0aW9uIoIDCg1SaXNrRXhjZXB0aW9uEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEhEKCXJhdGlvbmFsZRgDIAEoCRIdChVjb21wZW5zYXRpbmdfY29udHJvbHMYBCADKAkSDgoGc3RhdHVzGAUgASgJEhIKCmV4cGlyZXNfYXQYBiABKAkSEwoLYXBwcm92ZWRfYXQYByABKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgp1cGRhdGVkX2F0GAkgASgJEiwKBWFzc2V0GAogASgLMh0uYXBlcmlvLnYxLlJpc2tFeGNlcHRpb25Bc3NldBIwCgdmaW5kaW5nGAsgASgLMh8uYXBlcmlvLnYxLlJpc2tFeGNlcHRpb25GaW5kaW5nEjAKCmNyZWF0ZWRfYnkYDCABKAsyHC5hcGVyaW8udjEuU2VjdXJpdHlQcmluY2lwYWwSMQoLYXBwcm92ZWRfYnkYDSABKAsyHC5hcGVyaW8udjEuU2VjdXJpdHlQcmluY2lwYWwiPAoSUmlza0V4Y2VwdGlvbkFzc2V0EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEdHlwZRgDIAEoCSJTChRSaXNrRXhjZXB0aW9uRmluZGluZxIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIQCghzZXZlcml0eRgDIAEoCRIOCgZzdGF0dXMYBCABKAky1BQKDUFwZXJpb1NlcnZpY2USQAoHQ2FsbEFwaRIZLmFwZXJpby52MS5DYWxsQXBpUmVxdWVzdBoaLmFwZXJpby52MS5DYWxsQXBpUmVzcG9uc2USTAoLQ2hlY2tIZWFsdGgSHS5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXF1ZXN0Gh4uYXBlcmlvLnYxLkNoZWNrSGVhbHRoUmVzcG9uc2USZAoTR2V0RGFzaGJvYXJkTWV0cmljcxIlLmFwZXJpby52MS5HZXREYXNoYm9hcmRNZXRyaWNzUmVxdWVzdBomLmFwZXJpby52MS5HZXREYXNoYm9hcmRNZXRyaWNzUmVzcG9uc2USTwoMTGlzdEZpbmRpbmdzEh4uYXBlcmlvLnYxLkxpc3RGaW5kaW5nc1JlcXVlc3QaHy5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVzcG9uc2USSQoKR2V0RmluZGluZxIcLmFwZXJpby52MS5HZXRGaW5kaW5nUmVxdWVzdBodLmFwZXJpby52MS5HZXRGaW5kaW5nUmVzcG9uc2USZAoTVXBkYXRlRmluZGluZ1N0YXR1cxIlLmFwZXJpby52MS5VcGRhdGVGaW5kaW5nU3RhdHVzUmVxdWVzdBomLmFwZXJpby52MS5VcGRhdGVGaW5kaW5nU3RhdHVzUmVzcG9uc2USWwoQUmVtZWRpYXRlRmluZGluZxIiLmFwZXJpby52MS5SZW1lZGlhdGVGaW5kaW5nUmVxdWVzdBojLmFwZXJpby52MS5SZW1lZGlhdGVGaW5kaW5nUmVzcG9uc2USZwoUTGlzdENvbm5lY3RvckNhdGFsb2cSJi5hcGVyaW8udjEuTGlzdENvbm5lY3RvckNhdGFsb2dSZXF1ZXN0GicuYXBlcmlvLnYxLkxpc3RDb25uZWN0b3JDYXRhbG9nUmVzcG9uc2USWwoQTGlzdEludGVncmF0aW9ucxIiLmFwZXJpby52MS5MaXN0SW50ZWdyYXRpb25zUmVxdWVzdBojLmFwZXJpby52MS5MaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USXgoRQ3JlYXRlSW50ZWdyYXRpb24SIy5hcGVyaW8udjEuQ3JlYXRlSW50ZWdyYXRpb25SZXF1ZXN0GiQuYXBlcmlvLnYxLkNyZWF0ZUludGVncmF0aW9uUmVzcG9uc2USXgoRRGVsZXRlSW50ZWdyYXRpb24SIy5hcGVyaW8udjEuRGVsZXRlSW50ZWdyYXRpb25SZXF1ZXN0GiQuYXBlcmlvLnYxLkRlbGV0ZUludGVncmF0aW9uUmVzcG9uc2USZwoUR2V0SW50ZWdyYXRpb25DaGVja3MSJi5hcGVyaW8udjEuR2V0SW50ZWdyYXRpb25DaGVja3NSZXF1ZXN0GicuYXBlcmlvLnYxLkdldEludGVncmF0aW9uQ2hlY2tzUmVzcG9uc2UScAoXVXBkYXRlSW50ZWdyYXRpb25DaGVja3MSKS5hcGVyaW8udjEuVXBkYXRlSW50ZWdyYXRpb25DaGVja3NSZXF1ZXN0GiouYXBlcmlvLnYxLlVwZGF0ZUludGVncmF0aW9uQ2hlY2tzUmVzcG9uc2USeQoaR2V0R29vZ2xlTWFpbGJveFNjYW5Db25maWcSLC5hcGVyaW8udjEuR2V0R29vZ2xlTWFpbGJveFNjYW5Db25maWdSZXF1ZXN0Gi0uYXBlcmlvLnYxLkdldEdvb2dsZU1haWxib3hTY2FuQ29uZmlnUmVzcG9uc2USggEKHVVwZGF0ZUdvb2dsZU1haWxib3hTY2FuQ29uZmlnEi8uYXBlcmlvLnYxLlVwZGF0ZUdvb2dsZU1haWxib3hTY2FuQ29uZmlnUmVxdWVzdBowLmFwZXJpby52MS5VcGRhdGVHb29nbGVNYWlsYm94U2NhbkNvbmZpZ1Jlc3BvbnNlEnYKGVN0YXJ0R29vZ2xlV29ya3NwYWNlT0F1dGgSKy5hcGVyaW8udjEuU3RhcnRHb29nbGVXb3Jrc3BhY2VPQXV0aFJlcXVlc3QaLC5hcGVyaW8udjEuU3RhcnRHb29nbGVXb3Jrc3BhY2VPQXV0aFJlc3BvbnNlEmcKFEZvcmNlU3luY0ludGVncmF0aW9uEiYuYXBlcmlvLnYxLkZvcmNlU3luY0ludGVncmF0aW9uUmVxdWVzdBonLmFwZXJpby52MS5Gb3JjZVN5bmNJbnRlZ3JhdGlvblJlc3BvbnNlElgKD0xpc3RTaWVtQ2F0YWxvZxIhLmFwZXJpby52MS5MaXN0U2llbUNhdGFsb2dSZXF1ZXN0GiIuYXBlcmlvLnYxLkxpc3RTaWVtQ2F0YWxvZ1Jlc3BvbnNlEmcKFExpc3RTaWVtRGVzdGluYXRpb25zEiYuYXBlcmlvLnYxLkxpc3RTaWVtRGVzdGluYXRpb25zUmVxdWVzdBonLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1Jlc3BvbnNlEmoKFUNyZWF0ZVNpZW1EZXN0aW5hdGlvbhInLmFwZXJpby52MS5DcmVhdGVTaWVtRGVzdGluYXRpb25SZXF1ZXN0GiguYXBlcmlvLnYxLkNyZWF0ZVNpZW1EZXN0aW5hdGlvblJlc3BvbnNlEmoKFURlbGV0ZVNpZW1EZXN0aW5hdGlvbhInLmFwZXJpby52MS5EZWxldGVTaWVtRGVzdGluYXRpb25SZXF1ZXN0GiguYXBlcmlvLnYxLkRlbGV0ZVNpZW1EZXN0aW5hdGlvblJlc3BvbnNlEmQKE1Rlc3RTaWVtRGVzdGluYXRpb24SJS5hcGVyaW8udjEuVGVzdFNpZW1EZXN0aW5hdGlvblJlcXVlc3QaJi5hcGVyaW8udjEuVGVzdFNpZW1EZXN0aW5hdGlvblJlc3BvbnNlEmoKFUxpc3RTaGFkb3dJdE9hdXRoQXBwcxInLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXF1ZXN0GiguYXBlcmlvLnYxLkxpc3RTaGFkb3dJdE9hdXRoQXBwc1Jlc3BvbnNlEnkKGkxpc3RTaGFkb3dJdE9hdXRoQXBwR3JhbnRzEiwuYXBlcmlvLnYxLkxpc3RTaGFkb3dJdE9hdXRoQXBwR3JhbnRzUmVxdWVzdBotLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1Jlc3BvbnNlEmEKEkxpc3RTZWN1cml0eUFzc2V0cxIkLmFwZXJpby52MS5MaXN0U2VjdXJpdHlBc3NldHNSZXF1ZXN0GiUuYXBlcmlvLnYxLkxpc3RTZWN1cml0eUFzc2V0c1Jlc3BvbnNlEmEKEkxpc3RSaXNrRXhjZXB0aW9ucxIkLmFwZXJpby52MS5MaXN0Umlza0V4Y2VwdGlvbnNSZXF1ZXN0GiUuYXBlcmlvLnYxLkxpc3RSaXNrRXhjZXB0aW9uc1Jlc3BvbnNlQjFaL2dpdGh1Yi5jb20vd3JpdGVyL2FwZXJpby9nZW4vYXBlcmlvL3YxO2FwZXJpb3YxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aperio.v1.CallApiRequest
@@ -291,6 +291,163 @@ export const GetFindingResponseSchema: GenMessage<GetFindingResponse> = /*@__PUR
   messageDesc(file_aperio_v1_api, 11);
 
 /**
+ * @generated from message aperio.v1.UpdateFindingStatusRequest
+ */
+export type UpdateFindingStatusRequest = Message<"aperio.v1.UpdateFindingStatusRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string resolution_note = 3;
+   */
+  resolutionNote: string;
+};
+
+/**
+ * Describes the message aperio.v1.UpdateFindingStatusRequest.
+ * Use `create(UpdateFindingStatusRequestSchema)` to create a new message.
+ */
+export const UpdateFindingStatusRequestSchema: GenMessage<UpdateFindingStatusRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 12);
+
+/**
+ * @generated from message aperio.v1.UpdateFindingStatusResponse
+ */
+export type UpdateFindingStatusResponse = Message<"aperio.v1.UpdateFindingStatusResponse"> & {
+  /**
+   * @generated from field: aperio.v1.FindingStatusUpdate data = 1;
+   */
+  data?: FindingStatusUpdate;
+};
+
+/**
+ * Describes the message aperio.v1.UpdateFindingStatusResponse.
+ * Use `create(UpdateFindingStatusResponseSchema)` to create a new message.
+ */
+export const UpdateFindingStatusResponseSchema: GenMessage<UpdateFindingStatusResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 13);
+
+/**
+ * @generated from message aperio.v1.FindingStatusUpdate
+ */
+export type FindingStatusUpdate = Message<"aperio.v1.FindingStatusUpdate"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+};
+
+/**
+ * Describes the message aperio.v1.FindingStatusUpdate.
+ * Use `create(FindingStatusUpdateSchema)` to create a new message.
+ */
+export const FindingStatusUpdateSchema: GenMessage<FindingStatusUpdate> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 14);
+
+/**
+ * @generated from message aperio.v1.RemediateFindingRequest
+ */
+export type RemediateFindingRequest = Message<"aperio.v1.RemediateFindingRequest"> & {
+  /**
+   * @generated from field: string finding_id = 1;
+   */
+  findingId: string;
+
+  /**
+   * @generated from field: string action = 2;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string target_identifier = 3;
+   */
+  targetIdentifier: string;
+
+  /**
+   * @generated from field: string note = 4;
+   */
+  note: string;
+};
+
+/**
+ * Describes the message aperio.v1.RemediateFindingRequest.
+ * Use `create(RemediateFindingRequestSchema)` to create a new message.
+ */
+export const RemediateFindingRequestSchema: GenMessage<RemediateFindingRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 15);
+
+/**
+ * @generated from message aperio.v1.RemediateFindingResponse
+ */
+export type RemediateFindingResponse = Message<"aperio.v1.RemediateFindingResponse"> & {
+  /**
+   * @generated from field: aperio.v1.RemediationResult data = 1;
+   */
+  data?: RemediationResult;
+};
+
+/**
+ * Describes the message aperio.v1.RemediateFindingResponse.
+ * Use `create(RemediateFindingResponseSchema)` to create a new message.
+ */
+export const RemediateFindingResponseSchema: GenMessage<RemediateFindingResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 16);
+
+/**
+ * @generated from message aperio.v1.RemediationResult
+ */
+export type RemediationResult = Message<"aperio.v1.RemediationResult"> & {
+  /**
+   * @generated from field: string finding_id = 1;
+   */
+  findingId: string;
+
+  /**
+   * @generated from field: string action = 2;
+   */
+  action: string;
+
+  /**
+   * @generated from field: bool success = 3;
+   */
+  success: boolean;
+
+  /**
+   * @generated from field: string message = 4;
+   */
+  message: string;
+
+  /**
+   * @generated from field: string provider_request_id = 5;
+   */
+  providerRequestId: string;
+
+  /**
+   * @generated from field: repeated string effects = 6;
+   */
+  effects: string[];
+};
+
+/**
+ * Describes the message aperio.v1.RemediationResult.
+ * Use `create(RemediationResultSchema)` to create a new message.
+ */
+export const RemediationResultSchema: GenMessage<RemediationResult> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 17);
+
+/**
  * @generated from message aperio.v1.Finding
  */
 export type Finding = Message<"aperio.v1.Finding"> & {
@@ -360,7 +517,7 @@ export type Finding = Message<"aperio.v1.Finding"> & {
  * Use `create(FindingSchema)` to create a new message.
  */
 export const FindingSchema: GenMessage<Finding> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 12);
+  messageDesc(file_aperio_v1_api, 18);
 
 /**
  * @generated from message aperio.v1.FindingIntegration
@@ -387,7 +544,7 @@ export type FindingIntegration = Message<"aperio.v1.FindingIntegration"> & {
  * Use `create(FindingIntegrationSchema)` to create a new message.
  */
 export const FindingIntegrationSchema: GenMessage<FindingIntegration> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 13);
+  messageDesc(file_aperio_v1_api, 19);
 
 /**
  * @generated from message aperio.v1.PageInfo
@@ -409,7 +566,225 @@ export type PageInfo = Message<"aperio.v1.PageInfo"> & {
  * Use `create(PageInfoSchema)` to create a new message.
  */
 export const PageInfoSchema: GenMessage<PageInfo> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 14);
+  messageDesc(file_aperio_v1_api, 20);
+
+/**
+ * @generated from message aperio.v1.ListConnectorCatalogRequest
+ */
+export type ListConnectorCatalogRequest = Message<"aperio.v1.ListConnectorCatalogRequest"> & {
+};
+
+/**
+ * Describes the message aperio.v1.ListConnectorCatalogRequest.
+ * Use `create(ListConnectorCatalogRequestSchema)` to create a new message.
+ */
+export const ListConnectorCatalogRequestSchema: GenMessage<ListConnectorCatalogRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 21);
+
+/**
+ * @generated from message aperio.v1.ListConnectorCatalogResponse
+ */
+export type ListConnectorCatalogResponse = Message<"aperio.v1.ListConnectorCatalogResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.ConnectorDefinition data = 1;
+   */
+  data: ConnectorDefinition[];
+};
+
+/**
+ * Describes the message aperio.v1.ListConnectorCatalogResponse.
+ * Use `create(ListConnectorCatalogResponseSchema)` to create a new message.
+ */
+export const ListConnectorCatalogResponseSchema: GenMessage<ListConnectorCatalogResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 22);
+
+/**
+ * @generated from message aperio.v1.ConnectorDefinition
+ */
+export type ConnectorDefinition = Message<"aperio.v1.ConnectorDefinition"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string category = 3;
+   */
+  category: string;
+
+  /**
+   * @generated from field: string availability = 4;
+   */
+  availability: string;
+
+  /**
+   * @generated from field: string readiness_note = 5;
+   */
+  readinessNote: string;
+
+  /**
+   * @generated from field: string description = 6;
+   */
+  description: string;
+
+  /**
+   * @generated from field: repeated string read_scopes = 7;
+   */
+  readScopes: string[];
+
+  /**
+   * @generated from field: repeated string remediation_scopes = 8;
+   */
+  remediationScopes: string[];
+
+  /**
+   * @generated from field: repeated aperio.v1.RemediationAction remediation_actions = 9;
+   */
+  remediationActions: RemediationAction[];
+
+  /**
+   * @generated from field: repeated aperio.v1.FindingCheck finding_checks = 10;
+   */
+  findingChecks: FindingCheck[];
+
+  /**
+   * @generated from field: string docs_url = 11;
+   */
+  docsUrl: string;
+
+  /**
+   * @generated from field: repeated aperio.v1.ConnectorField fields = 12;
+   */
+  fields: ConnectorField[];
+};
+
+/**
+ * Describes the message aperio.v1.ConnectorDefinition.
+ * Use `create(ConnectorDefinitionSchema)` to create a new message.
+ */
+export const ConnectorDefinitionSchema: GenMessage<ConnectorDefinition> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 23);
+
+/**
+ * @generated from message aperio.v1.ConnectorField
+ */
+export type ConnectorField = Message<"aperio.v1.ConnectorField"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string placeholder = 3;
+   */
+  placeholder: string;
+
+  /**
+   * @generated from field: string helper = 4;
+   */
+  helper: string;
+
+  /**
+   * @generated from field: string type = 5;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bool required = 6;
+   */
+  required: boolean;
+
+  /**
+   * @generated from field: bool secret = 7;
+   */
+  secret: boolean;
+};
+
+/**
+ * Describes the message aperio.v1.ConnectorField.
+ * Use `create(ConnectorFieldSchema)` to create a new message.
+ */
+export const ConnectorFieldSchema: GenMessage<ConnectorField> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 24);
+
+/**
+ * @generated from message aperio.v1.RemediationAction
+ */
+export type RemediationAction = Message<"aperio.v1.RemediationAction"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string severity_hint = 4;
+   */
+  severityHint: string;
+};
+
+/**
+ * Describes the message aperio.v1.RemediationAction.
+ * Use `create(RemediationActionSchema)` to create a new message.
+ */
+export const RemediationActionSchema: GenMessage<RemediationAction> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 25);
+
+/**
+ * @generated from message aperio.v1.FindingCheck
+ */
+export type FindingCheck = Message<"aperio.v1.FindingCheck"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string severity_hint = 4;
+   */
+  severityHint: string;
+
+  /**
+   * @generated from field: bool default_enabled = 5;
+   */
+  defaultEnabled: boolean;
+};
+
+/**
+ * Describes the message aperio.v1.FindingCheck.
+ * Use `create(FindingCheckSchema)` to create a new message.
+ */
+export const FindingCheckSchema: GenMessage<FindingCheck> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 26);
 
 /**
  * @generated from message aperio.v1.ListIntegrationsRequest
@@ -422,7 +797,7 @@ export type ListIntegrationsRequest = Message<"aperio.v1.ListIntegrationsRequest
  * Use `create(ListIntegrationsRequestSchema)` to create a new message.
  */
 export const ListIntegrationsRequestSchema: GenMessage<ListIntegrationsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 15);
+  messageDesc(file_aperio_v1_api, 27);
 
 /**
  * @generated from message aperio.v1.ListIntegrationsResponse
@@ -439,7 +814,7 @@ export type ListIntegrationsResponse = Message<"aperio.v1.ListIntegrationsRespon
  * Use `create(ListIntegrationsResponseSchema)` to create a new message.
  */
 export const ListIntegrationsResponseSchema: GenMessage<ListIntegrationsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 16);
+  messageDesc(file_aperio_v1_api, 28);
 
 /**
  * @generated from message aperio.v1.IntegrationConnection
@@ -511,7 +886,637 @@ export type IntegrationConnection = Message<"aperio.v1.IntegrationConnection"> &
  * Use `create(IntegrationConnectionSchema)` to create a new message.
  */
 export const IntegrationConnectionSchema: GenMessage<IntegrationConnection> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 17);
+  messageDesc(file_aperio_v1_api, 29);
+
+/**
+ * @generated from message aperio.v1.CreateIntegrationRequest
+ */
+export type CreateIntegrationRequest = Message<"aperio.v1.CreateIntegrationRequest"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string external_account_id = 3;
+   */
+  externalAccountId: string;
+
+  /**
+   * @generated from field: string mode = 4;
+   */
+  mode: string;
+
+  /**
+   * @generated from field: aperio.v1.IntegrationCredentials credentials = 5;
+   */
+  credentials?: IntegrationCredentials;
+};
+
+/**
+ * Describes the message aperio.v1.CreateIntegrationRequest.
+ * Use `create(CreateIntegrationRequestSchema)` to create a new message.
+ */
+export const CreateIntegrationRequestSchema: GenMessage<CreateIntegrationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 30);
+
+/**
+ * @generated from message aperio.v1.IntegrationCredentials
+ */
+export type IntegrationCredentials = Message<"aperio.v1.IntegrationCredentials"> & {
+  /**
+   * @generated from field: string access_token = 1;
+   */
+  accessToken: string;
+
+  /**
+   * @generated from field: string refresh_token = 2;
+   */
+  refreshToken: string;
+
+  /**
+   * @generated from field: string webhook_secret = 3;
+   */
+  webhookSecret: string;
+};
+
+/**
+ * Describes the message aperio.v1.IntegrationCredentials.
+ * Use `create(IntegrationCredentialsSchema)` to create a new message.
+ */
+export const IntegrationCredentialsSchema: GenMessage<IntegrationCredentials> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 31);
+
+/**
+ * @generated from message aperio.v1.CreateIntegrationResponse
+ */
+export type CreateIntegrationResponse = Message<"aperio.v1.CreateIntegrationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.IntegrationConnection data = 1;
+   */
+  data?: IntegrationConnection;
+};
+
+/**
+ * Describes the message aperio.v1.CreateIntegrationResponse.
+ * Use `create(CreateIntegrationResponseSchema)` to create a new message.
+ */
+export const CreateIntegrationResponseSchema: GenMessage<CreateIntegrationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 32);
+
+/**
+ * @generated from message aperio.v1.DeleteIntegrationRequest
+ */
+export type DeleteIntegrationRequest = Message<"aperio.v1.DeleteIntegrationRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message aperio.v1.DeleteIntegrationRequest.
+ * Use `create(DeleteIntegrationRequestSchema)` to create a new message.
+ */
+export const DeleteIntegrationRequestSchema: GenMessage<DeleteIntegrationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 33);
+
+/**
+ * @generated from message aperio.v1.DeleteIntegrationResponse
+ */
+export type DeleteIntegrationResponse = Message<"aperio.v1.DeleteIntegrationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.DeleteResult data = 1;
+   */
+  data?: DeleteResult;
+};
+
+/**
+ * Describes the message aperio.v1.DeleteIntegrationResponse.
+ * Use `create(DeleteIntegrationResponseSchema)` to create a new message.
+ */
+export const DeleteIntegrationResponseSchema: GenMessage<DeleteIntegrationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 34);
+
+/**
+ * @generated from message aperio.v1.DeleteResult
+ */
+export type DeleteResult = Message<"aperio.v1.DeleteResult"> & {
+  /**
+   * @generated from field: bool ok = 1;
+   */
+  ok: boolean;
+};
+
+/**
+ * Describes the message aperio.v1.DeleteResult.
+ * Use `create(DeleteResultSchema)` to create a new message.
+ */
+export const DeleteResultSchema: GenMessage<DeleteResult> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 35);
+
+/**
+ * @generated from message aperio.v1.GetIntegrationChecksRequest
+ */
+export type GetIntegrationChecksRequest = Message<"aperio.v1.GetIntegrationChecksRequest"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+};
+
+/**
+ * Describes the message aperio.v1.GetIntegrationChecksRequest.
+ * Use `create(GetIntegrationChecksRequestSchema)` to create a new message.
+ */
+export const GetIntegrationChecksRequestSchema: GenMessage<GetIntegrationChecksRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 36);
+
+/**
+ * @generated from message aperio.v1.GetIntegrationChecksResponse
+ */
+export type GetIntegrationChecksResponse = Message<"aperio.v1.GetIntegrationChecksResponse"> & {
+  /**
+   * @generated from field: aperio.v1.IntegrationCheckState data = 1;
+   */
+  data?: IntegrationCheckState;
+};
+
+/**
+ * Describes the message aperio.v1.GetIntegrationChecksResponse.
+ * Use `create(GetIntegrationChecksResponseSchema)` to create a new message.
+ */
+export const GetIntegrationChecksResponseSchema: GenMessage<GetIntegrationChecksResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 37);
+
+/**
+ * @generated from message aperio.v1.UpdateIntegrationChecksRequest
+ */
+export type UpdateIntegrationChecksRequest = Message<"aperio.v1.UpdateIntegrationChecksRequest"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+
+  /**
+   * @generated from field: repeated string disabled_checks = 2;
+   */
+  disabledChecks: string[];
+};
+
+/**
+ * Describes the message aperio.v1.UpdateIntegrationChecksRequest.
+ * Use `create(UpdateIntegrationChecksRequestSchema)` to create a new message.
+ */
+export const UpdateIntegrationChecksRequestSchema: GenMessage<UpdateIntegrationChecksRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 38);
+
+/**
+ * @generated from message aperio.v1.UpdateIntegrationChecksResponse
+ */
+export type UpdateIntegrationChecksResponse = Message<"aperio.v1.UpdateIntegrationChecksResponse"> & {
+  /**
+   * @generated from field: aperio.v1.IntegrationCheckState data = 1;
+   */
+  data?: IntegrationCheckState;
+};
+
+/**
+ * Describes the message aperio.v1.UpdateIntegrationChecksResponse.
+ * Use `create(UpdateIntegrationChecksResponseSchema)` to create a new message.
+ */
+export const UpdateIntegrationChecksResponseSchema: GenMessage<UpdateIntegrationChecksResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 39);
+
+/**
+ * @generated from message aperio.v1.IntegrationCheckState
+ */
+export type IntegrationCheckState = Message<"aperio.v1.IntegrationCheckState"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+
+  /**
+   * @generated from field: repeated string disabled_checks = 2;
+   */
+  disabledChecks: string[];
+
+  /**
+   * @generated from field: repeated aperio.v1.FindingCheckStatus checks = 3;
+   */
+  checks: FindingCheckStatus[];
+};
+
+/**
+ * Describes the message aperio.v1.IntegrationCheckState.
+ * Use `create(IntegrationCheckStateSchema)` to create a new message.
+ */
+export const IntegrationCheckStateSchema: GenMessage<IntegrationCheckState> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 40);
+
+/**
+ * @generated from message aperio.v1.FindingCheckStatus
+ */
+export type FindingCheckStatus = Message<"aperio.v1.FindingCheckStatus"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string severity_hint = 4;
+   */
+  severityHint: string;
+
+  /**
+   * @generated from field: bool default_enabled = 5;
+   */
+  defaultEnabled: boolean;
+
+  /**
+   * @generated from field: bool enabled = 6;
+   */
+  enabled: boolean;
+};
+
+/**
+ * Describes the message aperio.v1.FindingCheckStatus.
+ * Use `create(FindingCheckStatusSchema)` to create a new message.
+ */
+export const FindingCheckStatusSchema: GenMessage<FindingCheckStatus> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 41);
+
+/**
+ * @generated from message aperio.v1.GetGoogleMailboxScanConfigRequest
+ */
+export type GetGoogleMailboxScanConfigRequest = Message<"aperio.v1.GetGoogleMailboxScanConfigRequest"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+};
+
+/**
+ * Describes the message aperio.v1.GetGoogleMailboxScanConfigRequest.
+ * Use `create(GetGoogleMailboxScanConfigRequestSchema)` to create a new message.
+ */
+export const GetGoogleMailboxScanConfigRequestSchema: GenMessage<GetGoogleMailboxScanConfigRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 42);
+
+/**
+ * @generated from message aperio.v1.GetGoogleMailboxScanConfigResponse
+ */
+export type GetGoogleMailboxScanConfigResponse = Message<"aperio.v1.GetGoogleMailboxScanConfigResponse"> & {
+  /**
+   * @generated from field: aperio.v1.GoogleMailboxScanConfig data = 1;
+   */
+  data?: GoogleMailboxScanConfig;
+};
+
+/**
+ * Describes the message aperio.v1.GetGoogleMailboxScanConfigResponse.
+ * Use `create(GetGoogleMailboxScanConfigResponseSchema)` to create a new message.
+ */
+export const GetGoogleMailboxScanConfigResponseSchema: GenMessage<GetGoogleMailboxScanConfigResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 43);
+
+/**
+ * @generated from message aperio.v1.UpdateGoogleMailboxScanConfigRequest
+ */
+export type UpdateGoogleMailboxScanConfigRequest = Message<"aperio.v1.UpdateGoogleMailboxScanConfigRequest"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+
+  /**
+   * @generated from field: bool enabled = 2;
+   */
+  enabled: boolean;
+
+  /**
+   * @generated from field: string service_account_client_email = 3;
+   */
+  serviceAccountClientEmail: string;
+
+  /**
+   * @generated from field: string private_key = 4;
+   */
+  privateKey: string;
+};
+
+/**
+ * Describes the message aperio.v1.UpdateGoogleMailboxScanConfigRequest.
+ * Use `create(UpdateGoogleMailboxScanConfigRequestSchema)` to create a new message.
+ */
+export const UpdateGoogleMailboxScanConfigRequestSchema: GenMessage<UpdateGoogleMailboxScanConfigRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 44);
+
+/**
+ * @generated from message aperio.v1.UpdateGoogleMailboxScanConfigResponse
+ */
+export type UpdateGoogleMailboxScanConfigResponse = Message<"aperio.v1.UpdateGoogleMailboxScanConfigResponse"> & {
+  /**
+   * @generated from field: aperio.v1.GoogleMailboxScanConfig data = 1;
+   */
+  data?: GoogleMailboxScanConfig;
+};
+
+/**
+ * Describes the message aperio.v1.UpdateGoogleMailboxScanConfigResponse.
+ * Use `create(UpdateGoogleMailboxScanConfigResponseSchema)` to create a new message.
+ */
+export const UpdateGoogleMailboxScanConfigResponseSchema: GenMessage<UpdateGoogleMailboxScanConfigResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 45);
+
+/**
+ * @generated from message aperio.v1.GoogleMailboxScanConfig
+ */
+export type GoogleMailboxScanConfig = Message<"aperio.v1.GoogleMailboxScanConfig"> & {
+  /**
+   * @generated from field: bool enabled = 1;
+   */
+  enabled: boolean;
+
+  /**
+   * @generated from field: string service_account_client_email = 2;
+   */
+  serviceAccountClientEmail: string;
+};
+
+/**
+ * Describes the message aperio.v1.GoogleMailboxScanConfig.
+ * Use `create(GoogleMailboxScanConfigSchema)` to create a new message.
+ */
+export const GoogleMailboxScanConfigSchema: GenMessage<GoogleMailboxScanConfig> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 46);
+
+/**
+ * @generated from message aperio.v1.StartGoogleWorkspaceOAuthRequest
+ */
+export type StartGoogleWorkspaceOAuthRequest = Message<"aperio.v1.StartGoogleWorkspaceOAuthRequest"> & {
+  /**
+   * @generated from field: string mode = 1;
+   */
+  mode: string;
+};
+
+/**
+ * Describes the message aperio.v1.StartGoogleWorkspaceOAuthRequest.
+ * Use `create(StartGoogleWorkspaceOAuthRequestSchema)` to create a new message.
+ */
+export const StartGoogleWorkspaceOAuthRequestSchema: GenMessage<StartGoogleWorkspaceOAuthRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 47);
+
+/**
+ * @generated from message aperio.v1.StartGoogleWorkspaceOAuthResponse
+ */
+export type StartGoogleWorkspaceOAuthResponse = Message<"aperio.v1.StartGoogleWorkspaceOAuthResponse"> & {
+  /**
+   * @generated from field: aperio.v1.OAuthStart data = 1;
+   */
+  data?: OAuthStart;
+};
+
+/**
+ * Describes the message aperio.v1.StartGoogleWorkspaceOAuthResponse.
+ * Use `create(StartGoogleWorkspaceOAuthResponseSchema)` to create a new message.
+ */
+export const StartGoogleWorkspaceOAuthResponseSchema: GenMessage<StartGoogleWorkspaceOAuthResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 48);
+
+/**
+ * @generated from message aperio.v1.OAuthStart
+ */
+export type OAuthStart = Message<"aperio.v1.OAuthStart"> & {
+  /**
+   * @generated from field: string url = 1;
+   */
+  url: string;
+};
+
+/**
+ * Describes the message aperio.v1.OAuthStart.
+ * Use `create(OAuthStartSchema)` to create a new message.
+ */
+export const OAuthStartSchema: GenMessage<OAuthStart> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 49);
+
+/**
+ * @generated from message aperio.v1.ForceSyncIntegrationRequest
+ */
+export type ForceSyncIntegrationRequest = Message<"aperio.v1.ForceSyncIntegrationRequest"> & {
+  /**
+   * @generated from field: string integration_id = 1;
+   */
+  integrationId: string;
+};
+
+/**
+ * Describes the message aperio.v1.ForceSyncIntegrationRequest.
+ * Use `create(ForceSyncIntegrationRequestSchema)` to create a new message.
+ */
+export const ForceSyncIntegrationRequestSchema: GenMessage<ForceSyncIntegrationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 50);
+
+/**
+ * @generated from message aperio.v1.ForceSyncIntegrationResponse
+ */
+export type ForceSyncIntegrationResponse = Message<"aperio.v1.ForceSyncIntegrationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.IntegrationConnection data = 1;
+   */
+  data?: IntegrationConnection;
+
+  /**
+   * @generated from field: aperio.v1.SyncSummary sync = 2;
+   */
+  sync?: SyncSummary;
+};
+
+/**
+ * Describes the message aperio.v1.ForceSyncIntegrationResponse.
+ * Use `create(ForceSyncIntegrationResponseSchema)` to create a new message.
+ */
+export const ForceSyncIntegrationResponseSchema: GenMessage<ForceSyncIntegrationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 51);
+
+/**
+ * @generated from message aperio.v1.SyncSummary
+ */
+export type SyncSummary = Message<"aperio.v1.SyncSummary"> & {
+  /**
+   * @generated from field: int32 sample_count = 1;
+   */
+  sampleCount: number;
+
+  /**
+   * @generated from field: int32 events_ingested = 2;
+   */
+  eventsIngested: number;
+
+  /**
+   * @generated from field: int32 findings_opened = 3;
+   */
+  findingsOpened: number;
+
+  /**
+   * @generated from field: repeated string sources = 4;
+   */
+  sources: string[];
+};
+
+/**
+ * Describes the message aperio.v1.SyncSummary.
+ * Use `create(SyncSummarySchema)` to create a new message.
+ */
+export const SyncSummarySchema: GenMessage<SyncSummary> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 52);
+
+/**
+ * @generated from message aperio.v1.ListSiemCatalogRequest
+ */
+export type ListSiemCatalogRequest = Message<"aperio.v1.ListSiemCatalogRequest"> & {
+};
+
+/**
+ * Describes the message aperio.v1.ListSiemCatalogRequest.
+ * Use `create(ListSiemCatalogRequestSchema)` to create a new message.
+ */
+export const ListSiemCatalogRequestSchema: GenMessage<ListSiemCatalogRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 53);
+
+/**
+ * @generated from message aperio.v1.ListSiemCatalogResponse
+ */
+export type ListSiemCatalogResponse = Message<"aperio.v1.ListSiemCatalogResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.SiemDestinationDefinition data = 1;
+   */
+  data: SiemDestinationDefinition[];
+};
+
+/**
+ * Describes the message aperio.v1.ListSiemCatalogResponse.
+ * Use `create(ListSiemCatalogResponseSchema)` to create a new message.
+ */
+export const ListSiemCatalogResponseSchema: GenMessage<ListSiemCatalogResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 54);
+
+/**
+ * @generated from message aperio.v1.SiemDestinationDefinition
+ */
+export type SiemDestinationDefinition = Message<"aperio.v1.SiemDestinationDefinition"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string vendor = 3;
+   */
+  vendor: string;
+
+  /**
+   * @generated from field: string description = 4;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string category = 5;
+   */
+  category: string;
+
+  /**
+   * @generated from field: string docs_url = 6;
+   */
+  docsUrl: string;
+
+  /**
+   * @generated from field: repeated string default_streams = 7;
+   */
+  defaultStreams: string[];
+
+  /**
+   * @generated from field: repeated aperio.v1.SiemField fields = 8;
+   */
+  fields: SiemField[];
+};
+
+/**
+ * Describes the message aperio.v1.SiemDestinationDefinition.
+ * Use `create(SiemDestinationDefinitionSchema)` to create a new message.
+ */
+export const SiemDestinationDefinitionSchema: GenMessage<SiemDestinationDefinition> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 55);
+
+/**
+ * @generated from message aperio.v1.SiemField
+ */
+export type SiemField = Message<"aperio.v1.SiemField"> & {
+  /**
+   * @generated from field: string key = 1;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string placeholder = 3;
+   */
+  placeholder: string;
+
+  /**
+   * @generated from field: string helper = 4;
+   */
+  helper: string;
+
+  /**
+   * @generated from field: string type = 5;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bool required = 6;
+   */
+  required: boolean;
+
+  /**
+   * @generated from field: bool secret = 7;
+   */
+  secret: boolean;
+};
+
+/**
+ * Describes the message aperio.v1.SiemField.
+ * Use `create(SiemFieldSchema)` to create a new message.
+ */
+export const SiemFieldSchema: GenMessage<SiemField> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 56);
 
 /**
  * @generated from message aperio.v1.ListSiemDestinationsRequest
@@ -524,7 +1529,7 @@ export type ListSiemDestinationsRequest = Message<"aperio.v1.ListSiemDestination
  * Use `create(ListSiemDestinationsRequestSchema)` to create a new message.
  */
 export const ListSiemDestinationsRequestSchema: GenMessage<ListSiemDestinationsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 18);
+  messageDesc(file_aperio_v1_api, 57);
 
 /**
  * @generated from message aperio.v1.ListSiemDestinationsResponse
@@ -541,7 +1546,7 @@ export type ListSiemDestinationsResponse = Message<"aperio.v1.ListSiemDestinatio
  * Use `create(ListSiemDestinationsResponseSchema)` to create a new message.
  */
 export const ListSiemDestinationsResponseSchema: GenMessage<ListSiemDestinationsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 19);
+  messageDesc(file_aperio_v1_api, 58);
 
 /**
  * @generated from message aperio.v1.SiemDestination
@@ -618,7 +1623,166 @@ export type SiemDestination = Message<"aperio.v1.SiemDestination"> & {
  * Use `create(SiemDestinationSchema)` to create a new message.
  */
 export const SiemDestinationSchema: GenMessage<SiemDestination> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 20);
+  messageDesc(file_aperio_v1_api, 59);
+
+/**
+ * @generated from message aperio.v1.CreateSiemDestinationRequest
+ */
+export type CreateSiemDestinationRequest = Message<"aperio.v1.CreateSiemDestinationRequest"> & {
+  /**
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string endpoint_url = 3;
+   */
+  endpointUrl: string;
+
+  /**
+   * @generated from field: string file_path = 4;
+   */
+  filePath: string;
+
+  /**
+   * @generated from field: string index = 5;
+   */
+  index: string;
+
+  /**
+   * @generated from field: string token = 6;
+   */
+  token: string;
+
+  /**
+   * @generated from field: repeated string streams = 7;
+   */
+  streams: string[];
+};
+
+/**
+ * Describes the message aperio.v1.CreateSiemDestinationRequest.
+ * Use `create(CreateSiemDestinationRequestSchema)` to create a new message.
+ */
+export const CreateSiemDestinationRequestSchema: GenMessage<CreateSiemDestinationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 60);
+
+/**
+ * @generated from message aperio.v1.CreateSiemDestinationResponse
+ */
+export type CreateSiemDestinationResponse = Message<"aperio.v1.CreateSiemDestinationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.SiemDestination data = 1;
+   */
+  data?: SiemDestination;
+};
+
+/**
+ * Describes the message aperio.v1.CreateSiemDestinationResponse.
+ * Use `create(CreateSiemDestinationResponseSchema)` to create a new message.
+ */
+export const CreateSiemDestinationResponseSchema: GenMessage<CreateSiemDestinationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 61);
+
+/**
+ * @generated from message aperio.v1.DeleteSiemDestinationRequest
+ */
+export type DeleteSiemDestinationRequest = Message<"aperio.v1.DeleteSiemDestinationRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message aperio.v1.DeleteSiemDestinationRequest.
+ * Use `create(DeleteSiemDestinationRequestSchema)` to create a new message.
+ */
+export const DeleteSiemDestinationRequestSchema: GenMessage<DeleteSiemDestinationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 62);
+
+/**
+ * @generated from message aperio.v1.DeleteSiemDestinationResponse
+ */
+export type DeleteSiemDestinationResponse = Message<"aperio.v1.DeleteSiemDestinationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.DeleteResult data = 1;
+   */
+  data?: DeleteResult;
+};
+
+/**
+ * Describes the message aperio.v1.DeleteSiemDestinationResponse.
+ * Use `create(DeleteSiemDestinationResponseSchema)` to create a new message.
+ */
+export const DeleteSiemDestinationResponseSchema: GenMessage<DeleteSiemDestinationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 63);
+
+/**
+ * @generated from message aperio.v1.TestSiemDestinationRequest
+ */
+export type TestSiemDestinationRequest = Message<"aperio.v1.TestSiemDestinationRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message aperio.v1.TestSiemDestinationRequest.
+ * Use `create(TestSiemDestinationRequestSchema)` to create a new message.
+ */
+export const TestSiemDestinationRequestSchema: GenMessage<TestSiemDestinationRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 64);
+
+/**
+ * @generated from message aperio.v1.TestSiemDestinationResponse
+ */
+export type TestSiemDestinationResponse = Message<"aperio.v1.TestSiemDestinationResponse"> & {
+  /**
+   * @generated from field: aperio.v1.SiemTestResult data = 1;
+   */
+  data?: SiemTestResult;
+};
+
+/**
+ * Describes the message aperio.v1.TestSiemDestinationResponse.
+ * Use `create(TestSiemDestinationResponseSchema)` to create a new message.
+ */
+export const TestSiemDestinationResponseSchema: GenMessage<TestSiemDestinationResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 65);
+
+/**
+ * @generated from message aperio.v1.SiemTestResult
+ */
+export type SiemTestResult = Message<"aperio.v1.SiemTestResult"> & {
+  /**
+   * @generated from field: string destination_id = 1;
+   */
+  destinationId: string;
+
+  /**
+   * @generated from field: bool ok = 2;
+   */
+  ok: boolean;
+
+  /**
+   * @generated from field: string message = 3;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message aperio.v1.SiemTestResult.
+ * Use `create(SiemTestResultSchema)` to create a new message.
+ */
+export const SiemTestResultSchema: GenMessage<SiemTestResult> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 66);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppsRequest
@@ -631,7 +1795,7 @@ export type ListShadowItOauthAppsRequest = Message<"aperio.v1.ListShadowItOauthA
  * Use `create(ListShadowItOauthAppsRequestSchema)` to create a new message.
  */
 export const ListShadowItOauthAppsRequestSchema: GenMessage<ListShadowItOauthAppsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 21);
+  messageDesc(file_aperio_v1_api, 67);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppsResponse
@@ -648,7 +1812,7 @@ export type ListShadowItOauthAppsResponse = Message<"aperio.v1.ListShadowItOauth
  * Use `create(ListShadowItOauthAppsResponseSchema)` to create a new message.
  */
 export const ListShadowItOauthAppsResponseSchema: GenMessage<ListShadowItOauthAppsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 22);
+  messageDesc(file_aperio_v1_api, 68);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthApp
@@ -725,7 +1889,7 @@ export type ShadowItOauthApp = Message<"aperio.v1.ShadowItOauthApp"> & {
  * Use `create(ShadowItOauthAppSchema)` to create a new message.
  */
 export const ShadowItOauthAppSchema: GenMessage<ShadowItOauthApp> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 23);
+  messageDesc(file_aperio_v1_api, 69);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppGrantsRequest
@@ -742,7 +1906,7 @@ export type ListShadowItOauthAppGrantsRequest = Message<"aperio.v1.ListShadowItO
  * Use `create(ListShadowItOauthAppGrantsRequestSchema)` to create a new message.
  */
 export const ListShadowItOauthAppGrantsRequestSchema: GenMessage<ListShadowItOauthAppGrantsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 24);
+  messageDesc(file_aperio_v1_api, 70);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppGrantsResponse
@@ -759,7 +1923,7 @@ export type ListShadowItOauthAppGrantsResponse = Message<"aperio.v1.ListShadowIt
  * Use `create(ListShadowItOauthAppGrantsResponseSchema)` to create a new message.
  */
 export const ListShadowItOauthAppGrantsResponseSchema: GenMessage<ListShadowItOauthAppGrantsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 25);
+  messageDesc(file_aperio_v1_api, 71);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppDetail
@@ -781,7 +1945,7 @@ export type ShadowItOauthAppDetail = Message<"aperio.v1.ShadowItOauthAppDetail">
  * Use `create(ShadowItOauthAppDetailSchema)` to create a new message.
  */
 export const ShadowItOauthAppDetailSchema: GenMessage<ShadowItOauthAppDetail> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 26);
+  messageDesc(file_aperio_v1_api, 72);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppRef
@@ -813,7 +1977,7 @@ export type ShadowItOauthAppRef = Message<"aperio.v1.ShadowItOauthAppRef"> & {
  * Use `create(ShadowItOauthAppRefSchema)` to create a new message.
  */
 export const ShadowItOauthAppRefSchema: GenMessage<ShadowItOauthAppRef> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 27);
+  messageDesc(file_aperio_v1_api, 73);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppGrant
@@ -865,7 +2029,7 @@ export type ShadowItOauthAppGrant = Message<"aperio.v1.ShadowItOauthAppGrant"> &
  * Use `create(ShadowItOauthAppGrantSchema)` to create a new message.
  */
 export const ShadowItOauthAppGrantSchema: GenMessage<ShadowItOauthAppGrant> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 28);
+  messageDesc(file_aperio_v1_api, 74);
 
 /**
  * @generated from message aperio.v1.ListSecurityAssetsRequest
@@ -892,7 +2056,7 @@ export type ListSecurityAssetsRequest = Message<"aperio.v1.ListSecurityAssetsReq
  * Use `create(ListSecurityAssetsRequestSchema)` to create a new message.
  */
 export const ListSecurityAssetsRequestSchema: GenMessage<ListSecurityAssetsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 29);
+  messageDesc(file_aperio_v1_api, 75);
 
 /**
  * @generated from message aperio.v1.ListSecurityAssetsResponse
@@ -909,7 +2073,7 @@ export type ListSecurityAssetsResponse = Message<"aperio.v1.ListSecurityAssetsRe
  * Use `create(ListSecurityAssetsResponseSchema)` to create a new message.
  */
 export const ListSecurityAssetsResponseSchema: GenMessage<ListSecurityAssetsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 30);
+  messageDesc(file_aperio_v1_api, 76);
 
 /**
  * @generated from message aperio.v1.SecurityAsset
@@ -1026,7 +2190,7 @@ export type SecurityAsset = Message<"aperio.v1.SecurityAsset"> & {
  * Use `create(SecurityAssetSchema)` to create a new message.
  */
 export const SecurityAssetSchema: GenMessage<SecurityAsset> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 31);
+  messageDesc(file_aperio_v1_api, 77);
 
 /**
  * @generated from message aperio.v1.SecurityPrincipal
@@ -1053,7 +2217,7 @@ export type SecurityPrincipal = Message<"aperio.v1.SecurityPrincipal"> & {
  * Use `create(SecurityPrincipalSchema)` to create a new message.
  */
 export const SecurityPrincipalSchema: GenMessage<SecurityPrincipal> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 32);
+  messageDesc(file_aperio_v1_api, 78);
 
 /**
  * @generated from message aperio.v1.ListRiskExceptionsRequest
@@ -1066,7 +2230,7 @@ export type ListRiskExceptionsRequest = Message<"aperio.v1.ListRiskExceptionsReq
  * Use `create(ListRiskExceptionsRequestSchema)` to create a new message.
  */
 export const ListRiskExceptionsRequestSchema: GenMessage<ListRiskExceptionsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 33);
+  messageDesc(file_aperio_v1_api, 79);
 
 /**
  * @generated from message aperio.v1.ListRiskExceptionsResponse
@@ -1083,7 +2247,7 @@ export type ListRiskExceptionsResponse = Message<"aperio.v1.ListRiskExceptionsRe
  * Use `create(ListRiskExceptionsResponseSchema)` to create a new message.
  */
 export const ListRiskExceptionsResponseSchema: GenMessage<ListRiskExceptionsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 34);
+  messageDesc(file_aperio_v1_api, 80);
 
 /**
  * @generated from message aperio.v1.RiskException
@@ -1160,7 +2324,7 @@ export type RiskException = Message<"aperio.v1.RiskException"> & {
  * Use `create(RiskExceptionSchema)` to create a new message.
  */
 export const RiskExceptionSchema: GenMessage<RiskException> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 35);
+  messageDesc(file_aperio_v1_api, 81);
 
 /**
  * @generated from message aperio.v1.RiskExceptionAsset
@@ -1187,7 +2351,7 @@ export type RiskExceptionAsset = Message<"aperio.v1.RiskExceptionAsset"> & {
  * Use `create(RiskExceptionAssetSchema)` to create a new message.
  */
 export const RiskExceptionAssetSchema: GenMessage<RiskExceptionAsset> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 36);
+  messageDesc(file_aperio_v1_api, 82);
 
 /**
  * @generated from message aperio.v1.RiskExceptionFinding
@@ -1219,7 +2383,7 @@ export type RiskExceptionFinding = Message<"aperio.v1.RiskExceptionFinding"> & {
  * Use `create(RiskExceptionFindingSchema)` to create a new message.
  */
 export const RiskExceptionFindingSchema: GenMessage<RiskExceptionFinding> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 37);
+  messageDesc(file_aperio_v1_api, 83);
 
 /**
  * @generated from service aperio.v1.AperioService
@@ -1266,6 +2430,30 @@ export const AperioService: GenService<{
     output: typeof GetFindingResponseSchema;
   },
   /**
+   * @generated from rpc aperio.v1.AperioService.UpdateFindingStatus
+   */
+  updateFindingStatus: {
+    methodKind: "unary";
+    input: typeof UpdateFindingStatusRequestSchema;
+    output: typeof UpdateFindingStatusResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.RemediateFinding
+   */
+  remediateFinding: {
+    methodKind: "unary";
+    input: typeof RemediateFindingRequestSchema;
+    output: typeof RemediateFindingResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListConnectorCatalog
+   */
+  listConnectorCatalog: {
+    methodKind: "unary";
+    input: typeof ListConnectorCatalogRequestSchema;
+    output: typeof ListConnectorCatalogResponseSchema;
+  },
+  /**
    * @generated from rpc aperio.v1.AperioService.ListIntegrations
    */
   listIntegrations: {
@@ -1274,12 +2462,108 @@ export const AperioService: GenService<{
     output: typeof ListIntegrationsResponseSchema;
   },
   /**
+   * @generated from rpc aperio.v1.AperioService.CreateIntegration
+   */
+  createIntegration: {
+    methodKind: "unary";
+    input: typeof CreateIntegrationRequestSchema;
+    output: typeof CreateIntegrationResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.DeleteIntegration
+   */
+  deleteIntegration: {
+    methodKind: "unary";
+    input: typeof DeleteIntegrationRequestSchema;
+    output: typeof DeleteIntegrationResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.GetIntegrationChecks
+   */
+  getIntegrationChecks: {
+    methodKind: "unary";
+    input: typeof GetIntegrationChecksRequestSchema;
+    output: typeof GetIntegrationChecksResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.UpdateIntegrationChecks
+   */
+  updateIntegrationChecks: {
+    methodKind: "unary";
+    input: typeof UpdateIntegrationChecksRequestSchema;
+    output: typeof UpdateIntegrationChecksResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.GetGoogleMailboxScanConfig
+   */
+  getGoogleMailboxScanConfig: {
+    methodKind: "unary";
+    input: typeof GetGoogleMailboxScanConfigRequestSchema;
+    output: typeof GetGoogleMailboxScanConfigResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.UpdateGoogleMailboxScanConfig
+   */
+  updateGoogleMailboxScanConfig: {
+    methodKind: "unary";
+    input: typeof UpdateGoogleMailboxScanConfigRequestSchema;
+    output: typeof UpdateGoogleMailboxScanConfigResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.StartGoogleWorkspaceOAuth
+   */
+  startGoogleWorkspaceOAuth: {
+    methodKind: "unary";
+    input: typeof StartGoogleWorkspaceOAuthRequestSchema;
+    output: typeof StartGoogleWorkspaceOAuthResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ForceSyncIntegration
+   */
+  forceSyncIntegration: {
+    methodKind: "unary";
+    input: typeof ForceSyncIntegrationRequestSchema;
+    output: typeof ForceSyncIntegrationResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListSiemCatalog
+   */
+  listSiemCatalog: {
+    methodKind: "unary";
+    input: typeof ListSiemCatalogRequestSchema;
+    output: typeof ListSiemCatalogResponseSchema;
+  },
+  /**
    * @generated from rpc aperio.v1.AperioService.ListSiemDestinations
    */
   listSiemDestinations: {
     methodKind: "unary";
     input: typeof ListSiemDestinationsRequestSchema;
     output: typeof ListSiemDestinationsResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.CreateSiemDestination
+   */
+  createSiemDestination: {
+    methodKind: "unary";
+    input: typeof CreateSiemDestinationRequestSchema;
+    output: typeof CreateSiemDestinationResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.DeleteSiemDestination
+   */
+  deleteSiemDestination: {
+    methodKind: "unary";
+    input: typeof DeleteSiemDestinationRequestSchema;
+    output: typeof DeleteSiemDestinationResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.TestSiemDestination
+   */
+  testSiemDestination: {
+    methodKind: "unary";
+    input: typeof TestSiemDestinationRequestSchema;
+    output: typeof TestSiemDestinationResponseSchema;
   },
   /**
    * @generated from rpc aperio.v1.AperioService.ListShadowItOauthApps
