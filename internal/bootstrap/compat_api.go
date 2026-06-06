@@ -1202,7 +1202,8 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	if mode != "REMEDIATION" {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("this connection is read-only. Reconnect with remediation scopes to enable write actions."))
 	}
-	if _, err := compatDecryptIntegrationSecret(encryptedAccessToken, auth.OrganizationID, integrationID, provider, externalAccount, "access_token"); err != nil {
+	accessToken, err := compatDecryptIntegrationSecret(encryptedAccessToken, auth.OrganizationID, integrationID, provider, externalAccount, "access_token")
+	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("integration credential is unavailable"))
 	}
 
@@ -1222,7 +1223,13 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		}
 	}
 
-	result := executeRemediation(provider, action, externalAccount, targetIdentifier)
+	result := a.executeRemediation(ctx, remediationRequest{
+		Provider:          provider,
+		Action:            action,
+		ExternalAccountID: externalAccount,
+		TargetIdentifier:  targetIdentifier,
+		IntegrationToken:  accessToken,
+	})
 
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
