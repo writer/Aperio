@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent template for aperio-sync.
+
+  Substitute __SCRIPT_PATH__, __LOG_DIR__, and __HOME__ before installing.
+  See .factory/skills/aperio-sync/SKILL.md for the one-liner install command.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aperio.sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__SCRIPT_PATH__</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>3600</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/aperio-sync.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/aperio-sync.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+</dict>
+</plist>
