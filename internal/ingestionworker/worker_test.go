@@ -92,8 +92,8 @@ func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
 		Attempts:       1,
 		MaxAttempts:    3,
 	})
-	if err != nil {
-		t.Fatalf("process should return the recorded failure update result, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ingested event insert failed") {
+		t.Fatalf("process should return recorded failure, got %v", err)
 	}
 
 	status, attempts, message := state.failureUpdate()
@@ -105,6 +105,26 @@ func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
 	}
 	if !state.rolledBack {
 		t.Fatal("expected failed transaction to be rolled back before marking job failure")
+	}
+}
+
+func TestDrainCountsRecordedJobFailureAsFailed(t *testing.T) {
+	state := &failureDriverState{}
+	driverName := fmt.Sprintf("ingestion_drain_failure_%d", time.Now().UnixNano())
+	sql.Register(driverName, &failureDriver{state: state})
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	worker := &Worker{db: db, leaseOwner: "test-owner"}
+	result, err := worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Failed != 1 || result.Succeeded != 0 {
+		t.Fatalf("expected one failed job, got %#v", result)
 	}
 }
 
@@ -195,6 +215,15 @@ func (c *failureConn) QueryContext(_ context.Context, query string, _ []driver.N
 			disabled = "[]"
 		}
 		return &singleValueRows{columns: []string{"disabled_checks"}, values: [][]driver.Value{{disabled}}}, nil
+	}
+	if strings.Contains(query, "RETURNING id, organization_id, integration_id") {
+		payload, _ := json.Marshal(map[string]any{"repository": map[string]any{"full_name": "writer/aperio", "visibility": "public"}})
+		return &singleValueRows{
+			columns: []string{"id", "organization_id", "integration_id", "provider", "event_type", "source", "actor", "occurred_at", "payload", "attempts", "max_attempts"},
+			values: [][]driver.Value{{
+				"job_1", "org_1", "int_1", "GITHUB", "PUBLIC_REPOSITORY_CREATED", "test", nil, time.Now(), payload, int64(1), int64(3),
+			}},
+		}, nil
 	}
 	if strings.Contains(query, "INSERT INTO ingested_events") {
 		return nil, errors.New("ingested event insert failed")

@@ -199,15 +199,15 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 func (w *Worker) process(ctx context.Context, item job) error {
 	payload, err := item.toPayload()
 	if err != nil {
-		return w.finish(ctx, item, false, err.Error())
+		return w.fail(ctx, item, err.Error())
 	}
 	findings, err := w.findingsForJob(ctx, payload, item)
 	if err != nil {
-		return w.finish(ctx, item, false, err.Error())
+		return w.fail(ctx, item, err.Error())
 	}
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		return w.finish(ctx, item, false, err.Error())
+		return w.fail(ctx, item, err.Error())
 	}
 	txDone := false
 	defer func() {
@@ -218,7 +218,7 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	fail := func(err error) error {
 		txDone = true
 		_ = tx.Rollback()
-		return w.finish(ctx, item, false, err.Error())
+		return w.fail(ctx, item, err.Error())
 	}
 	eventID := "evt_" + randomID()
 	if err := tx.QueryRowContext(ctx, `
@@ -246,10 +246,17 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	}
 	if err := tx.Commit(); err != nil {
 		txDone = true
-		return w.finish(ctx, item, false, err.Error())
+		return w.fail(ctx, item, err.Error())
 	}
 	txDone = true
 	return nil
+}
+
+func (w *Worker) fail(ctx context.Context, item job, message string) error {
+	if err := w.finish(ctx, item, false, message); err != nil {
+		return err
+	}
+	return errors.New(message)
 }
 
 func (w *Worker) findingsForJob(ctx context.Context, payload JobPayload, item job) ([]Finding, error) {
