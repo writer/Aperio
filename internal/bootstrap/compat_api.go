@@ -1368,6 +1368,13 @@ func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth c
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND organization_id = $2)`, userID, auth.OrganizationID).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("member not found"))
+	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
 	_, err := a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, created_by_user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,$6,NOW())`, compatID("tok"), auth.OrganizationID, userID, auth.UserID, tokenHash, expires)
