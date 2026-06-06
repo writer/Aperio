@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -254,6 +255,49 @@ func TestTenantIsolationMemberResetLinkRejectsForeignUser(t *testing.T) {
 	}
 	if leaked != 1 {
 		t.Fatalf("same-tenant reset expected 1 token, got %d", leaked)
+	}
+}
+
+func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.T) {
+	app, attacker := newTestDBApp(t)
+	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	createdMember := mustCall(t, func() (any, error) {
+		return app.compatCreateMember(ctx, map[string]any{"email": "stale-reset-victim@example.com", "roleName": "ADMIN"}, victim)
+	})
+	victimUserID := createdMember.(map[string]any)["data"].(map[string]any)["id"].(string)
+
+	token, tokenHash := compatToken()
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, created_by_user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,NOW() + INTERVAL '1 hour',NOW())`, compatID("tok"), attacker.OrganizationID, victimUserID, attacker.UserID, tokenHash); err != nil {
+		t.Fatalf("seed stale cross-tenant reset token: %v", err)
+	}
+
+	_, err := app.compatResetPassword(ctx, map[string]any{
+		"token":    token,
+		"password": "new-password-123",
+	}, http.Header{})
+	if err == nil {
+		t.Fatal("expected stale cross-tenant reset token to be rejected")
+	}
+	if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v (%v)", code, err)
+	}
+
+	var sessions int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_sessions WHERE user_id = $1`, victimUserID).Scan(&sessions); err != nil {
+		t.Fatalf("count victim sessions: %v", err)
+	}
+	if sessions != 0 {
+		t.Fatalf("stale cross-tenant reset token created %d victim session(s)", sessions)
+	}
+	var hashPresent bool
+	if err := app.db.QueryRowContext(ctx, `SELECT password_hash IS NOT NULL FROM users WHERE id = $1`, victimUserID).Scan(&hashPresent); err != nil {
+		t.Fatalf("query victim password hash: %v", err)
+	}
+	if hashPresent {
+		t.Fatal("stale cross-tenant reset token updated the victim password")
 	}
 }
 
