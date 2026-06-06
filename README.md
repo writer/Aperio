@@ -2,7 +2,7 @@
 
 **SaaS security posture management for the SIEM-native era.**
 
-Aperio is an open-source SSPM that connects to your SaaS estate, surfaces posture risks and OAuth grants, and pushes normalized findings into the SIEM you already operate. The current `main` branch ships a Go/ConnectRPC API backed by Prisma/Postgres data, a Next.js operator console, an stdio MCP broker, an ingestion worker, and a durable SIEM dispatcher with adapters for Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhooks, and JSON Lines files.
+Aperio is an open-source SSPM that connects to your SaaS estate, surfaces posture risks and OAuth grants, and pushes normalized findings into the SIEM you already operate. The current `main` branch ships a Go/ConnectRPC API backed by Prisma/Postgres data, a Next.js operator console, an stdio MCP broker, an ingestion worker, an optional NATS JetStream event bus, and a durable SIEM dispatcher with adapters for Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhooks, and JSON Lines files.
 
 In practical terms, Aperio ingests connector events, evaluates detection rules, tracks user-granted OAuth apps (shadow IT) and domain-wide delegations, opens and dedupes findings, and fans canonical `aperio.finding.v1` envelopes out to your SIEM destinations.
 
@@ -17,6 +17,7 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
 - **Shadow IT** — per-user `users.tokens.list` scan that catalogs every third-party OAuth app users have authorized, with graduated risk scoring (CRITICAL/HIGH/MEDIUM/LOW) calibrated against Google scope sensitivity.
 - **Findings lifecycle** — auto-resolution on next sync when the underlying signal disappears, evidence persistence, severity scoring, dedupe by stable key, and risk exceptions with compensating controls.
 - **SIEM fanout** — durable outbox with adapters for Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhooks, and JSON Lines file sinks. Canonical envelope `aperio.finding.v1`.
+- **Event contracts** — protobuf-backed Aperio lifecycle envelopes wrapped in Cerebro-compatible `EventEnvelope` messages, with optional NATS JetStream publishing for ingestion, finding lifecycle, and claim fanout events.
 - **Remediation** — real handlers for Okta (suspend, reset MFA) and Slack (revoke OAuth app); the rest are stubbed and pluggable.
 - **Operator console** — Next.js app with dashboard, findings, apps, shadow IT, security graph, connectors, SIEM destinations, and admin pages. Full-text command palette, role-aware navigation, MFA enrollment.
 - **Agents and MCP** — tenant-scoped agent runtime that creates `AgentProposal` rows requiring human approval before any provider-side write executes. An stdio MCP broker mirrors core task and SIEM actions over JSON-RPC for MCP-native clients.
@@ -44,9 +45,13 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
    1Pass,        v              Panopticon / Elastic /
    M365,    Postgres           Datadog / Webhook / JSONL
    Atlassian)  (state)
+                  |
+                  v
+          Optional NATS JetStream
+       (Cerebro-compatible events)
 ```
 
-The Go API is the single source of truth for connector, finding, admin, auth, and SIEM workflows. The ingestion worker pulls audit-log events into the same Postgres state store. The SIEM dispatcher reads the `SiemDelivery` outbox and ships each finding to every enabled destination with retry/backoff. Credentials are encrypted at rest with AES-256-GCM via `packages/security`.
+The Go API is the single source of truth for connector, finding, admin, auth, and SIEM workflows. The ingestion worker pulls audit-log events into the same Postgres state store. The SIEM dispatcher reads the `SiemDelivery` outbox and ships each finding to every enabled destination with retry/backoff. When `APERIO_EVENT_BUS=nats`, Go and worker processes also publish validated protobuf lifecycle events to JetStream; otherwise publishing is a safe no-op. Credentials are encrypted at rest with AES-256-GCM via `packages/security`.
 
 ---
 
@@ -107,7 +112,7 @@ npx tsx scripts/seed.ts
 
 ### Background workers
 
-Long-running pipelines run as separate processes:
+Long-running pipelines run as separate processes. The event bus is optional; set `APERIO_EVENT_BUS=nats` to publish protobuf envelopes to the local NATS service started by `npm run dev`.
 
 ```bash
 npm run worker:ingestion            # pulls audit events into the DB
@@ -150,6 +155,9 @@ Aperio reads runtime configuration from environment variables. Create a `.env` f
 | `APERIO_SESSION_TTL_HOURS` | absolute session lifetime | `12` |
 | `APERIO_SESSION_IDLE_MINUTES` | idle session timeout | `120` |
 | `APERIO_MFA_ISSUER` | TOTP issuer label shown in authenticator apps | `Aperio` |
+| `APERIO_EVENT_BUS` | optional event publisher backend; set to `nats` to enable JetStream fanout | unset / noop |
+| `APERIO_NATS_URL` | NATS server URL used when event bus publishing is enabled | `nats://127.0.0.1:4222` |
+| `APERIO_NATS_STREAM` | JetStream stream for Cerebro-compatible event envelopes | `CEREBRO_EVENTS` |
 
 ### Email
 
@@ -233,10 +241,11 @@ npm run worker:siem            # SIEM dispatcher worker
 npm run mcp:broker             # stdio MCP broker
 npm run build:web              # production Next.js build
 npm run proto:lint             # Buf lint for protobuf contracts
+npm run proto:check            # lint, regenerate, and verify generated code is current
 npm run test:go                # Go unit tests for ConnectRPC service
 npm run typecheck              # tsc --noEmit
 npm run test:api               # node --test (tsx loader)
-npm run verify                 # typecheck + API tests + Prisma validate + production audit
+npm run verify                 # generate, typecheck, API tests, Prisma validate, Go/proto checks, production audit
 npm run db:generate            # prisma generate
 npm run db:validate            # prisma validate
 npm run backup:check           # backup-readiness preflight
@@ -278,8 +287,11 @@ Protobuf contracts follow Cerebro-style Buf conventions:
 
 ```bash
 npm run proto:lint
+npm run proto:check
 npm run test:go
 ```
+
+Event contracts live in `proto/aperio/contracts/v1/events.proto` and are encoded from `packages/shared/src/protobuf-contracts.ts` and `internal/bootstrap/event_bus.go`. Producers validate required envelope attributes before publishing so consumers can filter by schema, kind, tenant, finding, delivery, or job id without decoding every payload.
 
 ---
 
@@ -319,9 +331,9 @@ aperio/
 │   ├── db/                 # Prisma schema and client
 │   ├── security/           # AES-256-GCM helpers and password hashing
 │   └── shared/             # Zod schemas, connector catalog, SIEM catalog
-├── proto/                  # Cerebro-compatible protobuf contracts
+├── proto/                  # ConnectRPC API + Cerebro-compatible event contracts
 ├── workers/                # ingestion + SIEM background workers
-├── scripts/                # seed and operational scripts
+├── scripts/                # dev orchestration, seed, and operational scripts
 ├── tests/                  # node --test suites
 ├── droid-wiki/             # generated architecture and reference docs
 └── docker-compose.yml      # local Postgres
@@ -353,14 +365,15 @@ The `droid-wiki/` directory contains generated documentation. Useful entry point
 
 | Component | Technology |
 | --- | --- |
-| Language | TypeScript 5.7, Go 1.24 |
+| Language | TypeScript 5.7, Go 1.25 |
 | Runtime | Node.js 20+, Go `net/http` |
 | API server | Go `net/http` + ConnectRPC |
 | Web console | Next.js 16 + React 18 + Tailwind |
 | ORM | Prisma 5 |
 | Database | PostgreSQL 15+ |
 | Background workers | tsx + custom durable outbox |
-| Contracts | Protobuf + Buf + generated Go/TypeScript clients |
+| Contracts | Protobuf + Buf + generated Go/TypeScript clients + Cerebro event envelopes |
+| Event bus | Optional NATS JetStream (`APERIO_EVENT_BUS=nats`) |
 | Validation | Zod |
 | MCP transport | stdio JSON-RPC |
 | Auth | Cookie sessions, TOTP MFA, RBAC |
