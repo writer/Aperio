@@ -984,6 +984,11 @@ export async function fetchSecurityOverview() {
 }
 
 export async function fetchSecurityAssets() {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listSecurityAssets() as Promise<{
+      data: SecurityAsset[];
+    }>;
+  }
   return request<{ data: SecurityAsset[] }>("/api/v1/security/assets");
 }
 

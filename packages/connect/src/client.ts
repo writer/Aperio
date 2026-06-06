@@ -3,6 +3,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AperioService,
   type Finding as ProtoFinding,
+  type SecurityAsset as ProtoSecurityAsset,
   type ShadowItOauthApp as ProtoShadowItOauthApp,
   type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant
 } from "./gen/aperio/v1/api_pb";
@@ -127,6 +128,48 @@ export type ConnectShadowItOauthAppDetail = {
   grants: ConnectShadowItOauthAppGrant[];
 };
 
+export type ConnectSecurityAsset = {
+  id: string;
+  type: string;
+  provider: ConnectProvider | null;
+  name: string;
+  summary: string | null;
+  externalId: string | null;
+  labels: string[];
+  criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  exposureLevel: "PUBLIC" | "PARTNER" | "INTERNAL" | "RESTRICTED";
+  ownershipStatus: "ASSIGNED" | "UNASSIGNED" | "REVIEW_REQUIRED";
+  containsSensitiveData: boolean;
+  isPrivileged: boolean;
+  riskScore: number;
+  lastObservedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  integration: {
+    id: string;
+    provider: ConnectProvider;
+    displayName: string;
+  } | null;
+  owner: {
+    id: string;
+    email: string;
+    displayName: string | null;
+  } | null;
+  businessOwner: {
+    id: string;
+    email: string;
+    displayName: string | null;
+  } | null;
+  openFindingCount: number;
+  activeExceptionCount: number;
+};
+
+export type ConnectSecurityAssetsFilters = {
+  type?: string;
+  ownershipStatus?: string;
+  integrationId?: string;
+};
+
 const transport = createConnectTransport({
   baseUrl: CONNECT_BASE_URL,
   fetch(input, init) {
@@ -210,6 +253,51 @@ function shadowItGrantFromProto(
     anonymous: grant.anonymous,
     nativeApp: grant.nativeApp,
     lastObservedAt: grant.lastObservedAt
+  };
+}
+
+function securityAssetFromProto(asset: ProtoSecurityAsset): ConnectSecurityAsset {
+  return {
+    id: asset.id,
+    type: asset.type,
+    provider: asset.provider ? (asset.provider as ConnectProvider) : null,
+    name: asset.name,
+    summary: asset.summary || null,
+    externalId: asset.externalId || null,
+    labels: asset.labels,
+    criticality: asset.criticality as ConnectSecurityAsset["criticality"],
+    exposureLevel: asset.exposureLevel as ConnectSecurityAsset["exposureLevel"],
+    ownershipStatus:
+      asset.ownershipStatus as ConnectSecurityAsset["ownershipStatus"],
+    containsSensitiveData: asset.containsSensitiveData,
+    isPrivileged: asset.isPrivileged,
+    riskScore: asset.riskScore,
+    lastObservedAt: asset.lastObservedAt || null,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+    integration: asset.integration
+      ? {
+          id: asset.integration.id,
+          provider: asset.integration.provider as ConnectProvider,
+          displayName: asset.integration.displayName
+        }
+      : null,
+    owner: asset.owner
+      ? {
+          id: asset.owner.id,
+          email: asset.owner.email,
+          displayName: asset.owner.displayName || null
+        }
+      : null,
+    businessOwner: asset.businessOwner
+      ? {
+          id: asset.businessOwner.id,
+          email: asset.businessOwner.email,
+          displayName: asset.businessOwner.displayName || null
+        }
+      : null,
+    openFindingCount: asset.openFindingCount,
+    activeExceptionCount: asset.activeExceptionCount
   };
 }
 
@@ -317,5 +405,15 @@ export const aperioConnectClient = {
         grants: response.data.grants.map(shadowItGrantFromProto)
       }
     };
+  },
+  async listSecurityAssets(
+    filters?: ConnectSecurityAssetsFilters
+  ): Promise<{ data: ConnectSecurityAsset[] }> {
+    const response = await client.listSecurityAssets({
+      type: filters?.type ?? "",
+      ownershipStatus: filters?.ownershipStatus ?? "",
+      integrationId: filters?.integrationId ?? ""
+    });
+    return { data: response.data.map(securityAssetFromProto) };
   }
 };

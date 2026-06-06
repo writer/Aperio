@@ -134,6 +134,36 @@ type shadowItOauthAppGrantRow struct {
 	LastObservedAt  time.Time
 }
 
+type securityAssetRow struct {
+	ID                    string
+	Type                  string
+	Provider              string
+	Name                  string
+	Summary               string
+	ExternalID            string
+	Labels                []string
+	Criticality           string
+	ExposureLevel         string
+	OwnershipStatus       string
+	ContainsSensitiveData bool
+	IsPrivileged          bool
+	RiskScore             int32
+	LastObservedAt        sql.NullTime
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	IntegrationID         string
+	IntegrationProvider   string
+	IntegrationName       string
+	OwnerID               string
+	OwnerEmail            string
+	OwnerDisplayName      string
+	BusinessOwnerID       string
+	BusinessOwnerEmail    string
+	BusinessOwnerName     string
+	OpenFindingCount      int32
+	ActiveExceptionCount  int32
+}
+
 // NewApp wires routes but does not open network sockets. Tests can mount the
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
@@ -488,6 +518,25 @@ func (a *App) ListShadowItOauthAppGrants(
 	}
 	for _, grant := range grants {
 		response.Data.Grants = append(response.Data.Grants, grant.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) ListSecurityAssets(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListSecurityAssetsRequest],
+) (*connect.Response[aperiov1.ListSecurityAssetsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.listSecurityAssets(ctx, organizationID, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("security assets unavailable"))
+	}
+	response := &aperiov1.ListSecurityAssetsResponse{Data: make([]*aperiov1.SecurityAsset, 0, len(rows))}
+	for _, row := range rows {
+		response.Data = append(response.Data, row.toProto())
 	}
 	return connect.NewResponse(response), nil
 }
@@ -1183,6 +1232,168 @@ func nullTimeString(value sql.NullTime) string {
 		return ""
 	}
 	return value.Time.UTC().Format(time.RFC3339Nano)
+}
+
+func (a *App) listSecurityAssets(
+	ctx context.Context,
+	organizationID string,
+	req *aperiov1.ListSecurityAssetsRequest,
+) ([]securityAssetRow, error) {
+	args := []any{organizationID}
+	conditions := []string{"sa.organization_id = $1"}
+	if trimmed := strings.TrimSpace(req.Type); trimmed != "" {
+		args = append(args, trimmed)
+		conditions = append(conditions, "sa.type::text = $"+intPlaceholder(len(args)))
+	}
+	if trimmed := strings.TrimSpace(req.OwnershipStatus); trimmed != "" {
+		args = append(args, trimmed)
+		conditions = append(conditions, "sa.ownership_status::text = $"+intPlaceholder(len(args)))
+	}
+	if trimmed := strings.TrimSpace(req.IntegrationId); trimmed != "" {
+		args = append(args, trimmed)
+		conditions = append(conditions, "sa.integration_id = $"+intPlaceholder(len(args)))
+	}
+	query := `
+		WITH open_findings AS (
+			SELECT asset_id, COUNT(*)::int AS open_finding_count
+			FROM security_findings
+			WHERE organization_id = $1 AND status = 'OPEN'
+			GROUP BY asset_id
+		),
+		active_exceptions AS (
+			SELECT asset_id, COUNT(*)::int AS active_exception_count
+			FROM risk_exceptions
+			WHERE organization_id = $1
+			  AND status = 'ACTIVE'
+			  AND (expires_at IS NULL OR expires_at > NOW())
+			GROUP BY asset_id
+		)
+		SELECT
+			sa.id,
+			sa.type::text,
+			COALESCE(sa.provider::text, ''),
+			sa.name,
+			COALESCE(sa.summary, ''),
+			COALESCE(sa.external_id, ''),
+			array_to_json(sa.labels)::text,
+			sa.criticality::text,
+			sa.exposure_level::text,
+			sa.ownership_status::text,
+			sa.contains_sensitive_data,
+			sa.is_privileged,
+			sa.risk_score,
+			sa.last_observed_at,
+			sa.created_at,
+			sa.updated_at,
+			COALESCE(ic.id, ''),
+			COALESCE(ic.provider::text, ''),
+			COALESCE(ic.display_name, ''),
+			COALESCE(owner.id, ''),
+			COALESCE(owner.email, ''),
+			COALESCE(owner.display_name, ''),
+			COALESCE(business_owner.id, ''),
+			COALESCE(business_owner.email, ''),
+			COALESCE(business_owner.display_name, ''),
+			COALESCE(of.open_finding_count, 0),
+			COALESCE(ae.active_exception_count, 0)
+		FROM security_assets sa
+		LEFT JOIN integration_connections ic ON ic.id = sa.integration_id
+		LEFT JOIN users owner ON owner.id = sa.owner_user_id
+		LEFT JOIN users business_owner ON business_owner.id = sa.business_owner_user_id
+		LEFT JOIN open_findings of ON of.asset_id = sa.id
+		LEFT JOIN active_exceptions ae ON ae.asset_id = sa.id
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		ORDER BY sa.risk_score DESC, sa.name ASC
+	`
+	rows, err := a.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var assets []securityAssetRow
+	for rows.Next() {
+		var row securityAssetRow
+		var labelsJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.Type,
+			&row.Provider,
+			&row.Name,
+			&row.Summary,
+			&row.ExternalID,
+			&labelsJSON,
+			&row.Criticality,
+			&row.ExposureLevel,
+			&row.OwnershipStatus,
+			&row.ContainsSensitiveData,
+			&row.IsPrivileged,
+			&row.RiskScore,
+			&row.LastObservedAt,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+			&row.IntegrationID,
+			&row.IntegrationProvider,
+			&row.IntegrationName,
+			&row.OwnerID,
+			&row.OwnerEmail,
+			&row.OwnerDisplayName,
+			&row.BusinessOwnerID,
+			&row.BusinessOwnerEmail,
+			&row.BusinessOwnerName,
+			&row.OpenFindingCount,
+			&row.ActiveExceptionCount,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(labelsJSON), &row.Labels)
+		assets = append(assets, row)
+	}
+	return assets, rows.Err()
+}
+
+func (row securityAssetRow) toProto() *aperiov1.SecurityAsset {
+	asset := &aperiov1.SecurityAsset{
+		Id:                    row.ID,
+		Type:                  row.Type,
+		Provider:              row.Provider,
+		Name:                  row.Name,
+		Summary:               row.Summary,
+		ExternalId:            row.ExternalID,
+		Labels:                row.Labels,
+		Criticality:           row.Criticality,
+		ExposureLevel:         row.ExposureLevel,
+		OwnershipStatus:       row.OwnershipStatus,
+		ContainsSensitiveData: row.ContainsSensitiveData,
+		IsPrivileged:          row.IsPrivileged,
+		RiskScore:             row.RiskScore,
+		LastObservedAt:        nullTimeString(row.LastObservedAt),
+		CreatedAt:             row.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:             row.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		OpenFindingCount:      row.OpenFindingCount,
+		ActiveExceptionCount:  row.ActiveExceptionCount,
+	}
+	if row.IntegrationID != "" {
+		asset.Integration = &aperiov1.FindingIntegration{
+			Id:          row.IntegrationID,
+			Provider:    row.IntegrationProvider,
+			DisplayName: row.IntegrationName,
+		}
+	}
+	if row.OwnerID != "" {
+		asset.Owner = &aperiov1.SecurityPrincipal{
+			Id:          row.OwnerID,
+			Email:       row.OwnerEmail,
+			DisplayName: row.OwnerDisplayName,
+		}
+	}
+	if row.BusinessOwnerID != "" {
+		asset.BusinessOwner = &aperiov1.SecurityPrincipal{
+			Id:          row.BusinessOwnerID,
+			Email:       row.BusinessOwnerEmail,
+			DisplayName: row.BusinessOwnerName,
+		}
+	}
+	return asset
 }
 
 // openFindings loads the same finding fields used by the TypeScript risk
