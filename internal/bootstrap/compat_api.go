@@ -542,7 +542,7 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, u.id, u.email, r.name::text, us.last_seen_at
 		FROM user_sessions us
-		JOIN users u ON u.id = us.user_id
+		JOIN users u ON u.id = us.user_id AND u.organization_id = us.organization_id
 		JOIN roles r ON r.id = u.role_id
 		WHERE us.id = $1
 		  AND us.token_hash = $2

@@ -301,6 +301,45 @@ func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.
 	}
 }
 
+func TestTenantIsolationRejectsPreviouslyMintedCrossTenantSession(t *testing.T) {
+	app, attacker := newTestDBApp(t)
+	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	createdMember := mustCall(t, func() (any, error) {
+		return app.compatCreateMember(ctx, map[string]any{"email": "stale-session-victim@example.com", "roleName": "ADMIN"}, victim)
+	})
+	victimUserID := createdMember.(map[string]any)["data"].(map[string]any)["id"].(string)
+
+	rawToken := randomURL(32)
+	sessionID := compatID("ses")
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO user_sessions (id, organization_id, user_id, token_hash, expires_at, last_seen_at, mfa_verified_at, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '1 hour',NOW(),NOW(),NOW(),NOW())`, sessionID, attacker.OrganizationID, victimUserID, hashOpaqueToken(rawToken)); err != nil {
+		t.Fatalf("seed stale cross-tenant session: %v", err)
+	}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+sessionID+"."+rawToken)
+
+	if _, err := app.compatAuthFromSession(ctx, header); err == nil {
+		t.Fatal("expected compat session auth to reject stale cross-tenant session")
+	}
+	if _, err := app.organizationIDFromSession(ctx, header); err == nil {
+		t.Fatal("expected native session auth to reject stale cross-tenant session")
+	}
+
+	var lastSeen string
+	if err := app.db.QueryRowContext(ctx, `SELECT last_seen_at::text FROM user_sessions WHERE id = $1`, sessionID).Scan(&lastSeen); err != nil {
+		t.Fatalf("query stale session: %v", err)
+	}
+	var victimSessions int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_sessions WHERE user_id = $1 AND organization_id = $2`, victimUserID, victim.OrganizationID).Scan(&victimSessions); err != nil {
+		t.Fatalf("count valid victim sessions: %v", err)
+	}
+	if victimSessions != 0 {
+		t.Fatalf("expected no valid victim sessions, got %d", victimSessions)
+	}
+}
+
 func assertRowInOrg(t *testing.T, app *App, table, id, orgID string) {
 	t.Helper()
 	var gotOrg string
