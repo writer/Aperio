@@ -128,6 +128,8 @@ function protoPath(relativePath: string) {
 
 function protobufRoot() {
   if (!rootPromise) {
+    // Cache protobuf reflection because every worker publish path uses the same
+    // event contracts and loading .proto files repeatedly is expensive.
     const root = new protobuf.Root();
     root.resolvePath = (_origin, target) =>
       target.startsWith("/")
@@ -151,6 +153,8 @@ function timestamp(value: TimestampLike) {
   if (Number.isNaN(millis)) {
     throw new Error("Invalid protobuf timestamp");
   }
+  // Store protobuf seconds/nanos while preserving millisecond precision from JS
+  // Date inputs; callers get a normalized ISO string in the encoded wrapper.
   return {
     seconds: Math.floor(millis / 1000),
     nanos: (millis % 1000) * 1_000_000
@@ -185,6 +189,9 @@ async function encodeEnvelope(input: {
   const EventEnvelope = root.lookupType("cerebro.v1.EventEnvelope");
   const id = randomUUID();
   const occurredAt = timestamp(input.occurredAt);
+  // EventEnvelope is the transport contract for NATS/Cerebro. Domain-specific
+  // payloads stay opaque bytes, while kind/schema/attributes drive routing and
+  // validation across languages.
   const message = EventEnvelope.create({
     id,
     tenantId: input.tenantId,
@@ -214,6 +221,8 @@ async function encodeEnvelope(input: {
 export function validateEncodedAperioEvent(
   event: EncodedAperioEvent
 ): EncodedAperioEvent {
+  // Validate the already-encoded wrapper as a final producer-side guard before
+  // NATS publish or test assertions accept the envelope.
   const requiredStringFields = {
     id: event.id,
     kind: event.kind,
@@ -253,6 +262,8 @@ export function validateEncodedAperioEvent(
   }
   for (const required of REQUIRED_ATTRIBUTES_BY_SCHEMA_REF[event.schemaRef] ?? []) {
     if (!event.attributes[required]) {
+      // Required attributes duplicate key payload fields so consumers can filter
+      // and index events without decoding every schema-specific payload.
       throw new Error(`Missing event envelope attribute ${required}`);
     }
   }
@@ -280,6 +291,8 @@ export async function encodeIngestionJobEvent(
       payloadJson: jsonBytes(input.payload)
     })
   ).finish();
+  // Status drives event kind, while schemaRef remains stable for all ingestion
+  // job lifecycle messages so consumers can decode one payload type.
   const kind =
     input.status === "queued"
       ? APERIO_EVENT_KINDS.ingestionQueued
@@ -306,6 +319,8 @@ export async function encodeIngestionJobEvent(
 }
 
 function claimToProto(claim: CerebroClaimContract) {
+  // Convert Writer/Cerebro's snake_case JSON claim shape into the camelCase
+  // protobufjs field names generated from primitives.proto.
   return {
     id: claim.id ?? "",
     subjectUrn: claim.subject_urn,
@@ -353,6 +368,8 @@ export async function encodeCerebroClaimsFanoutEvent(
       error: input.error ?? ""
     })
   ).finish();
+  // Delivery status maps to distinct event kinds for alerting, but both variants
+  // carry the same claim fanout payload schema.
   const kind =
     input.status === "delivered"
       ? APERIO_EVENT_KINDS.claimFanoutDelivered
@@ -394,6 +411,8 @@ export async function encodeFindingLifecycleEvent(
       resolutionNote: input.resolutionNote ?? ""
     })
   ).finish();
+  // Reopened is a special case of nextStatus=OPEN so consumers can distinguish
+  // brand-new findings from previously resolved findings observed again.
   const kind =
     input.previousStatus === "RESOLVED" && input.nextStatus === "OPEN"
       ? APERIO_EVENT_KINDS.findingReopened

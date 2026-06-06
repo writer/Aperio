@@ -26,6 +26,8 @@ class NatsJetStreamPublisher implements EventPublisher {
 
   private async connect() {
     if (!this.connectionPromise) {
+      // Load NATS lazily so test and noop-worker paths do not require a live
+      // broker or pay module initialization cost.
       this.connectionPromise = (async () => {
         const { connect } = await import("nats");
         const connection = await connect({
@@ -37,6 +39,8 @@ class NatsJetStreamPublisher implements EventPublisher {
           jetstream: connection.jetstream()
         };
       })().catch((error) => {
+        // Allow a later publish to retry connection setup after transient broker
+        // or DNS failures.
         this.connectionPromise = null;
         throw error;
       });
@@ -46,6 +50,8 @@ class NatsJetStreamPublisher implements EventPublisher {
 
   async publish(event: EncodedAperioEvent): Promise<void> {
     const { jetstream } = await this.connect();
+    // msgID aligns with Go publishing and gives JetStream duplicate suppression
+    // for retrying the same encoded envelope.
     await jetstream.publish(event.subject, event.payload, {
       msgID: event.id
     });
@@ -67,6 +73,8 @@ async function ensureStream(
   try {
     await manager.streams.info(streamName);
   } catch {
+    // Workers can bootstrap local/CI streams; production operators may still
+    // pre-provision the stream with stricter retention and replicas.
     await manager.streams.add({
       name: streamName,
       subjects: ["events.>"]
@@ -84,6 +92,7 @@ export function getEventPublisher(): EventPublisher {
     const streamName = process.env.APERIO_NATS_STREAM?.trim() || "CEREBRO_EVENTS";
     publisher = new NatsJetStreamPublisher(servers, streamName);
   } else {
+    // Noop is the default so ingestion and SIEM tests do not depend on NATS.
     publisher = new NoopEventPublisher();
   }
   return publisher;
@@ -91,9 +100,13 @@ export function getEventPublisher(): EventPublisher {
 
 export async function publishAperioEvent(event: EncodedAperioEvent): Promise<void> {
   try {
+    // Validate before publish to catch contract drift at the producer boundary
+    // rather than after consumers receive an invalid protobuf envelope.
     validateEncodedAperioEvent(event);
     await getEventPublisher().publish(event);
   } catch (error) {
+    // Event delivery is observability/fanout, not the source of truth. Warn and
+    // continue so queue processing does not fail solely because the bus is down.
     console.warn(
       "event_bus.publish_failed",
       error instanceof Error ? error.message : "unknown error"
@@ -103,6 +116,7 @@ export async function publishAperioEvent(event: EncodedAperioEvent): Promise<voi
 
 export async function closeEventPublisher(): Promise<void> {
   if (!publisher) return;
+  // drain() flushes in-flight NATS publishes during graceful worker shutdown.
   await publisher.close();
   publisher = null;
 }
