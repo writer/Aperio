@@ -161,7 +161,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 
 	form := url.Values{"app_id": {target}}
 	if workspace := strings.TrimSpace(request.ExternalAccountID); workspace != "" {
-		form.Set("team_id", workspace)
+		form.Set("team_ids", workspace)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBufferString(form.Encode()))
 	if err != nil {

@@ -54,8 +54,8 @@ func TestExecuteRemediationSlackRevokeCallsAdminAppsUninstall(t *testing.T) {
 		if got := r.Form.Get("app_id"); got != "A123" {
 			t.Fatalf("app_id = %q", got)
 		}
-		if got := r.Form.Get("team_id"); got != "T123" {
-			t.Fatalf("team_id = %q", got)
+		if got := r.Form.Get("team_ids"); got != "T123" {
+			t.Fatalf("team_ids = %q", got)
 		}
 		w.Header().Set("X-Slack-Req-Id", "slack-req-123")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
