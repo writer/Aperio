@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -244,6 +245,32 @@ func (a *App) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // CheckHealth is the first ConnectRPC method exposed by the Go service. It
 // matches Cerebro's generated-handler pattern and gives TypeScript clients a
 // stable endpoint to verify transport compatibility.
+func (a *App) CallApi(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CallApiRequest],
+) (*connect.Response[aperiov1.CallApiResponse], error) {
+	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil && !isPublicCompatPath(req.Msg.Path) {
+		return nil, err
+	}
+	return nil, connect.NewError(
+		connect.CodeUnimplemented,
+		fmt.Errorf("node compatibility route %s %s has not been migrated to Go", req.Msg.Method, req.Msg.Path),
+	)
+}
+
+func isPublicCompatPath(path string) bool {
+	switch path {
+	case "/api/v1/auth/signup",
+		"/api/v1/auth/login",
+		"/api/v1/auth/forgot-password",
+		"/api/v1/auth/reset-password",
+		"/api/v1/auth/invitations/accept":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) CheckHealth(
 	ctx context.Context,
 	_ *connect.Request[aperiov1.CheckHealthRequest],

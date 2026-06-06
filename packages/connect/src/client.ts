@@ -381,6 +381,18 @@ function riskExceptionFromProto(
 }
 
 export const aperioConnectClient = {
+  async callApi<T>(input: {
+    method: string;
+    path: string;
+    body?: unknown;
+  }): Promise<T> {
+    const response = await client.callApi({
+      method: input.method,
+      path: input.path,
+      bodyJson: input.body === undefined ? "" : JSON.stringify(input.body)
+    });
+    return JSON.parse(response.bodyJson || "{}") as T;
+  },
   checkHealth() {
     return client.checkHealth({});
   },

@@ -12,7 +12,51 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperio/v1/api.proto.
  */
 export const file_aperio_v1_api: GenFile = /*@__PURE__*/
-  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCSJbChlMaXN0U2VjdXJpdHlBc3NldHNSZXF1ZXN0EgwKBHR5cGUYASABKAkSGAoQb3duZXJzaGlwX3N0YXR1cxgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCSJEChpMaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlNlY3VyaXR5QXNzZXQipwQKDVNlY3VyaXR5QXNzZXQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3N1bW1hcnkYBSABKAkSEwoLZXh0ZXJuYWxfaWQYBiABKAkSDgoGbGFiZWxzGAcgAygJEhMKC2NyaXRpY2FsaXR5GAggASgJEhYKDmV4cG9zdXJlX2xldmVsGAkgASgJEhgKEG93bmVyc2hpcF9zdGF0dXMYCiABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCyABKAgSFQoNaXNfcHJpdmlsZWdlZBgMIAEoCBISCgpyaXNrX3Njb3JlGA0gASgFEhgKEGxhc3Rfb2JzZXJ2ZWRfYXQYDiABKAkSEgoKY3JlYXRlZF9hdBgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJEjIKC2ludGVncmF0aW9uGBEgASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbhIrCgVvd25lchgSIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBI0Cg5idXNpbmVzc19vd25lchgTIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIaChJvcGVuX2ZpbmRpbmdfY291bnQYFCABKAUSHgoWYWN0aXZlX2V4Y2VwdGlvbl9jb3VudBgVIAEoBSJEChFTZWN1cml0eVByaW5jaXBhbBIKCgJpZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkiGwoZTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdCJEChpMaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlJpc2tFeGNlcHRpb24iggMKDVJpc2tFeGNlcHRpb24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEQoJcmF0aW9uYWxlGAMgASgJEh0KFWNvbXBlbnNhdGluZ19jb250cm9scxgEIAMoCRIOCgZzdGF0dXMYBSABKAkSEgoKZXhwaXJlc19hdBgGIAEoCRITCgthcHByb3ZlZF9hdBgHIAEoCRISCgpjcmVhdGVkX2F0GAggASgJEhIKCnVwZGF0ZWRfYXQYCSABKAkSLAoFYXNzZXQYCiABKAsyHS5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkFzc2V0EjAKB2ZpbmRpbmcYCyABKAsyHy5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkZpbmRpbmcSMAoKY3JlYXRlZF9ieRgMIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIxCgthcHByb3ZlZF9ieRgNIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbCI8ChJSaXNrRXhjZXB0aW9uQXNzZXQSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJIlMKFFJpc2tFeGNlcHRpb25GaW5kaW5nEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEhAKCHNldmVyaXR5GAMgASgJEg4KBnN0YXR1cxgEIAEoCTLSBwoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZRJbChBMaXN0SW50ZWdyYXRpb25zEiIuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0GiMuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRJnChRMaXN0U2llbURlc3RpbmF0aW9ucxImLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QaJy5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRJqChVMaXN0U2hhZG93SXRPYXV0aEFwcHMSJy5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVxdWVzdBooLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXNwb25zZRJ5ChpMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50cxIsLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QaLS5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRJhChJMaXN0U2VjdXJpdHlBc3NldHMSJC5hcGVyaW8udjEuTGlzdFNlY3VyaXR5QXNzZXRzUmVxdWVzdBolLmFwZXJpby52MS5MaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRJhChJMaXN0Umlza0V4Y2VwdGlvbnMSJC5hcGVyaW8udjEuTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdBolLmFwZXJpby52MS5MaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiQQoOQ2FsbEFwaVJlcXVlc3QSDgoGbWV0aG9kGAEgASgJEgwKBHBhdGgYAiABKAkSEQoJYm9keV9qc29uGAMgASgJIiQKD0NhbGxBcGlSZXNwb25zZRIRCglib2R5X2pzb24YASABKAkiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCSJbChlMaXN0U2VjdXJpdHlBc3NldHNSZXF1ZXN0EgwKBHR5cGUYASABKAkSGAoQb3duZXJzaGlwX3N0YXR1cxgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCSJEChpMaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlNlY3VyaXR5QXNzZXQipwQKDVNlY3VyaXR5QXNzZXQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3N1bW1hcnkYBSABKAkSEwoLZXh0ZXJuYWxfaWQYBiABKAkSDgoGbGFiZWxzGAcgAygJEhMKC2NyaXRpY2FsaXR5GAggASgJEhYKDmV4cG9zdXJlX2xldmVsGAkgASgJEhgKEG93bmVyc2hpcF9zdGF0dXMYCiABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCyABKAgSFQoNaXNfcHJpdmlsZWdlZBgMIAEoCBISCgpyaXNrX3Njb3JlGA0gASgFEhgKEGxhc3Rfb2JzZXJ2ZWRfYXQYDiABKAkSEgoKY3JlYXRlZF9hdBgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJEjIKC2ludGVncmF0aW9uGBEgASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbhIrCgVvd25lchgSIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBI0Cg5idXNpbmVzc19vd25lchgTIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIaChJvcGVuX2ZpbmRpbmdfY291bnQYFCABKAUSHgoWYWN0aXZlX2V4Y2VwdGlvbl9jb3VudBgVIAEoBSJEChFTZWN1cml0eVByaW5jaXBhbBIKCgJpZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkiGwoZTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdCJEChpMaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlJpc2tFeGNlcHRpb24iggMKDVJpc2tFeGNlcHRpb24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEQoJcmF0aW9uYWxlGAMgASgJEh0KFWNvbXBlbnNhdGluZ19jb250cm9scxgEIAMoCRIOCgZzdGF0dXMYBSABKAkSEgoKZXhwaXJlc19hdBgGIAEoCRITCgthcHByb3ZlZF9hdBgHIAEoCRISCgpjcmVhdGVkX2F0GAggASgJEhIKCnVwZGF0ZWRfYXQYCSABKAkSLAoFYXNzZXQYCiABKAsyHS5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkFzc2V0EjAKB2ZpbmRpbmcYCyABKAsyHy5hcGVyaW8udjEuUmlza0V4Y2VwdGlvbkZpbmRpbmcSMAoKY3JlYXRlZF9ieRgMIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIxCgthcHByb3ZlZF9ieRgNIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbCI8ChJSaXNrRXhjZXB0aW9uQXNzZXQSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJIlMKFFJpc2tFeGNlcHRpb25GaW5kaW5nEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEhAKCHNldmVyaXR5GAMgASgJEg4KBnN0YXR1cxgEIAEoCTKUCAoNQXBlcmlvU2VydmljZRJACgdDYWxsQXBpEhkuYXBlcmlvLnYxLkNhbGxBcGlSZXF1ZXN0GhouYXBlcmlvLnYxLkNhbGxBcGlSZXNwb25zZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZRJbChBMaXN0SW50ZWdyYXRpb25zEiIuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0GiMuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRJnChRMaXN0U2llbURlc3RpbmF0aW9ucxImLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QaJy5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRJqChVMaXN0U2hhZG93SXRPYXV0aEFwcHMSJy5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVxdWVzdBooLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXNwb25zZRJ5ChpMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50cxIsLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QaLS5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRJhChJMaXN0U2VjdXJpdHlBc3NldHMSJC5hcGVyaW8udjEuTGlzdFNlY3VyaXR5QXNzZXRzUmVxdWVzdBolLmFwZXJpby52MS5MaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRJhChJMaXN0Umlza0V4Y2VwdGlvbnMSJC5hcGVyaW8udjEuTGlzdFJpc2tFeGNlcHRpb25zUmVxdWVzdBolLmFwZXJpby52MS5MaXN0Umlza0V4Y2VwdGlvbnNSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+
+/**
+ * @generated from message aperio.v1.CallApiRequest
+ */
+export type CallApiRequest = Message<"aperio.v1.CallApiRequest"> & {
+  /**
+   * @generated from field: string method = 1;
+   */
+  method: string;
+
+  /**
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string body_json = 3;
+   */
+  bodyJson: string;
+};
+
+/**
+ * Describes the message aperio.v1.CallApiRequest.
+ * Use `create(CallApiRequestSchema)` to create a new message.
+ */
+export const CallApiRequestSchema: GenMessage<CallApiRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 0);
+
+/**
+ * @generated from message aperio.v1.CallApiResponse
+ */
+export type CallApiResponse = Message<"aperio.v1.CallApiResponse"> & {
+  /**
+   * @generated from field: string body_json = 1;
+   */
+  bodyJson: string;
+};
+
+/**
+ * Describes the message aperio.v1.CallApiResponse.
+ * Use `create(CallApiResponseSchema)` to create a new message.
+ */
+export const CallApiResponseSchema: GenMessage<CallApiResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 1);
 
 /**
  * @generated from message aperio.v1.CheckHealthRequest
@@ -25,7 +69,7 @@ export type CheckHealthRequest = Message<"aperio.v1.CheckHealthRequest"> & {
  * Use `create(CheckHealthRequestSchema)` to create a new message.
  */
 export const CheckHealthRequestSchema: GenMessage<CheckHealthRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 0);
+  messageDesc(file_aperio_v1_api, 2);
 
 /**
  * @generated from message aperio.v1.CheckHealthResponse
@@ -57,7 +101,7 @@ export type CheckHealthResponse = Message<"aperio.v1.CheckHealthResponse"> & {
  * Use `create(CheckHealthResponseSchema)` to create a new message.
  */
 export const CheckHealthResponseSchema: GenMessage<CheckHealthResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 1);
+  messageDesc(file_aperio_v1_api, 3);
 
 /**
  * @generated from message aperio.v1.HealthComponent
@@ -84,7 +128,7 @@ export type HealthComponent = Message<"aperio.v1.HealthComponent"> & {
  * Use `create(HealthComponentSchema)` to create a new message.
  */
 export const HealthComponentSchema: GenMessage<HealthComponent> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 2);
+  messageDesc(file_aperio_v1_api, 4);
 
 /**
  * @generated from message aperio.v1.GetDashboardMetricsRequest
@@ -97,7 +141,7 @@ export type GetDashboardMetricsRequest = Message<"aperio.v1.GetDashboardMetricsR
  * Use `create(GetDashboardMetricsRequestSchema)` to create a new message.
  */
 export const GetDashboardMetricsRequestSchema: GenMessage<GetDashboardMetricsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 3);
+  messageDesc(file_aperio_v1_api, 5);
 
 /**
  * @generated from message aperio.v1.GetDashboardMetricsResponse
@@ -114,7 +158,7 @@ export type GetDashboardMetricsResponse = Message<"aperio.v1.GetDashboardMetrics
  * Use `create(GetDashboardMetricsResponseSchema)` to create a new message.
  */
 export const GetDashboardMetricsResponseSchema: GenMessage<GetDashboardMetricsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 4);
+  messageDesc(file_aperio_v1_api, 6);
 
 /**
  * @generated from message aperio.v1.DashboardMetrics
@@ -146,7 +190,7 @@ export type DashboardMetrics = Message<"aperio.v1.DashboardMetrics"> & {
  * Use `create(DashboardMetricsSchema)` to create a new message.
  */
 export const DashboardMetricsSchema: GenMessage<DashboardMetrics> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 5);
+  messageDesc(file_aperio_v1_api, 7);
 
 /**
  * @generated from message aperio.v1.ListFindingsRequest
@@ -188,7 +232,7 @@ export type ListFindingsRequest = Message<"aperio.v1.ListFindingsRequest"> & {
  * Use `create(ListFindingsRequestSchema)` to create a new message.
  */
 export const ListFindingsRequestSchema: GenMessage<ListFindingsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 6);
+  messageDesc(file_aperio_v1_api, 8);
 
 /**
  * @generated from message aperio.v1.ListFindingsResponse
@@ -210,7 +254,7 @@ export type ListFindingsResponse = Message<"aperio.v1.ListFindingsResponse"> & {
  * Use `create(ListFindingsResponseSchema)` to create a new message.
  */
 export const ListFindingsResponseSchema: GenMessage<ListFindingsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 7);
+  messageDesc(file_aperio_v1_api, 9);
 
 /**
  * @generated from message aperio.v1.GetFindingRequest
@@ -227,7 +271,7 @@ export type GetFindingRequest = Message<"aperio.v1.GetFindingRequest"> & {
  * Use `create(GetFindingRequestSchema)` to create a new message.
  */
 export const GetFindingRequestSchema: GenMessage<GetFindingRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 8);
+  messageDesc(file_aperio_v1_api, 10);
 
 /**
  * @generated from message aperio.v1.GetFindingResponse
@@ -244,7 +288,7 @@ export type GetFindingResponse = Message<"aperio.v1.GetFindingResponse"> & {
  * Use `create(GetFindingResponseSchema)` to create a new message.
  */
 export const GetFindingResponseSchema: GenMessage<GetFindingResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 9);
+  messageDesc(file_aperio_v1_api, 11);
 
 /**
  * @generated from message aperio.v1.Finding
@@ -316,7 +360,7 @@ export type Finding = Message<"aperio.v1.Finding"> & {
  * Use `create(FindingSchema)` to create a new message.
  */
 export const FindingSchema: GenMessage<Finding> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 10);
+  messageDesc(file_aperio_v1_api, 12);
 
 /**
  * @generated from message aperio.v1.FindingIntegration
@@ -343,7 +387,7 @@ export type FindingIntegration = Message<"aperio.v1.FindingIntegration"> & {
  * Use `create(FindingIntegrationSchema)` to create a new message.
  */
 export const FindingIntegrationSchema: GenMessage<FindingIntegration> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 11);
+  messageDesc(file_aperio_v1_api, 13);
 
 /**
  * @generated from message aperio.v1.PageInfo
@@ -365,7 +409,7 @@ export type PageInfo = Message<"aperio.v1.PageInfo"> & {
  * Use `create(PageInfoSchema)` to create a new message.
  */
 export const PageInfoSchema: GenMessage<PageInfo> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 12);
+  messageDesc(file_aperio_v1_api, 14);
 
 /**
  * @generated from message aperio.v1.ListIntegrationsRequest
@@ -378,7 +422,7 @@ export type ListIntegrationsRequest = Message<"aperio.v1.ListIntegrationsRequest
  * Use `create(ListIntegrationsRequestSchema)` to create a new message.
  */
 export const ListIntegrationsRequestSchema: GenMessage<ListIntegrationsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 13);
+  messageDesc(file_aperio_v1_api, 15);
 
 /**
  * @generated from message aperio.v1.ListIntegrationsResponse
@@ -395,7 +439,7 @@ export type ListIntegrationsResponse = Message<"aperio.v1.ListIntegrationsRespon
  * Use `create(ListIntegrationsResponseSchema)` to create a new message.
  */
 export const ListIntegrationsResponseSchema: GenMessage<ListIntegrationsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 14);
+  messageDesc(file_aperio_v1_api, 16);
 
 /**
  * @generated from message aperio.v1.IntegrationConnection
@@ -467,7 +511,7 @@ export type IntegrationConnection = Message<"aperio.v1.IntegrationConnection"> &
  * Use `create(IntegrationConnectionSchema)` to create a new message.
  */
 export const IntegrationConnectionSchema: GenMessage<IntegrationConnection> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 15);
+  messageDesc(file_aperio_v1_api, 17);
 
 /**
  * @generated from message aperio.v1.ListSiemDestinationsRequest
@@ -480,7 +524,7 @@ export type ListSiemDestinationsRequest = Message<"aperio.v1.ListSiemDestination
  * Use `create(ListSiemDestinationsRequestSchema)` to create a new message.
  */
 export const ListSiemDestinationsRequestSchema: GenMessage<ListSiemDestinationsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 16);
+  messageDesc(file_aperio_v1_api, 18);
 
 /**
  * @generated from message aperio.v1.ListSiemDestinationsResponse
@@ -497,7 +541,7 @@ export type ListSiemDestinationsResponse = Message<"aperio.v1.ListSiemDestinatio
  * Use `create(ListSiemDestinationsResponseSchema)` to create a new message.
  */
 export const ListSiemDestinationsResponseSchema: GenMessage<ListSiemDestinationsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 17);
+  messageDesc(file_aperio_v1_api, 19);
 
 /**
  * @generated from message aperio.v1.SiemDestination
@@ -574,7 +618,7 @@ export type SiemDestination = Message<"aperio.v1.SiemDestination"> & {
  * Use `create(SiemDestinationSchema)` to create a new message.
  */
 export const SiemDestinationSchema: GenMessage<SiemDestination> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 18);
+  messageDesc(file_aperio_v1_api, 20);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppsRequest
@@ -587,7 +631,7 @@ export type ListShadowItOauthAppsRequest = Message<"aperio.v1.ListShadowItOauthA
  * Use `create(ListShadowItOauthAppsRequestSchema)` to create a new message.
  */
 export const ListShadowItOauthAppsRequestSchema: GenMessage<ListShadowItOauthAppsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 19);
+  messageDesc(file_aperio_v1_api, 21);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppsResponse
@@ -604,7 +648,7 @@ export type ListShadowItOauthAppsResponse = Message<"aperio.v1.ListShadowItOauth
  * Use `create(ListShadowItOauthAppsResponseSchema)` to create a new message.
  */
 export const ListShadowItOauthAppsResponseSchema: GenMessage<ListShadowItOauthAppsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 20);
+  messageDesc(file_aperio_v1_api, 22);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthApp
@@ -681,7 +725,7 @@ export type ShadowItOauthApp = Message<"aperio.v1.ShadowItOauthApp"> & {
  * Use `create(ShadowItOauthAppSchema)` to create a new message.
  */
 export const ShadowItOauthAppSchema: GenMessage<ShadowItOauthApp> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 21);
+  messageDesc(file_aperio_v1_api, 23);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppGrantsRequest
@@ -698,7 +742,7 @@ export type ListShadowItOauthAppGrantsRequest = Message<"aperio.v1.ListShadowItO
  * Use `create(ListShadowItOauthAppGrantsRequestSchema)` to create a new message.
  */
 export const ListShadowItOauthAppGrantsRequestSchema: GenMessage<ListShadowItOauthAppGrantsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 22);
+  messageDesc(file_aperio_v1_api, 24);
 
 /**
  * @generated from message aperio.v1.ListShadowItOauthAppGrantsResponse
@@ -715,7 +759,7 @@ export type ListShadowItOauthAppGrantsResponse = Message<"aperio.v1.ListShadowIt
  * Use `create(ListShadowItOauthAppGrantsResponseSchema)` to create a new message.
  */
 export const ListShadowItOauthAppGrantsResponseSchema: GenMessage<ListShadowItOauthAppGrantsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 23);
+  messageDesc(file_aperio_v1_api, 25);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppDetail
@@ -737,7 +781,7 @@ export type ShadowItOauthAppDetail = Message<"aperio.v1.ShadowItOauthAppDetail">
  * Use `create(ShadowItOauthAppDetailSchema)` to create a new message.
  */
 export const ShadowItOauthAppDetailSchema: GenMessage<ShadowItOauthAppDetail> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 24);
+  messageDesc(file_aperio_v1_api, 26);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppRef
@@ -769,7 +813,7 @@ export type ShadowItOauthAppRef = Message<"aperio.v1.ShadowItOauthAppRef"> & {
  * Use `create(ShadowItOauthAppRefSchema)` to create a new message.
  */
 export const ShadowItOauthAppRefSchema: GenMessage<ShadowItOauthAppRef> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 25);
+  messageDesc(file_aperio_v1_api, 27);
 
 /**
  * @generated from message aperio.v1.ShadowItOauthAppGrant
@@ -821,7 +865,7 @@ export type ShadowItOauthAppGrant = Message<"aperio.v1.ShadowItOauthAppGrant"> &
  * Use `create(ShadowItOauthAppGrantSchema)` to create a new message.
  */
 export const ShadowItOauthAppGrantSchema: GenMessage<ShadowItOauthAppGrant> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 26);
+  messageDesc(file_aperio_v1_api, 28);
 
 /**
  * @generated from message aperio.v1.ListSecurityAssetsRequest
@@ -848,7 +892,7 @@ export type ListSecurityAssetsRequest = Message<"aperio.v1.ListSecurityAssetsReq
  * Use `create(ListSecurityAssetsRequestSchema)` to create a new message.
  */
 export const ListSecurityAssetsRequestSchema: GenMessage<ListSecurityAssetsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 27);
+  messageDesc(file_aperio_v1_api, 29);
 
 /**
  * @generated from message aperio.v1.ListSecurityAssetsResponse
@@ -865,7 +909,7 @@ export type ListSecurityAssetsResponse = Message<"aperio.v1.ListSecurityAssetsRe
  * Use `create(ListSecurityAssetsResponseSchema)` to create a new message.
  */
 export const ListSecurityAssetsResponseSchema: GenMessage<ListSecurityAssetsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 28);
+  messageDesc(file_aperio_v1_api, 30);
 
 /**
  * @generated from message aperio.v1.SecurityAsset
@@ -982,7 +1026,7 @@ export type SecurityAsset = Message<"aperio.v1.SecurityAsset"> & {
  * Use `create(SecurityAssetSchema)` to create a new message.
  */
 export const SecurityAssetSchema: GenMessage<SecurityAsset> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 29);
+  messageDesc(file_aperio_v1_api, 31);
 
 /**
  * @generated from message aperio.v1.SecurityPrincipal
@@ -1009,7 +1053,7 @@ export type SecurityPrincipal = Message<"aperio.v1.SecurityPrincipal"> & {
  * Use `create(SecurityPrincipalSchema)` to create a new message.
  */
 export const SecurityPrincipalSchema: GenMessage<SecurityPrincipal> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 30);
+  messageDesc(file_aperio_v1_api, 32);
 
 /**
  * @generated from message aperio.v1.ListRiskExceptionsRequest
@@ -1022,7 +1066,7 @@ export type ListRiskExceptionsRequest = Message<"aperio.v1.ListRiskExceptionsReq
  * Use `create(ListRiskExceptionsRequestSchema)` to create a new message.
  */
 export const ListRiskExceptionsRequestSchema: GenMessage<ListRiskExceptionsRequest> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 31);
+  messageDesc(file_aperio_v1_api, 33);
 
 /**
  * @generated from message aperio.v1.ListRiskExceptionsResponse
@@ -1039,7 +1083,7 @@ export type ListRiskExceptionsResponse = Message<"aperio.v1.ListRiskExceptionsRe
  * Use `create(ListRiskExceptionsResponseSchema)` to create a new message.
  */
 export const ListRiskExceptionsResponseSchema: GenMessage<ListRiskExceptionsResponse> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 32);
+  messageDesc(file_aperio_v1_api, 34);
 
 /**
  * @generated from message aperio.v1.RiskException
@@ -1116,7 +1160,7 @@ export type RiskException = Message<"aperio.v1.RiskException"> & {
  * Use `create(RiskExceptionSchema)` to create a new message.
  */
 export const RiskExceptionSchema: GenMessage<RiskException> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 33);
+  messageDesc(file_aperio_v1_api, 35);
 
 /**
  * @generated from message aperio.v1.RiskExceptionAsset
@@ -1143,7 +1187,7 @@ export type RiskExceptionAsset = Message<"aperio.v1.RiskExceptionAsset"> & {
  * Use `create(RiskExceptionAssetSchema)` to create a new message.
  */
 export const RiskExceptionAssetSchema: GenMessage<RiskExceptionAsset> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 34);
+  messageDesc(file_aperio_v1_api, 36);
 
 /**
  * @generated from message aperio.v1.RiskExceptionFinding
@@ -1175,12 +1219,20 @@ export type RiskExceptionFinding = Message<"aperio.v1.RiskExceptionFinding"> & {
  * Use `create(RiskExceptionFindingSchema)` to create a new message.
  */
 export const RiskExceptionFindingSchema: GenMessage<RiskExceptionFinding> = /*@__PURE__*/
-  messageDesc(file_aperio_v1_api, 35);
+  messageDesc(file_aperio_v1_api, 37);
 
 /**
  * @generated from service aperio.v1.AperioService
  */
 export const AperioService: GenService<{
+  /**
+   * @generated from rpc aperio.v1.AperioService.CallApi
+   */
+  callApi: {
+    methodKind: "unary";
+    input: typeof CallApiRequestSchema;
+    output: typeof CallApiResponseSchema;
+  },
   /**
    * @generated from rpc aperio.v1.AperioService.CheckHealth
    */
