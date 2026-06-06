@@ -191,6 +191,37 @@ func TestExecuteRemediationSlackRevokeRequiresTargetBeforeNetwork(t *testing.T) 
 	}
 }
 
+func TestExecuteRemediationSlackRevokeRequiresTokenBeforeNetwork(t *testing.T) {
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called.Add(1)
+	}))
+	defer server.Close()
+
+	app := &App{remediationHTTPClient: server.Client(), slackAPIBaseURL: server.URL}
+	result := app.executeRemediation(context.Background(), remediationRequest{
+		Provider:          "SLACK",
+		Action:            "slack.revoke_app_install",
+		ExternalAccountID: "T123",
+		TargetIdentifier:  "A123",
+	})
+	if result.Success {
+		t.Fatal("expected missing Slack token to fail")
+	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("missing token returned provider request id %q", result.ProviderRequestID)
+	}
+	if len(result.Effects) != 0 {
+		t.Fatalf("expected no provider effects, got %d", len(result.Effects))
+	}
+	if called.Load() != 0 {
+		t.Fatalf("expected no provider request, got %d", called.Load())
+	}
+	if !strings.Contains(result.Message, "access token is unavailable") {
+		t.Fatalf("unexpected message: %s", result.Message)
+	}
+}
+
 func TestExecuteRemediationNotImplemented(t *testing.T) {
 	app := &App{}
 	result := app.executeRemediation(context.Background(), remediationRequest{
