@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -79,6 +80,21 @@ func seedSessionHeader(t *testing.T, app *App, auth compatAuth) http.Header {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+sessionID+"."+rawToken)
 	return header
+}
+
+func seedOrgUserWithRole(t *testing.T, app *App, orgID, roleName string) compatAuth {
+	t.Helper()
+	ctx := context.Background()
+	roleID, err := app.ensureCompatRole(ctx, orgID, roleName)
+	if err != nil {
+		t.Fatalf("seed %s role: %v", roleName, err)
+	}
+	userID := compatID("usr")
+	email := strings.ToLower(roleName) + "-" + randomBase36(10) + "@example.com"
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, display_name, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),NOW())`, userID, orgID, roleID, email, roleName+" User"); err != nil {
+		t.Fatalf("seed %s user: %v", roleName, err)
+	}
+	return compatAuth{OrganizationID: orgID, UserID: userID, Email: email, Role: roleName}
 }
 
 func seedRemediationFixture(t *testing.T, app *App, auth compatAuth, provider string) (string, string) {
@@ -683,6 +699,103 @@ func TestDBSlackRemediationTypedAndCallApiFailureAndMissingTargetAgree(t *testin
 	}
 }
 
+func TestDBRemediationTypedAndCallApiRBACDenialAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	admin := seedOrgAdmin(t, app, auth.OrganizationID)
+	analyst := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, analyst)
+	header.Set("X-Forwarded-For", "203.0.113.41")
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, findingID := seedSlackFinding(t, app, admin, "REMEDIATION", "xoxp-rbac-token", "TRBAC123", `{"subject":"EVIDENCE_APP"}`)
+
+	_, callErr := callRemediationViaCallAPI(t, app, ctx, header, findingID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123"}`)
+	if code := connect.CodeOf(callErr); code != connect.CodePermissionDenied {
+		t.Fatalf("CallApi RBAC denial code = %v (%v), want CodePermissionDenied", code, callErr)
+	}
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        findingID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+	})
+	copyCompatHeaders(typedReq.Header(), header)
+	_, typedErr := app.RemediateFinding(ctx, typedReq)
+	if code := connect.CodeOf(typedErr); code != connect.CodePermissionDenied {
+		t.Fatalf("typed RBAC denial code = %v (%v), want CodePermissionDenied", code, typedErr)
+	}
+	if callErr.Error() != typedErr.Error() {
+		t.Fatalf("RBAC denial error mismatch: CallApi=%q typed=%q", callErr.Error(), typedErr.Error())
+	}
+	if providerCalls != 0 {
+		t.Fatalf("RBAC denial must not call Slack, got %d provider calls", providerCalls)
+	}
+	assertFindingState(t, app, findingID, "OPEN", false)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+}
+
+func TestDBRemediationTypedAndCallApiRateLimitExhaustionAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, callFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-rate-call", "TRATECAL", `{"subject":"EVIDENCE_APP"}`)
+	_, typedFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-rate-typed", "TRATETYP", `{"subject":"EVIDENCE_APP"}`)
+
+	callHeader := seedSessionHeader(t, app, auth)
+	callHeader.Set("X-Forwarded-For", "198.51.100.91")
+	callPath := "/api/v1/findings/" + callFindingID + "/remediate"
+	seedExhaustedRateLimitBucket(t, app, callHeader, http.MethodPost, callPath)
+	_, callErr := callRemediationViaCallAPI(t, app, ctx, callHeader, callFindingID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123"}`)
+	if code := connect.CodeOf(callErr); code != connect.CodeResourceExhausted {
+		t.Fatalf("CallApi rate limit code = %v (%v), want CodeResourceExhausted", code, callErr)
+	}
+
+	typedHeader := seedSessionHeader(t, app, auth)
+	typedHeader.Set("X-Forwarded-For", "198.51.100.92")
+	typedPath := "/api/v1/findings/" + typedFindingID + "/remediate"
+	seedExhaustedRateLimitBucket(t, app, typedHeader, http.MethodPost, typedPath)
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        typedFindingID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+	})
+	copyCompatHeaders(typedReq.Header(), typedHeader)
+	_, typedErr := app.RemediateFinding(ctx, typedReq)
+	if code := connect.CodeOf(typedErr); code != connect.CodeResourceExhausted {
+		t.Fatalf("typed rate limit code = %v (%v), want CodeResourceExhausted", code, typedErr)
+	}
+	if callErr.Error() != typedErr.Error() {
+		t.Fatalf("rate limit error mismatch: CallApi=%q typed=%q", callErr.Error(), typedErr.Error())
+	}
+	if providerCalls != 0 {
+		t.Fatalf("rate-limited remediation must not call Slack, got %d provider calls", providerCalls)
+	}
+	for _, findingID := range []string{callFindingID, typedFindingID} {
+		assertFindingState(t, app, findingID, "OPEN", false)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+	}
+}
+
 func TestDBManualFindingStatusActionsRemainLocal(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	auth = seedOrgAdmin(t, app, auth.OrganizationID)
@@ -1075,6 +1188,23 @@ func callRemediationViaCallAPI(t *testing.T, app *App, ctx context.Context, head
 		t.Fatalf("decode CallApi remediation response: %v", err)
 	}
 	return dataMap(t, envelope), nil
+}
+
+func seedExhaustedRateLimitBucket(t *testing.T, app *App, header http.Header, method, path string) {
+	t.Helper()
+	max, window, ok := compatRateLimitPolicy(path)
+	if !ok {
+		t.Fatalf("no rate limit policy for %s %s", method, path)
+	}
+	key := compatRateLimitKey(method, path, compatClientIdentity(header), "")
+	_, err := app.db.ExecContext(context.Background(), `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET count = EXCLUDED.count, reset_at = EXCLUDED.reset_at, updated_at = NOW()
+	`, key, max, time.Now().Add(window))
+	if err != nil {
+		t.Fatalf("seed rate limit bucket: %v", err)
+	}
 }
 
 func assertFindingState(t *testing.T, app *App, findingID, wantStatus string, wantResolvedAt bool) {

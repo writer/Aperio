@@ -2,6 +2,10 @@ package bootstrap
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -102,6 +106,55 @@ func TestConnectorCatalogAdvertisesOnlyExecutableRemediationActions(t *testing.T
 		}
 		if len(connector.RemediationActions) != 1 || connector.RemediationActions[0].Key != "slack.revoke_app_install" {
 			t.Fatalf("Slack executable actions = %+v, want only slack.revoke_app_install", connector.RemediationActions)
+		}
+	}
+}
+
+func TestTypeScriptExecutableRemediationFilterMatchesGoClassification(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test file path")
+	}
+	sourcePath := filepath.Join(filepath.Dir(testFile), "..", "..", "packages", "shared", "src", "connectors.ts")
+	sourceBytes, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read TypeScript connector catalog: %v", err)
+	}
+	source := string(sourceBytes)
+	filterPattern := regexp.MustCompile(`executableRemediationActionKeys\s*\.\s*has\s*\(\s*action\.key\s*\)`)
+	if !filterPattern.MatchString(source) {
+		t.Fatal("TypeScript connector catalog must filter remediation actions through executableRemediationActionKeys")
+	}
+
+	blockPattern := regexp.MustCompile(`(?s)const\s+executableRemediationActionKeys\s*=\s*new Set<RemediationActionKey>\(\s*\[(.*?)\]\s*\);`)
+	matches := blockPattern.FindStringSubmatch(source)
+	if len(matches) != 2 {
+		t.Fatal("could not find TypeScript executableRemediationActionKeys set")
+	}
+	literalPattern := regexp.MustCompile(`"([^"]+)"`)
+	tsExecutable := map[string]bool{}
+	for _, match := range literalPattern.FindAllStringSubmatch(matches[1], -1) {
+		tsExecutable[match[1]] = true
+	}
+
+	goExecutable := map[string]bool{}
+	for _, definition := range remediationActionDefinitions {
+		if definition.Class == remediationActionRealProvider || definition.Class == remediationActionLocalOnly {
+			goExecutable[definition.Action] = true
+		}
+	}
+	for action := range goExecutable {
+		if !tsExecutable[action] {
+			t.Fatalf("Go classifies %s as executable but TypeScript connector catalog does not", action)
+		}
+	}
+	for action := range tsExecutable {
+		definition, ok := findRemediationActionDefinition(action)
+		if !ok {
+			t.Fatalf("TypeScript connector catalog marks unclassified action %s executable", action)
+		}
+		if !goExecutable[action] {
+			t.Fatalf("TypeScript connector catalog marks %s executable but Go classifies it as %s", action, definition.Class)
 		}
 	}
 }

@@ -3,12 +3,19 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+type remediationHTTPDoerFunc func(*http.Request) (*http.Response, error)
+
+func (f remediationHTTPDoerFunc) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestRemediationActionClassificationMatrix(t *testing.T) {
 	expected := map[string]struct {
@@ -134,32 +141,110 @@ func TestExecuteRemediationSlackRevokeCallsAdminAppsUninstall(t *testing.T) {
 	}
 }
 
-func TestExecuteRemediationSlackRevokeProviderFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-Slack-Req-Id", "slack-req-failed")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing_scope"})
-	}))
-	defer server.Close()
+func TestExecuteRemediationSlackRevokeProviderFailures(t *testing.T) {
+	cases := []struct {
+		name                  string
+		networkErr            error
+		statusCode            int
+		body                  string
+		requestID             string
+		wantProviderRequestID string
+		wantMessage           string
+	}{
+		{
+			name:        "network error",
+			networkErr:  errors.New("dial tcp: connection refused"),
+			wantMessage: "request failed",
+		},
+		{
+			name:                  "non-2xx response",
+			statusCode:            http.StatusServiceUnavailable,
+			body:                  `{"ok":false,"error":"service_unavailable"}`,
+			requestID:             "slack-req-non-2xx",
+			wantProviderRequestID: "slack-req-non-2xx",
+			wantMessage:           "HTTP 503",
+		},
+		{
+			name:                  "malformed json",
+			body:                  `{"ok":`,
+			requestID:             "slack-req-malformed",
+			wantProviderRequestID: "slack-req-malformed",
+			wantMessage:           "invalid response",
+		},
+		{
+			name:                  "ok false",
+			body:                  `{"ok":false,"error":"missing_scope"}`,
+			requestID:             "slack-req-failed",
+			wantProviderRequestID: "slack-req-failed",
+			wantMessage:           "missing_scope",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			app := &App{}
+			if tc.networkErr != nil {
+				app.slackAPIBaseURL = "https://slack.example.test/api"
+				app.remediationHTTPClient = remediationHTTPDoerFunc(func(*http.Request) (*http.Response, error) {
+					calls.Add(1)
+					return nil, tc.networkErr
+				})
+			} else {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					if r.URL.Path != "/admin.apps.uninstall" {
+						t.Fatalf("path = %s, want /admin.apps.uninstall", r.URL.Path)
+					}
+					if r.Method != http.MethodPost {
+						t.Fatalf("method = %s, want POST", r.Method)
+					}
+					if err := r.ParseForm(); err != nil {
+						t.Fatalf("parse form: %v", err)
+					}
+					if got := r.Form.Get("app_id"); got != "A123" {
+						t.Fatalf("app_id = %q, want A123", got)
+					}
+					if got := r.Form.Get("team_ids"); got != "T123" {
+						t.Fatalf("team_ids = %q, want T123", got)
+					}
+					if tc.requestID != "" {
+						w.Header().Set("X-Slack-Req-Id", tc.requestID)
+					}
+					statusCode := tc.statusCode
+					if statusCode == 0 {
+						statusCode = http.StatusOK
+					}
+					w.WriteHeader(statusCode)
+					_, _ = w.Write([]byte(tc.body))
+				}))
+				defer server.Close()
+				app.remediationHTTPClient = server.Client()
+				app.slackAPIBaseURL = server.URL
+			}
 
-	app := &App{remediationHTTPClient: server.Client(), slackAPIBaseURL: server.URL}
-	result := app.executeRemediation(context.Background(), remediationRequest{
-		Provider:          "SLACK",
-		Action:            "slack.revoke_app_install",
-		ExternalAccountID: "T123",
-		TargetIdentifier:  "A123",
-		IntegrationToken:  "xoxp-remediation",
-	})
-	if result.Success {
-		t.Fatal("expected Slack provider failure to fail remediation")
-	}
-	if result.ProviderRequestID != "slack-req-failed" {
-		t.Fatalf("provider request id = %s", result.ProviderRequestID)
-	}
-	if !strings.Contains(result.Message, "missing_scope") {
-		t.Fatalf("expected Slack error in message, got %q", result.Message)
-	}
-	if len(result.Effects) != 0 {
-		t.Fatalf("expected no effects, got %d", len(result.Effects))
+			result := app.executeRemediation(context.Background(), remediationRequest{
+				Provider:          "SLACK",
+				Action:            "slack.revoke_app_install",
+				ExternalAccountID: "T123",
+				TargetIdentifier:  "A123",
+				IntegrationToken:  "xoxp-remediation",
+			})
+			if result.Success {
+				t.Fatalf("expected Slack provider failure to fail remediation: %+v", result)
+			}
+			if result.ProviderRequestID != tc.wantProviderRequestID {
+				t.Fatalf("provider request id = %s, want %s", result.ProviderRequestID, tc.wantProviderRequestID)
+			}
+			if !strings.Contains(result.Message, tc.wantMessage) {
+				t.Fatalf("expected message containing %q, got %q", tc.wantMessage, result.Message)
+			}
+			if len(result.Effects) != 0 {
+				t.Fatalf("expected no effects, got %d", len(result.Effects))
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("expected one provider call, got %d", calls.Load())
+			}
+		})
 	}
 }
 
