@@ -225,48 +225,71 @@ func (a *App) compatRateLimit(
 	if client == "" {
 		client = "unknown"
 	}
-	subject := strings.Join([]string{
+	subject := compatRateLimitSubject([]string{
 		requiredString(body, "organizationSlug"),
 		requiredString(body, "workspaceSlug"),
 		requiredString(body, "ownerEmail"),
 		requiredString(body, "email"),
 		requiredString(body, "token"),
-	}, ":")
-	key := hashOpaqueToken(strings.Join([]string{"compat-rate-limit", method, path, client, subject}, ":"))
+	})
 	now := time.Now()
+	ipKey := compatRateLimitKey(method, path, client, "")
+	if err := a.compatConsumeRateLimit(ctx, ipKey, max, window, now); err != nil {
+		return err
+	}
+	if subject != "" {
+		subjectKey := compatRateLimitKey(method, path, client, subject)
+		if err := a.compatConsumeRateLimit(ctx, subjectKey, max, window, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) compatConsumeRateLimit(ctx context.Context, key string, max int, window time.Duration, now time.Time) error {
 	resetAt := now.Add(window)
-	tx, err := a.db.BeginTx(ctx, nil)
-	if err != nil {
-		return connect.NewError(connect.CodeUnavailable, errors.New("rate limiter unavailable"))
-	}
-	defer tx.Rollback()
 	var count int
-	var existingResetAt time.Time
-	err = tx.QueryRowContext(ctx, `SELECT count, reset_at FROM rate_limit_buckets WHERE key = $1 FOR UPDATE`, key).Scan(&count, &existingResetAt)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		count = 1
-		_, err = tx.ExecContext(ctx, `INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at) VALUES ($1,1,$2,NOW(),NOW())`, key, resetAt)
-	case err != nil:
-		return connect.NewError(connect.CodeUnavailable, errors.New("rate limiter unavailable"))
-	case !existingResetAt.After(now):
-		count = 1
-		_, err = tx.ExecContext(ctx, `UPDATE rate_limit_buckets SET count = 1, reset_at = $2, updated_at = NOW() WHERE key = $1`, key, resetAt)
-	default:
-		count++
-		resetAt = existingResetAt
-		_, err = tx.ExecContext(ctx, `UPDATE rate_limit_buckets SET count = $2, updated_at = NOW() WHERE key = $1`, key, count)
-	}
+	err := a.db.QueryRowContext(ctx, `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, 1, $2, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET
+		  count = CASE
+		    WHEN rate_limit_buckets.reset_at <= $3 THEN 1
+		    ELSE rate_limit_buckets.count + 1
+		  END,
+		  reset_at = CASE
+		    WHEN rate_limit_buckets.reset_at <= $3 THEN EXCLUDED.reset_at
+		    ELSE rate_limit_buckets.reset_at
+		  END,
+		  updated_at = NOW()
+		RETURNING count
+	`, key, resetAt, now).Scan(&count)
 	if err != nil {
-		return connect.NewError(connect.CodeUnavailable, errors.New("rate limiter unavailable"))
-	}
-	if err := tx.Commit(); err != nil {
 		return connect.NewError(connect.CodeUnavailable, errors.New("rate limiter unavailable"))
 	}
 	if count > max {
 		return connect.NewError(connect.CodeResourceExhausted, errors.New("too many requests"))
 	}
 	return nil
+}
+
+func compatRateLimitKey(method, path, client, subject string) string {
+	scope := "ip"
+	if subject != "" {
+		scope = "subject"
+	}
+	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", scope, method, path, client, subject}, ":"))
+}
+
+func compatRateLimitSubject(values []string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, ":")
 }
 
 func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
@@ -602,6 +625,9 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	}
 	id := compatID("int")
 	provider, displayName, external := requiredString(body, "provider"), requiredString(body, "displayName"), requiredString(body, "externalAccountId")
+	if err := validateCompatExternalAccount(provider, external); err != nil {
+		return nil, err
+	}
 	mode := stringDefault(body, "mode", "READ_ONLY")
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, mode); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -1025,24 +1051,63 @@ func randomURL(n int) string {
 func compatHashPassword(password string) string {
 	salt := make([]byte, 16)
 	_, _ = rand.Read(salt)
-	key, _ := scrypt.Key([]byte(password), salt, 1<<15, 8, 1, 32)
-	return "s1$" + base64.RawURLEncoding.EncodeToString(salt) + "$" + base64.RawURLEncoding.EncodeToString(key)
+	key, _ := scrypt.Key([]byte(password), salt, compatPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP, 32)
+	return strings.Join([]string{
+		"s2",
+		strconv.Itoa(compatPasswordScryptN),
+		strconv.Itoa(compatPasswordScryptR),
+		strconv.Itoa(compatPasswordScryptP),
+		base64.RawURLEncoding.EncodeToString(salt),
+		base64.RawURLEncoding.EncodeToString(key),
+	}, "$")
 }
 
 func compatVerifyPassword(password, hash string) bool {
 	parts := strings.Split(hash, "$")
-	if len(parts) != 3 || parts[0] != "s1" {
+	switch {
+	case len(parts) == 6 && parts[0] == "s2":
+		n, errN := strconv.Atoi(parts[1])
+		r, errR := strconv.Atoi(parts[2])
+		p, errP := strconv.Atoi(parts[3])
+		if errN != nil || errR != nil || errP != nil || !validCompatScryptParams(n, r, p) {
+			return false
+		}
+		return compatVerifyPasswordWithParams(password, parts[4], parts[5], n, r, p)
+	case len(parts) == 3 && parts[0] == "s1":
+		if compatVerifyPasswordWithParams(password, parts[1], parts[2], compatPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP) {
+			return true
+		}
+		return compatVerifyPasswordWithParams(password, parts[1], parts[2], compatLegacyGoPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP)
+	default:
 		return false
 	}
-	salt, err := base64.RawURLEncoding.DecodeString(parts[1])
+}
+
+const (
+	compatPasswordScryptN         = 16384
+	compatLegacyGoPasswordScryptN = 1 << 15
+	compatPasswordScryptR         = 8
+	compatPasswordScryptP         = 1
+	compatPasswordKeyBytes        = 32
+)
+
+func validCompatScryptParams(n, r, p int) bool {
+	return n >= 2 && n <= 1<<20 && r > 0 && r <= 32 && p > 0 && p <= 8
+}
+
+func compatVerifyPasswordWithParams(password, saltPart, hashPart string, n, r, p int) bool {
+	salt, err := base64.RawURLEncoding.DecodeString(saltPart)
 	if err != nil {
 		return false
 	}
-	expected, err := base64.RawURLEncoding.DecodeString(parts[2])
+	expected, err := base64.RawURLEncoding.DecodeString(hashPart)
 	if err != nil {
 		return false
 	}
-	actual, _ := scrypt.Key([]byte(password), salt, 1<<15, 8, 1, 32)
+	actual, err := scrypt.Key([]byte(password), salt, n, r, p, compatPasswordKeyBytes)
+	if err != nil {
+		return false
+	}
 	return subtle.ConstantTimeCompare(expected, actual) == 1
 }
 
@@ -1269,6 +1334,48 @@ func requireCompatRole(auth compatAuth, allowed ...string) error {
 		}
 	}
 	return connect.NewError(connect.CodePermissionDenied, errors.New("forbidden"))
+}
+
+func validateCompatExternalAccount(provider, externalAccountID string) error {
+	if strings.EqualFold(strings.TrimSpace(provider), "OKTA") {
+		return validateCompatOktaDomain(externalAccountID)
+	}
+	return nil
+}
+
+func validateCompatOktaDomain(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain is required"))
+	}
+	host := trimmed
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be a bare HTTPS host"))
+		}
+		host = parsed.Host
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if strings.Contains(host, "/") || strings.Contains(host, "@") || strings.Contains(host, ":") {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be a bare host name"))
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be an Okta-hosted domain"))
+	}
+	if !isAllowedCompatOktaHost(host) {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must end in okta.com, oktapreview.com, okta-emea.com, or okta-gov.com"))
+	}
+	return nil
+}
+
+func isAllowedCompatOktaHost(host string) bool {
+	for _, suffix := range []string{".okta.com", ".oktapreview.com", ".okta-emea.com", ".okta-gov.com"} {
+		if strings.HasSuffix(host, suffix) && len(host) > len(suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCompatSiemEndpoint(raw *string) error {

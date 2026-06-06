@@ -429,7 +429,7 @@ model SecurityAsset {
   @@index([organizationId, exposureLevel])
   @@index([integrationId])
   @@index([ownerUserId])
-  @@unique([organizationId, provider, externalId])
+  @@index([organizationId, provider, externalId])
   @@map("security_assets")
 }
 

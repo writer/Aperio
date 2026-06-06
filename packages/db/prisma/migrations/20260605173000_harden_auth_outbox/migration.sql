@@ -15,7 +15,7 @@ ALTER TABLE "siem_deliveries" ADD COLUMN "dedupe_key" VARCHAR(128);
 CREATE UNIQUE INDEX "siem_deliveries_org_destination_stream_dedupe_key"
   ON "siem_deliveries"("organization_id", "destination_id", "stream", "dedupe_key");
 
-CREATE UNIQUE INDEX "security_assets_org_provider_external_id_key"
+CREATE INDEX "security_assets_org_provider_external_id_idx"
   ON "security_assets"("organization_id", "provider", "external_id");
 
 CREATE TABLE "rate_limit_buckets" (
