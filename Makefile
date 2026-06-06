@@ -134,6 +134,10 @@ smoke-workers-go: require-env ## Run bounded explicit Go worker transition smoke
 	@$(LOAD_ENV) npm run worker:ingestion:go -- -once -limit 1
 	@$(LOAD_ENV) npm run worker:siem:go -- -once -limit 1
 
+.PHONY: smoke-e2e
+smoke-e2e: require-env ## Run the local Go API + TypeScript FE E2E smoke harness
+	@npm run smoke:e2e
+
 .PHONY: mcp
 mcp: require-env ## Run the stdio MCP broker
 	@$(LOAD_ENV) npx tsx apps/mcp/src/server.ts

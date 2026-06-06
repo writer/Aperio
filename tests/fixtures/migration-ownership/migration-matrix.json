@@ -562,19 +562,24 @@
       ]
     },
     {
-      "id": "validator-e2e-smoke-pending-harness",
+      "id": "validator-local-e2e-smoke-harness",
       "state": "out-of-scope-this-mission",
       "covers": [
+        "package-script:smoke:e2e",
+        "make-target:smoke-e2e",
+        "repo-file:scripts/smoke-e2e.mjs",
         "validator:e2e-smoke"
       ],
-      "owner": "Pending local E2E smoke harness feature",
-      "rationale": "This matrix reserves the required local E2E gate; the local-e2e-seed-smoke-harness feature owns the authoritative npm run smoke:e2e or make smoke-e2e implementation.",
+      "owner": "Local Go API + TypeScript FE E2E smoke harness",
+      "rationale": "The smoke harness is an authoritative local validation gate, not a runtime ownership change; it boots the approved stack, seeds data, validates browser/API/worker integration, and tears down harness-owned resources.",
       "evidence": [
-        "feature:local-e2e-seed-smoke-harness",
+        "test:tests/e2e-smoke-contract.test.ts",
+        "command:npm run smoke:e2e",
+        "command:make smoke-e2e",
         "contract:VAL-GATE-004",
-        "contract:VAL-GATE-010"
-      ],
-      "blockedBy": "local-e2e-seed-smoke-harness"
+        "contract:VAL-GATE-005",
+        "contract:VAL-GATE-011"
+      ]
     }
   ]
 }

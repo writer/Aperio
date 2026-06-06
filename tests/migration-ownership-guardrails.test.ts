@@ -310,7 +310,9 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   }
   const e2eEntry = entriesFor(matrix, "validator:e2e-smoke")[0];
   assert.equal(e2eEntry.state, "out-of-scope-this-mission");
-  assert.equal(e2eEntry.blockedBy, "local-e2e-seed-smoke-harness");
+  assert.equal(e2eEntry.blockedBy, undefined);
+  assert.ok(evidenceIncludes(e2eEntry, "tests/e2e-smoke-contract.test.ts"));
+  assert.ok(evidenceIncludes(e2eEntry, "npm run smoke:e2e"));
 
   assert.match(ci, /npm run guardrails:migration/);
   assert.match(ci, /npm run smoke:workers:go/);
