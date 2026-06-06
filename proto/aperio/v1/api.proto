@@ -11,6 +11,10 @@ service AperioService {
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
   rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
   rpc GetFinding(GetFindingRequest) returns (GetFindingResponse);
+  rpc ListIntegrations(ListIntegrationsRequest) returns (ListIntegrationsResponse);
+  rpc ListSiemDestinations(ListSiemDestinationsRequest) returns (ListSiemDestinationsResponse);
+  rpc ListShadowItOauthApps(ListShadowItOauthAppsRequest) returns (ListShadowItOauthAppsResponse);
+  rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
 }
 
 message CheckHealthRequest {}
@@ -87,4 +91,100 @@ message FindingIntegration {
 message PageInfo {
   int32 total = 1;
   string next_cursor = 2;
+}
+
+message ListIntegrationsRequest {}
+
+message ListIntegrationsResponse {
+  repeated IntegrationConnection data = 1;
+}
+
+message IntegrationConnection {
+  string id = 1;
+  string provider = 2;
+  string display_name = 3;
+  string external_account_id = 4;
+  string status = 5;
+  string mode = 6;
+  repeated string scopes = 7;
+  repeated string disabled_checks = 8;
+  bool google_mailbox_scan_enabled = 9;
+  string google_mailbox_scan_client_email = 10;
+  string last_sync_at = 11;
+  string created_at = 12;
+}
+
+message ListSiemDestinationsRequest {}
+
+message ListSiemDestinationsResponse {
+  repeated SiemDestination data = 1;
+}
+
+message SiemDestination {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+  string endpoint_url = 4;
+  string file_path = 5;
+  string index = 6;
+  repeated string streams = 7;
+  string status = 8;
+  string last_delivery_at = 9;
+  string last_error = 10;
+  int32 deliveries_ok = 11;
+  int32 deliveries_fail = 12;
+  string created_at = 13;
+}
+
+message ListShadowItOauthAppsRequest {}
+
+message ListShadowItOauthAppsResponse {
+  repeated ShadowItOauthApp data = 1;
+}
+
+message ShadowItOauthApp {
+  string id = 1;
+  string provider = 2;
+  string name = 3;
+  string summary = 4;
+  string external_id = 5;
+  repeated string labels = 6;
+  string criticality = 7;
+  bool contains_sensitive_data = 8;
+  int32 risk_score = 9;
+  string last_observed_at = 10;
+  int32 user_count = 11;
+  repeated string scopes = 12;
+  FindingIntegration integration = 13;
+}
+
+message ListShadowItOauthAppGrantsRequest {
+  string asset_id = 1;
+}
+
+message ListShadowItOauthAppGrantsResponse {
+  ShadowItOauthAppDetail data = 1;
+}
+
+message ShadowItOauthAppDetail {
+  ShadowItOauthAppRef app = 1;
+  repeated ShadowItOauthAppGrant grants = 2;
+}
+
+message ShadowItOauthAppRef {
+  string id = 1;
+  string name = 2;
+  string external_id = 3;
+  string provider = 4;
+}
+
+message ShadowItOauthAppGrant {
+  string id = 1;
+  string user_email = 2;
+  string user_external_id = 3;
+  string user_display_name = 4;
+  repeated string scopes = 5;
+  bool anonymous = 6;
+  bool native_app = 7;
+  string last_observed_at = 8;
 }

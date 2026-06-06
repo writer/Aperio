@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperio/v1/api.proto.
  */
 export const file_aperio_v1_api: GenFile = /*@__PURE__*/
-  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCTLfAgoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCTKMBgoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZRJbChBMaXN0SW50ZWdyYXRpb25zEiIuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0GiMuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRJnChRMaXN0U2llbURlc3RpbmF0aW9ucxImLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QaJy5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRJqChVMaXN0U2hhZG93SXRPYXV0aEFwcHMSJy5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVxdWVzdBooLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXNwb25zZRJ5ChpMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50cxIsLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QaLS5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aperio.v1.CheckHealthRequest
@@ -368,6 +368,462 @@ export const PageInfoSchema: GenMessage<PageInfo> = /*@__PURE__*/
   messageDesc(file_aperio_v1_api, 12);
 
 /**
+ * @generated from message aperio.v1.ListIntegrationsRequest
+ */
+export type ListIntegrationsRequest = Message<"aperio.v1.ListIntegrationsRequest"> & {
+};
+
+/**
+ * Describes the message aperio.v1.ListIntegrationsRequest.
+ * Use `create(ListIntegrationsRequestSchema)` to create a new message.
+ */
+export const ListIntegrationsRequestSchema: GenMessage<ListIntegrationsRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 13);
+
+/**
+ * @generated from message aperio.v1.ListIntegrationsResponse
+ */
+export type ListIntegrationsResponse = Message<"aperio.v1.ListIntegrationsResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.IntegrationConnection data = 1;
+   */
+  data: IntegrationConnection[];
+};
+
+/**
+ * Describes the message aperio.v1.ListIntegrationsResponse.
+ * Use `create(ListIntegrationsResponseSchema)` to create a new message.
+ */
+export const ListIntegrationsResponseSchema: GenMessage<ListIntegrationsResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 14);
+
+/**
+ * @generated from message aperio.v1.IntegrationConnection
+ */
+export type IntegrationConnection = Message<"aperio.v1.IntegrationConnection"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string provider = 2;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string external_account_id = 4;
+   */
+  externalAccountId: string;
+
+  /**
+   * @generated from field: string status = 5;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string mode = 6;
+   */
+  mode: string;
+
+  /**
+   * @generated from field: repeated string scopes = 7;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: repeated string disabled_checks = 8;
+   */
+  disabledChecks: string[];
+
+  /**
+   * @generated from field: bool google_mailbox_scan_enabled = 9;
+   */
+  googleMailboxScanEnabled: boolean;
+
+  /**
+   * @generated from field: string google_mailbox_scan_client_email = 10;
+   */
+  googleMailboxScanClientEmail: string;
+
+  /**
+   * @generated from field: string last_sync_at = 11;
+   */
+  lastSyncAt: string;
+
+  /**
+   * @generated from field: string created_at = 12;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message aperio.v1.IntegrationConnection.
+ * Use `create(IntegrationConnectionSchema)` to create a new message.
+ */
+export const IntegrationConnectionSchema: GenMessage<IntegrationConnection> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 15);
+
+/**
+ * @generated from message aperio.v1.ListSiemDestinationsRequest
+ */
+export type ListSiemDestinationsRequest = Message<"aperio.v1.ListSiemDestinationsRequest"> & {
+};
+
+/**
+ * Describes the message aperio.v1.ListSiemDestinationsRequest.
+ * Use `create(ListSiemDestinationsRequestSchema)` to create a new message.
+ */
+export const ListSiemDestinationsRequestSchema: GenMessage<ListSiemDestinationsRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 16);
+
+/**
+ * @generated from message aperio.v1.ListSiemDestinationsResponse
+ */
+export type ListSiemDestinationsResponse = Message<"aperio.v1.ListSiemDestinationsResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.SiemDestination data = 1;
+   */
+  data: SiemDestination[];
+};
+
+/**
+ * Describes the message aperio.v1.ListSiemDestinationsResponse.
+ * Use `create(ListSiemDestinationsResponseSchema)` to create a new message.
+ */
+export const ListSiemDestinationsResponseSchema: GenMessage<ListSiemDestinationsResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 17);
+
+/**
+ * @generated from message aperio.v1.SiemDestination
+ */
+export type SiemDestination = Message<"aperio.v1.SiemDestination"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string endpoint_url = 4;
+   */
+  endpointUrl: string;
+
+  /**
+   * @generated from field: string file_path = 5;
+   */
+  filePath: string;
+
+  /**
+   * @generated from field: string index = 6;
+   */
+  index: string;
+
+  /**
+   * @generated from field: repeated string streams = 7;
+   */
+  streams: string[];
+
+  /**
+   * @generated from field: string status = 8;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string last_delivery_at = 9;
+   */
+  lastDeliveryAt: string;
+
+  /**
+   * @generated from field: string last_error = 10;
+   */
+  lastError: string;
+
+  /**
+   * @generated from field: int32 deliveries_ok = 11;
+   */
+  deliveriesOk: number;
+
+  /**
+   * @generated from field: int32 deliveries_fail = 12;
+   */
+  deliveriesFail: number;
+
+  /**
+   * @generated from field: string created_at = 13;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message aperio.v1.SiemDestination.
+ * Use `create(SiemDestinationSchema)` to create a new message.
+ */
+export const SiemDestinationSchema: GenMessage<SiemDestination> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 18);
+
+/**
+ * @generated from message aperio.v1.ListShadowItOauthAppsRequest
+ */
+export type ListShadowItOauthAppsRequest = Message<"aperio.v1.ListShadowItOauthAppsRequest"> & {
+};
+
+/**
+ * Describes the message aperio.v1.ListShadowItOauthAppsRequest.
+ * Use `create(ListShadowItOauthAppsRequestSchema)` to create a new message.
+ */
+export const ListShadowItOauthAppsRequestSchema: GenMessage<ListShadowItOauthAppsRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 19);
+
+/**
+ * @generated from message aperio.v1.ListShadowItOauthAppsResponse
+ */
+export type ListShadowItOauthAppsResponse = Message<"aperio.v1.ListShadowItOauthAppsResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.ShadowItOauthApp data = 1;
+   */
+  data: ShadowItOauthApp[];
+};
+
+/**
+ * Describes the message aperio.v1.ListShadowItOauthAppsResponse.
+ * Use `create(ListShadowItOauthAppsResponseSchema)` to create a new message.
+ */
+export const ListShadowItOauthAppsResponseSchema: GenMessage<ListShadowItOauthAppsResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 20);
+
+/**
+ * @generated from message aperio.v1.ShadowItOauthApp
+ */
+export type ShadowItOauthApp = Message<"aperio.v1.ShadowItOauthApp"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string provider = 2;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string summary = 4;
+   */
+  summary: string;
+
+  /**
+   * @generated from field: string external_id = 5;
+   */
+  externalId: string;
+
+  /**
+   * @generated from field: repeated string labels = 6;
+   */
+  labels: string[];
+
+  /**
+   * @generated from field: string criticality = 7;
+   */
+  criticality: string;
+
+  /**
+   * @generated from field: bool contains_sensitive_data = 8;
+   */
+  containsSensitiveData: boolean;
+
+  /**
+   * @generated from field: int32 risk_score = 9;
+   */
+  riskScore: number;
+
+  /**
+   * @generated from field: string last_observed_at = 10;
+   */
+  lastObservedAt: string;
+
+  /**
+   * @generated from field: int32 user_count = 11;
+   */
+  userCount: number;
+
+  /**
+   * @generated from field: repeated string scopes = 12;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: aperio.v1.FindingIntegration integration = 13;
+   */
+  integration?: FindingIntegration;
+};
+
+/**
+ * Describes the message aperio.v1.ShadowItOauthApp.
+ * Use `create(ShadowItOauthAppSchema)` to create a new message.
+ */
+export const ShadowItOauthAppSchema: GenMessage<ShadowItOauthApp> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 21);
+
+/**
+ * @generated from message aperio.v1.ListShadowItOauthAppGrantsRequest
+ */
+export type ListShadowItOauthAppGrantsRequest = Message<"aperio.v1.ListShadowItOauthAppGrantsRequest"> & {
+  /**
+   * @generated from field: string asset_id = 1;
+   */
+  assetId: string;
+};
+
+/**
+ * Describes the message aperio.v1.ListShadowItOauthAppGrantsRequest.
+ * Use `create(ListShadowItOauthAppGrantsRequestSchema)` to create a new message.
+ */
+export const ListShadowItOauthAppGrantsRequestSchema: GenMessage<ListShadowItOauthAppGrantsRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 22);
+
+/**
+ * @generated from message aperio.v1.ListShadowItOauthAppGrantsResponse
+ */
+export type ListShadowItOauthAppGrantsResponse = Message<"aperio.v1.ListShadowItOauthAppGrantsResponse"> & {
+  /**
+   * @generated from field: aperio.v1.ShadowItOauthAppDetail data = 1;
+   */
+  data?: ShadowItOauthAppDetail;
+};
+
+/**
+ * Describes the message aperio.v1.ListShadowItOauthAppGrantsResponse.
+ * Use `create(ListShadowItOauthAppGrantsResponseSchema)` to create a new message.
+ */
+export const ListShadowItOauthAppGrantsResponseSchema: GenMessage<ListShadowItOauthAppGrantsResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 23);
+
+/**
+ * @generated from message aperio.v1.ShadowItOauthAppDetail
+ */
+export type ShadowItOauthAppDetail = Message<"aperio.v1.ShadowItOauthAppDetail"> & {
+  /**
+   * @generated from field: aperio.v1.ShadowItOauthAppRef app = 1;
+   */
+  app?: ShadowItOauthAppRef;
+
+  /**
+   * @generated from field: repeated aperio.v1.ShadowItOauthAppGrant grants = 2;
+   */
+  grants: ShadowItOauthAppGrant[];
+};
+
+/**
+ * Describes the message aperio.v1.ShadowItOauthAppDetail.
+ * Use `create(ShadowItOauthAppDetailSchema)` to create a new message.
+ */
+export const ShadowItOauthAppDetailSchema: GenMessage<ShadowItOauthAppDetail> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 24);
+
+/**
+ * @generated from message aperio.v1.ShadowItOauthAppRef
+ */
+export type ShadowItOauthAppRef = Message<"aperio.v1.ShadowItOauthAppRef"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string external_id = 3;
+   */
+  externalId: string;
+
+  /**
+   * @generated from field: string provider = 4;
+   */
+  provider: string;
+};
+
+/**
+ * Describes the message aperio.v1.ShadowItOauthAppRef.
+ * Use `create(ShadowItOauthAppRefSchema)` to create a new message.
+ */
+export const ShadowItOauthAppRefSchema: GenMessage<ShadowItOauthAppRef> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 25);
+
+/**
+ * @generated from message aperio.v1.ShadowItOauthAppGrant
+ */
+export type ShadowItOauthAppGrant = Message<"aperio.v1.ShadowItOauthAppGrant"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string user_email = 2;
+   */
+  userEmail: string;
+
+  /**
+   * @generated from field: string user_external_id = 3;
+   */
+  userExternalId: string;
+
+  /**
+   * @generated from field: string user_display_name = 4;
+   */
+  userDisplayName: string;
+
+  /**
+   * @generated from field: repeated string scopes = 5;
+   */
+  scopes: string[];
+
+  /**
+   * @generated from field: bool anonymous = 6;
+   */
+  anonymous: boolean;
+
+  /**
+   * @generated from field: bool native_app = 7;
+   */
+  nativeApp: boolean;
+
+  /**
+   * @generated from field: string last_observed_at = 8;
+   */
+  lastObservedAt: string;
+};
+
+/**
+ * Describes the message aperio.v1.ShadowItOauthAppGrant.
+ * Use `create(ShadowItOauthAppGrantSchema)` to create a new message.
+ */
+export const ShadowItOauthAppGrantSchema: GenMessage<ShadowItOauthAppGrant> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 26);
+
+/**
  * @generated from service aperio.v1.AperioService
  */
 export const AperioService: GenService<{
@@ -402,6 +858,38 @@ export const AperioService: GenService<{
     methodKind: "unary";
     input: typeof GetFindingRequestSchema;
     output: typeof GetFindingResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListIntegrations
+   */
+  listIntegrations: {
+    methodKind: "unary";
+    input: typeof ListIntegrationsRequestSchema;
+    output: typeof ListIntegrationsResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListSiemDestinations
+   */
+  listSiemDestinations: {
+    methodKind: "unary";
+    input: typeof ListSiemDestinationsRequestSchema;
+    output: typeof ListSiemDestinationsResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListShadowItOauthApps
+   */
+  listShadowItOauthApps: {
+    methodKind: "unary";
+    input: typeof ListShadowItOauthAppsRequestSchema;
+    output: typeof ListShadowItOauthAppsResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListShadowItOauthAppGrants
+   */
+  listShadowItOauthAppGrants: {
+    methodKind: "unary";
+    input: typeof ListShadowItOauthAppGrantsRequestSchema;
+    output: typeof ListShadowItOauthAppGrantsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_aperio_v1_api, 0);

@@ -802,6 +802,966 @@ func (x *PageInfo) GetNextCursor() string {
 	return ""
 }
 
+type ListIntegrationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListIntegrationsRequest) Reset() {
+	*x = ListIntegrationsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListIntegrationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListIntegrationsRequest) ProtoMessage() {}
+
+func (x *ListIntegrationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListIntegrationsRequest.ProtoReflect.Descriptor instead.
+func (*ListIntegrationsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{13}
+}
+
+type ListIntegrationsResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Data          []*IntegrationConnection `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListIntegrationsResponse) Reset() {
+	*x = ListIntegrationsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListIntegrationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListIntegrationsResponse) ProtoMessage() {}
+
+func (x *ListIntegrationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListIntegrationsResponse.ProtoReflect.Descriptor instead.
+func (*ListIntegrationsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListIntegrationsResponse) GetData() []*IntegrationConnection {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type IntegrationConnection struct {
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	Id                           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Provider                     string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	DisplayName                  string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	ExternalAccountId            string                 `protobuf:"bytes,4,opt,name=external_account_id,json=externalAccountId,proto3" json:"external_account_id,omitempty"`
+	Status                       string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	Mode                         string                 `protobuf:"bytes,6,opt,name=mode,proto3" json:"mode,omitempty"`
+	Scopes                       []string               `protobuf:"bytes,7,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	DisabledChecks               []string               `protobuf:"bytes,8,rep,name=disabled_checks,json=disabledChecks,proto3" json:"disabled_checks,omitempty"`
+	GoogleMailboxScanEnabled     bool                   `protobuf:"varint,9,opt,name=google_mailbox_scan_enabled,json=googleMailboxScanEnabled,proto3" json:"google_mailbox_scan_enabled,omitempty"`
+	GoogleMailboxScanClientEmail string                 `protobuf:"bytes,10,opt,name=google_mailbox_scan_client_email,json=googleMailboxScanClientEmail,proto3" json:"google_mailbox_scan_client_email,omitempty"`
+	LastSyncAt                   string                 `protobuf:"bytes,11,opt,name=last_sync_at,json=lastSyncAt,proto3" json:"last_sync_at,omitempty"`
+	CreatedAt                    string                 `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
+}
+
+func (x *IntegrationConnection) Reset() {
+	*x = IntegrationConnection{}
+	mi := &file_aperio_v1_api_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IntegrationConnection) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IntegrationConnection) ProtoMessage() {}
+
+func (x *IntegrationConnection) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IntegrationConnection.ProtoReflect.Descriptor instead.
+func (*IntegrationConnection) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *IntegrationConnection) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetExternalAccountId() string {
+	if x != nil {
+		return x.ExternalAccountId
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *IntegrationConnection) GetDisabledChecks() []string {
+	if x != nil {
+		return x.DisabledChecks
+	}
+	return nil
+}
+
+func (x *IntegrationConnection) GetGoogleMailboxScanEnabled() bool {
+	if x != nil {
+		return x.GoogleMailboxScanEnabled
+	}
+	return false
+}
+
+func (x *IntegrationConnection) GetGoogleMailboxScanClientEmail() string {
+	if x != nil {
+		return x.GoogleMailboxScanClientEmail
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetLastSyncAt() string {
+	if x != nil {
+		return x.LastSyncAt
+	}
+	return ""
+}
+
+func (x *IntegrationConnection) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type ListSiemDestinationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSiemDestinationsRequest) Reset() {
+	*x = ListSiemDestinationsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSiemDestinationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSiemDestinationsRequest) ProtoMessage() {}
+
+func (x *ListSiemDestinationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSiemDestinationsRequest.ProtoReflect.Descriptor instead.
+func (*ListSiemDestinationsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{16}
+}
+
+type ListSiemDestinationsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*SiemDestination     `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSiemDestinationsResponse) Reset() {
+	*x = ListSiemDestinationsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSiemDestinationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSiemDestinationsResponse) ProtoMessage() {}
+
+func (x *ListSiemDestinationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSiemDestinationsResponse.ProtoReflect.Descriptor instead.
+func (*ListSiemDestinationsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListSiemDestinationsResponse) GetData() []*SiemDestination {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type SiemDestination struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind           string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	EndpointUrl    string                 `protobuf:"bytes,4,opt,name=endpoint_url,json=endpointUrl,proto3" json:"endpoint_url,omitempty"`
+	FilePath       string                 `protobuf:"bytes,5,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	Index          string                 `protobuf:"bytes,6,opt,name=index,proto3" json:"index,omitempty"`
+	Streams        []string               `protobuf:"bytes,7,rep,name=streams,proto3" json:"streams,omitempty"`
+	Status         string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	LastDeliveryAt string                 `protobuf:"bytes,9,opt,name=last_delivery_at,json=lastDeliveryAt,proto3" json:"last_delivery_at,omitempty"`
+	LastError      string                 `protobuf:"bytes,10,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	DeliveriesOk   int32                  `protobuf:"varint,11,opt,name=deliveries_ok,json=deliveriesOk,proto3" json:"deliveries_ok,omitempty"`
+	DeliveriesFail int32                  `protobuf:"varint,12,opt,name=deliveries_fail,json=deliveriesFail,proto3" json:"deliveries_fail,omitempty"`
+	CreatedAt      string                 `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SiemDestination) Reset() {
+	*x = SiemDestination{}
+	mi := &file_aperio_v1_api_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiemDestination) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiemDestination) ProtoMessage() {}
+
+func (x *SiemDestination) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiemDestination.ProtoReflect.Descriptor instead.
+func (*SiemDestination) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SiemDestination) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetEndpointUrl() string {
+	if x != nil {
+		return x.EndpointUrl
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetFilePath() string {
+	if x != nil {
+		return x.FilePath
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetStreams() []string {
+	if x != nil {
+		return x.Streams
+	}
+	return nil
+}
+
+func (x *SiemDestination) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetLastDeliveryAt() string {
+	if x != nil {
+		return x.LastDeliveryAt
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *SiemDestination) GetDeliveriesOk() int32 {
+	if x != nil {
+		return x.DeliveriesOk
+	}
+	return 0
+}
+
+func (x *SiemDestination) GetDeliveriesFail() int32 {
+	if x != nil {
+		return x.DeliveriesFail
+	}
+	return 0
+}
+
+func (x *SiemDestination) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type ListShadowItOauthAppsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShadowItOauthAppsRequest) Reset() {
+	*x = ListShadowItOauthAppsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShadowItOauthAppsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShadowItOauthAppsRequest) ProtoMessage() {}
+
+func (x *ListShadowItOauthAppsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShadowItOauthAppsRequest.ProtoReflect.Descriptor instead.
+func (*ListShadowItOauthAppsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{19}
+}
+
+type ListShadowItOauthAppsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*ShadowItOauthApp    `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShadowItOauthAppsResponse) Reset() {
+	*x = ListShadowItOauthAppsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShadowItOauthAppsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShadowItOauthAppsResponse) ProtoMessage() {}
+
+func (x *ListShadowItOauthAppsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShadowItOauthAppsResponse.ProtoReflect.Descriptor instead.
+func (*ListShadowItOauthAppsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListShadowItOauthAppsResponse) GetData() []*ShadowItOauthApp {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ShadowItOauthApp struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Provider              string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	Name                  string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Summary               string                 `protobuf:"bytes,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	ExternalId            string                 `protobuf:"bytes,5,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	Labels                []string               `protobuf:"bytes,6,rep,name=labels,proto3" json:"labels,omitempty"`
+	Criticality           string                 `protobuf:"bytes,7,opt,name=criticality,proto3" json:"criticality,omitempty"`
+	ContainsSensitiveData bool                   `protobuf:"varint,8,opt,name=contains_sensitive_data,json=containsSensitiveData,proto3" json:"contains_sensitive_data,omitempty"`
+	RiskScore             int32                  `protobuf:"varint,9,opt,name=risk_score,json=riskScore,proto3" json:"risk_score,omitempty"`
+	LastObservedAt        string                 `protobuf:"bytes,10,opt,name=last_observed_at,json=lastObservedAt,proto3" json:"last_observed_at,omitempty"`
+	UserCount             int32                  `protobuf:"varint,11,opt,name=user_count,json=userCount,proto3" json:"user_count,omitempty"`
+	Scopes                []string               `protobuf:"bytes,12,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Integration           *FindingIntegration    `protobuf:"bytes,13,opt,name=integration,proto3" json:"integration,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *ShadowItOauthApp) Reset() {
+	*x = ShadowItOauthApp{}
+	mi := &file_aperio_v1_api_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShadowItOauthApp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShadowItOauthApp) ProtoMessage() {}
+
+func (x *ShadowItOauthApp) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShadowItOauthApp.ProtoReflect.Descriptor instead.
+func (*ShadowItOauthApp) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ShadowItOauthApp) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetLabels() []string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *ShadowItOauthApp) GetCriticality() string {
+	if x != nil {
+		return x.Criticality
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetContainsSensitiveData() bool {
+	if x != nil {
+		return x.ContainsSensitiveData
+	}
+	return false
+}
+
+func (x *ShadowItOauthApp) GetRiskScore() int32 {
+	if x != nil {
+		return x.RiskScore
+	}
+	return 0
+}
+
+func (x *ShadowItOauthApp) GetLastObservedAt() string {
+	if x != nil {
+		return x.LastObservedAt
+	}
+	return ""
+}
+
+func (x *ShadowItOauthApp) GetUserCount() int32 {
+	if x != nil {
+		return x.UserCount
+	}
+	return 0
+}
+
+func (x *ShadowItOauthApp) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *ShadowItOauthApp) GetIntegration() *FindingIntegration {
+	if x != nil {
+		return x.Integration
+	}
+	return nil
+}
+
+type ListShadowItOauthAppGrantsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AssetId       string                 `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShadowItOauthAppGrantsRequest) Reset() {
+	*x = ListShadowItOauthAppGrantsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShadowItOauthAppGrantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShadowItOauthAppGrantsRequest) ProtoMessage() {}
+
+func (x *ListShadowItOauthAppGrantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShadowItOauthAppGrantsRequest.ProtoReflect.Descriptor instead.
+func (*ListShadowItOauthAppGrantsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListShadowItOauthAppGrantsRequest) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
+}
+
+type ListShadowItOauthAppGrantsResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Data          *ShadowItOauthAppDetail `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShadowItOauthAppGrantsResponse) Reset() {
+	*x = ListShadowItOauthAppGrantsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShadowItOauthAppGrantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShadowItOauthAppGrantsResponse) ProtoMessage() {}
+
+func (x *ListShadowItOauthAppGrantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShadowItOauthAppGrantsResponse.ProtoReflect.Descriptor instead.
+func (*ListShadowItOauthAppGrantsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ListShadowItOauthAppGrantsResponse) GetData() *ShadowItOauthAppDetail {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ShadowItOauthAppDetail struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	App           *ShadowItOauthAppRef     `protobuf:"bytes,1,opt,name=app,proto3" json:"app,omitempty"`
+	Grants        []*ShadowItOauthAppGrant `protobuf:"bytes,2,rep,name=grants,proto3" json:"grants,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShadowItOauthAppDetail) Reset() {
+	*x = ShadowItOauthAppDetail{}
+	mi := &file_aperio_v1_api_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShadowItOauthAppDetail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShadowItOauthAppDetail) ProtoMessage() {}
+
+func (x *ShadowItOauthAppDetail) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShadowItOauthAppDetail.ProtoReflect.Descriptor instead.
+func (*ShadowItOauthAppDetail) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ShadowItOauthAppDetail) GetApp() *ShadowItOauthAppRef {
+	if x != nil {
+		return x.App
+	}
+	return nil
+}
+
+func (x *ShadowItOauthAppDetail) GetGrants() []*ShadowItOauthAppGrant {
+	if x != nil {
+		return x.Grants
+	}
+	return nil
+}
+
+type ShadowItOauthAppRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ExternalId    string                 `protobuf:"bytes,3,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	Provider      string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShadowItOauthAppRef) Reset() {
+	*x = ShadowItOauthAppRef{}
+	mi := &file_aperio_v1_api_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShadowItOauthAppRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShadowItOauthAppRef) ProtoMessage() {}
+
+func (x *ShadowItOauthAppRef) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShadowItOauthAppRef.ProtoReflect.Descriptor instead.
+func (*ShadowItOauthAppRef) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ShadowItOauthAppRef) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppRef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppRef) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppRef) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+type ShadowItOauthAppGrant struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserEmail       string                 `protobuf:"bytes,2,opt,name=user_email,json=userEmail,proto3" json:"user_email,omitempty"`
+	UserExternalId  string                 `protobuf:"bytes,3,opt,name=user_external_id,json=userExternalId,proto3" json:"user_external_id,omitempty"`
+	UserDisplayName string                 `protobuf:"bytes,4,opt,name=user_display_name,json=userDisplayName,proto3" json:"user_display_name,omitempty"`
+	Scopes          []string               `protobuf:"bytes,5,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Anonymous       bool                   `protobuf:"varint,6,opt,name=anonymous,proto3" json:"anonymous,omitempty"`
+	NativeApp       bool                   `protobuf:"varint,7,opt,name=native_app,json=nativeApp,proto3" json:"native_app,omitempty"`
+	LastObservedAt  string                 `protobuf:"bytes,8,opt,name=last_observed_at,json=lastObservedAt,proto3" json:"last_observed_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ShadowItOauthAppGrant) Reset() {
+	*x = ShadowItOauthAppGrant{}
+	mi := &file_aperio_v1_api_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShadowItOauthAppGrant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShadowItOauthAppGrant) ProtoMessage() {}
+
+func (x *ShadowItOauthAppGrant) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShadowItOauthAppGrant.ProtoReflect.Descriptor instead.
+func (*ShadowItOauthAppGrant) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ShadowItOauthAppGrant) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppGrant) GetUserEmail() string {
+	if x != nil {
+		return x.UserEmail
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppGrant) GetUserExternalId() string {
+	if x != nil {
+		return x.UserExternalId
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppGrant) GetUserDisplayName() string {
+	if x != nil {
+		return x.UserDisplayName
+	}
+	return ""
+}
+
+func (x *ShadowItOauthAppGrant) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *ShadowItOauthAppGrant) GetAnonymous() bool {
+	if x != nil {
+		return x.Anonymous
+	}
+	return false
+}
+
+func (x *ShadowItOauthAppGrant) GetNativeApp() bool {
+	if x != nil {
+		return x.NativeApp
+	}
+	return false
+}
+
+func (x *ShadowItOauthAppGrant) GetLastObservedAt() string {
+	if x != nil {
+		return x.LastObservedAt
+	}
+	return ""
+}
+
 var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
@@ -866,13 +1826,101 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\bPageInfo\x12\x14\n" +
 	"\x05total\x18\x01 \x01(\x05R\x05total\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor2\xdf\x02\n" +
+	"nextCursor\"\x19\n" +
+	"\x17ListIntegrationsRequest\"P\n" +
+	"\x18ListIntegrationsResponse\x124\n" +
+	"\x04data\x18\x01 \x03(\v2 .aperio.v1.IntegrationConnectionR\x04data\"\xcb\x03\n" +
+	"\x15IntegrationConnection\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12.\n" +
+	"\x13external_account_id\x18\x04 \x01(\tR\x11externalAccountId\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x12\n" +
+	"\x04mode\x18\x06 \x01(\tR\x04mode\x12\x16\n" +
+	"\x06scopes\x18\a \x03(\tR\x06scopes\x12'\n" +
+	"\x0fdisabled_checks\x18\b \x03(\tR\x0edisabledChecks\x12=\n" +
+	"\x1bgoogle_mailbox_scan_enabled\x18\t \x01(\bR\x18googleMailboxScanEnabled\x12F\n" +
+	" google_mailbox_scan_client_email\x18\n" +
+	" \x01(\tR\x1cgoogleMailboxScanClientEmail\x12 \n" +
+	"\flast_sync_at\x18\v \x01(\tR\n" +
+	"lastSyncAt\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\f \x01(\tR\tcreatedAt\"\x1d\n" +
+	"\x1bListSiemDestinationsRequest\"N\n" +
+	"\x1cListSiemDestinationsResponse\x12.\n" +
+	"\x04data\x18\x01 \x03(\v2\x1a.aperio.v1.SiemDestinationR\x04data\"\x87\x03\n" +
+	"\x0fSiemDestination\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12!\n" +
+	"\fendpoint_url\x18\x04 \x01(\tR\vendpointUrl\x12\x1b\n" +
+	"\tfile_path\x18\x05 \x01(\tR\bfilePath\x12\x14\n" +
+	"\x05index\x18\x06 \x01(\tR\x05index\x12\x18\n" +
+	"\astreams\x18\a \x03(\tR\astreams\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12(\n" +
+	"\x10last_delivery_at\x18\t \x01(\tR\x0elastDeliveryAt\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\n" +
+	" \x01(\tR\tlastError\x12#\n" +
+	"\rdeliveries_ok\x18\v \x01(\x05R\fdeliveriesOk\x12'\n" +
+	"\x0fdeliveries_fail\x18\f \x01(\x05R\x0edeliveriesFail\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\r \x01(\tR\tcreatedAt\"\x1e\n" +
+	"\x1cListShadowItOauthAppsRequest\"P\n" +
+	"\x1dListShadowItOauthAppsResponse\x12/\n" +
+	"\x04data\x18\x01 \x03(\v2\x1b.aperio.v1.ShadowItOauthAppR\x04data\"\xc0\x03\n" +
+	"\x10ShadowItOauthApp\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
+	"\asummary\x18\x04 \x01(\tR\asummary\x12\x1f\n" +
+	"\vexternal_id\x18\x05 \x01(\tR\n" +
+	"externalId\x12\x16\n" +
+	"\x06labels\x18\x06 \x03(\tR\x06labels\x12 \n" +
+	"\vcriticality\x18\a \x01(\tR\vcriticality\x126\n" +
+	"\x17contains_sensitive_data\x18\b \x01(\bR\x15containsSensitiveData\x12\x1d\n" +
+	"\n" +
+	"risk_score\x18\t \x01(\x05R\triskScore\x12(\n" +
+	"\x10last_observed_at\x18\n" +
+	" \x01(\tR\x0elastObservedAt\x12\x1d\n" +
+	"\n" +
+	"user_count\x18\v \x01(\x05R\tuserCount\x12\x16\n" +
+	"\x06scopes\x18\f \x03(\tR\x06scopes\x12?\n" +
+	"\vintegration\x18\r \x01(\v2\x1d.aperio.v1.FindingIntegrationR\vintegration\">\n" +
+	"!ListShadowItOauthAppGrantsRequest\x12\x19\n" +
+	"\basset_id\x18\x01 \x01(\tR\aassetId\"[\n" +
+	"\"ListShadowItOauthAppGrantsResponse\x125\n" +
+	"\x04data\x18\x01 \x01(\v2!.aperio.v1.ShadowItOauthAppDetailR\x04data\"\x84\x01\n" +
+	"\x16ShadowItOauthAppDetail\x120\n" +
+	"\x03app\x18\x01 \x01(\v2\x1e.aperio.v1.ShadowItOauthAppRefR\x03app\x128\n" +
+	"\x06grants\x18\x02 \x03(\v2 .aperio.v1.ShadowItOauthAppGrantR\x06grants\"v\n" +
+	"\x13ShadowItOauthAppRef\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vexternal_id\x18\x03 \x01(\tR\n" +
+	"externalId\x12\x1a\n" +
+	"\bprovider\x18\x04 \x01(\tR\bprovider\"\x9b\x02\n" +
+	"\x15ShadowItOauthAppGrant\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"user_email\x18\x02 \x01(\tR\tuserEmail\x12(\n" +
+	"\x10user_external_id\x18\x03 \x01(\tR\x0euserExternalId\x12*\n" +
+	"\x11user_display_name\x18\x04 \x01(\tR\x0fuserDisplayName\x12\x16\n" +
+	"\x06scopes\x18\x05 \x03(\tR\x06scopes\x12\x1c\n" +
+	"\tanonymous\x18\x06 \x01(\bR\tanonymous\x12\x1d\n" +
+	"\n" +
+	"native_app\x18\a \x01(\bR\tnativeApp\x12(\n" +
+	"\x10last_observed_at\x18\b \x01(\tR\x0elastObservedAt2\x8c\x06\n" +
 	"\rAperioService\x12L\n" +
 	"\vCheckHealth\x12\x1d.aperio.v1.CheckHealthRequest\x1a\x1e.aperio.v1.CheckHealthResponse\x12d\n" +
 	"\x13GetDashboardMetrics\x12%.aperio.v1.GetDashboardMetricsRequest\x1a&.aperio.v1.GetDashboardMetricsResponse\x12O\n" +
 	"\fListFindings\x12\x1e.aperio.v1.ListFindingsRequest\x1a\x1f.aperio.v1.ListFindingsResponse\x12I\n" +
 	"\n" +
-	"GetFinding\x12\x1c.aperio.v1.GetFindingRequest\x1a\x1d.aperio.v1.GetFindingResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
+	"GetFinding\x12\x1c.aperio.v1.GetFindingRequest\x1a\x1d.aperio.v1.GetFindingResponse\x12[\n" +
+	"\x10ListIntegrations\x12\".aperio.v1.ListIntegrationsRequest\x1a#.aperio.v1.ListIntegrationsResponse\x12g\n" +
+	"\x14ListSiemDestinations\x12&.aperio.v1.ListSiemDestinationsRequest\x1a'.aperio.v1.ListSiemDestinationsResponse\x12j\n" +
+	"\x15ListShadowItOauthApps\x12'.aperio.v1.ListShadowItOauthAppsRequest\x1a(.aperio.v1.ListShadowItOauthAppsResponse\x12y\n" +
+	"\x1aListShadowItOauthAppGrants\x12,.aperio.v1.ListShadowItOauthAppGrantsRequest\x1a-.aperio.v1.ListShadowItOauthAppGrantsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
 
 var (
 	file_aperio_v1_api_proto_rawDescOnce sync.Once
@@ -886,44 +1934,73 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_aperio_v1_api_proto_goTypes = []any{
-	(*CheckHealthRequest)(nil),          // 0: aperio.v1.CheckHealthRequest
-	(*CheckHealthResponse)(nil),         // 1: aperio.v1.CheckHealthResponse
-	(*HealthComponent)(nil),             // 2: aperio.v1.HealthComponent
-	(*GetDashboardMetricsRequest)(nil),  // 3: aperio.v1.GetDashboardMetricsRequest
-	(*GetDashboardMetricsResponse)(nil), // 4: aperio.v1.GetDashboardMetricsResponse
-	(*DashboardMetrics)(nil),            // 5: aperio.v1.DashboardMetrics
-	(*ListFindingsRequest)(nil),         // 6: aperio.v1.ListFindingsRequest
-	(*ListFindingsResponse)(nil),        // 7: aperio.v1.ListFindingsResponse
-	(*GetFindingRequest)(nil),           // 8: aperio.v1.GetFindingRequest
-	(*GetFindingResponse)(nil),          // 9: aperio.v1.GetFindingResponse
-	(*Finding)(nil),                     // 10: aperio.v1.Finding
-	(*FindingIntegration)(nil),          // 11: aperio.v1.FindingIntegration
-	(*PageInfo)(nil),                    // 12: aperio.v1.PageInfo
-	(*timestamppb.Timestamp)(nil),       // 13: google.protobuf.Timestamp
+	(*CheckHealthRequest)(nil),                 // 0: aperio.v1.CheckHealthRequest
+	(*CheckHealthResponse)(nil),                // 1: aperio.v1.CheckHealthResponse
+	(*HealthComponent)(nil),                    // 2: aperio.v1.HealthComponent
+	(*GetDashboardMetricsRequest)(nil),         // 3: aperio.v1.GetDashboardMetricsRequest
+	(*GetDashboardMetricsResponse)(nil),        // 4: aperio.v1.GetDashboardMetricsResponse
+	(*DashboardMetrics)(nil),                   // 5: aperio.v1.DashboardMetrics
+	(*ListFindingsRequest)(nil),                // 6: aperio.v1.ListFindingsRequest
+	(*ListFindingsResponse)(nil),               // 7: aperio.v1.ListFindingsResponse
+	(*GetFindingRequest)(nil),                  // 8: aperio.v1.GetFindingRequest
+	(*GetFindingResponse)(nil),                 // 9: aperio.v1.GetFindingResponse
+	(*Finding)(nil),                            // 10: aperio.v1.Finding
+	(*FindingIntegration)(nil),                 // 11: aperio.v1.FindingIntegration
+	(*PageInfo)(nil),                           // 12: aperio.v1.PageInfo
+	(*ListIntegrationsRequest)(nil),            // 13: aperio.v1.ListIntegrationsRequest
+	(*ListIntegrationsResponse)(nil),           // 14: aperio.v1.ListIntegrationsResponse
+	(*IntegrationConnection)(nil),              // 15: aperio.v1.IntegrationConnection
+	(*ListSiemDestinationsRequest)(nil),        // 16: aperio.v1.ListSiemDestinationsRequest
+	(*ListSiemDestinationsResponse)(nil),       // 17: aperio.v1.ListSiemDestinationsResponse
+	(*SiemDestination)(nil),                    // 18: aperio.v1.SiemDestination
+	(*ListShadowItOauthAppsRequest)(nil),       // 19: aperio.v1.ListShadowItOauthAppsRequest
+	(*ListShadowItOauthAppsResponse)(nil),      // 20: aperio.v1.ListShadowItOauthAppsResponse
+	(*ShadowItOauthApp)(nil),                   // 21: aperio.v1.ShadowItOauthApp
+	(*ListShadowItOauthAppGrantsRequest)(nil),  // 22: aperio.v1.ListShadowItOauthAppGrantsRequest
+	(*ListShadowItOauthAppGrantsResponse)(nil), // 23: aperio.v1.ListShadowItOauthAppGrantsResponse
+	(*ShadowItOauthAppDetail)(nil),             // 24: aperio.v1.ShadowItOauthAppDetail
+	(*ShadowItOauthAppRef)(nil),                // 25: aperio.v1.ShadowItOauthAppRef
+	(*ShadowItOauthAppGrant)(nil),              // 26: aperio.v1.ShadowItOauthAppGrant
+	(*timestamppb.Timestamp)(nil),              // 27: google.protobuf.Timestamp
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
-	13, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
+	27, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
 	2,  // 1: aperio.v1.CheckHealthResponse.components:type_name -> aperio.v1.HealthComponent
 	5,  // 2: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
 	10, // 3: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
 	12, // 4: aperio.v1.ListFindingsResponse.page_info:type_name -> aperio.v1.PageInfo
 	10, // 5: aperio.v1.GetFindingResponse.data:type_name -> aperio.v1.Finding
 	11, // 6: aperio.v1.Finding.integration:type_name -> aperio.v1.FindingIntegration
-	0,  // 7: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	3,  // 8: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	6,  // 9: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
-	8,  // 10: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
-	1,  // 11: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	4,  // 12: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	7,  // 13: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
-	9,  // 14: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	15, // 7: aperio.v1.ListIntegrationsResponse.data:type_name -> aperio.v1.IntegrationConnection
+	18, // 8: aperio.v1.ListSiemDestinationsResponse.data:type_name -> aperio.v1.SiemDestination
+	21, // 9: aperio.v1.ListShadowItOauthAppsResponse.data:type_name -> aperio.v1.ShadowItOauthApp
+	11, // 10: aperio.v1.ShadowItOauthApp.integration:type_name -> aperio.v1.FindingIntegration
+	24, // 11: aperio.v1.ListShadowItOauthAppGrantsResponse.data:type_name -> aperio.v1.ShadowItOauthAppDetail
+	25, // 12: aperio.v1.ShadowItOauthAppDetail.app:type_name -> aperio.v1.ShadowItOauthAppRef
+	26, // 13: aperio.v1.ShadowItOauthAppDetail.grants:type_name -> aperio.v1.ShadowItOauthAppGrant
+	0,  // 14: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	3,  // 15: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	6,  // 16: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	8,  // 17: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	13, // 18: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
+	16, // 19: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
+	19, // 20: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
+	22, // 21: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
+	1,  // 22: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	4,  // 23: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	7,  // 24: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	9,  // 25: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	14, // 26: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
+	17, // 27: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
+	20, // 28: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
+	23, // 29: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
+	22, // [22:30] is the sub-list for method output_type
+	14, // [14:22] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -937,7 +2014,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

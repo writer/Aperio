@@ -74,6 +74,66 @@ type findingRow struct {
 	DisplayName      string
 }
 
+type integrationRow struct {
+	ID                           string
+	Provider                     string
+	DisplayName                  string
+	ExternalAccountID            string
+	Status                       string
+	Mode                         string
+	Scopes                       []string
+	DisabledChecks               []string
+	GoogleMailboxScanEnabled     bool
+	GoogleMailboxScanClientEmail string
+	LastSyncAt                   sql.NullTime
+	CreatedAt                    time.Time
+}
+
+type siemDestinationRow struct {
+	ID             string
+	Kind           string
+	Name           string
+	EndpointURL    string
+	FilePath       string
+	Index          string
+	Streams        []string
+	Status         string
+	LastDeliveryAt sql.NullTime
+	LastError      string
+	DeliveriesOk   int32
+	DeliveriesFail int32
+	CreatedAt      time.Time
+}
+
+type shadowItOauthAppRow struct {
+	ID                    string
+	Provider              string
+	Name                  string
+	Summary               string
+	ExternalID            string
+	Labels                []string
+	Criticality           string
+	ContainsSensitiveData bool
+	RiskScore             int32
+	LastObservedAt        sql.NullTime
+	UserCount             int32
+	Scopes                []string
+	IntegrationID         string
+	IntegrationProvider   string
+	IntegrationName       string
+}
+
+type shadowItOauthAppGrantRow struct {
+	ID              string
+	UserEmail       string
+	UserExternalID  string
+	UserDisplayName string
+	Scopes          []string
+	Anonymous       bool
+	NativeApp       bool
+	LastObservedAt  time.Time
+}
+
 // NewApp wires routes but does not open network sockets. Tests can mount the
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
@@ -342,6 +402,105 @@ func (a *App) GetFinding(
 		return nil, connect.NewError(connect.CodeInternal, errors.New("finding unavailable"))
 	}
 	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
+}
+
+func (a *App) ListIntegrations(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListIntegrationsRequest],
+) (*connect.Response[aperiov1.ListIntegrationsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.listIntegrations(ctx, organizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integrations unavailable"))
+	}
+	response := &aperiov1.ListIntegrationsResponse{Data: make([]*aperiov1.IntegrationConnection, 0, len(rows))}
+	for _, row := range rows {
+		response.Data = append(response.Data, row.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) ListSiemDestinations(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListSiemDestinationsRequest],
+) (*connect.Response[aperiov1.ListSiemDestinationsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.listSiemDestinations(ctx, organizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("siem destinations unavailable"))
+	}
+	response := &aperiov1.ListSiemDestinationsResponse{Data: make([]*aperiov1.SiemDestination, 0, len(rows))}
+	for _, row := range rows {
+		response.Data = append(response.Data, row.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) ListShadowItOauthApps(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListShadowItOauthAppsRequest],
+) (*connect.Response[aperiov1.ListShadowItOauthAppsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.listShadowItOauthApps(ctx, organizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("shadow it oauth apps unavailable"))
+	}
+	response := &aperiov1.ListShadowItOauthAppsResponse{Data: make([]*aperiov1.ShadowItOauthApp, 0, len(rows))}
+	for _, row := range rows {
+		response.Data = append(response.Data, row.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) ListShadowItOauthAppGrants(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListShadowItOauthAppGrantsRequest],
+) (*connect.Response[aperiov1.ListShadowItOauthAppGrantsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	assetID := strings.TrimSpace(req.Msg.AssetId)
+	if assetID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset id is required"))
+	}
+	app, grants, err := a.listShadowItOauthAppGrants(ctx, organizationID, assetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("oauth app not found"))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("oauth app grants unavailable"))
+	}
+	response := &aperiov1.ListShadowItOauthAppGrantsResponse{
+		Data: &aperiov1.ShadowItOauthAppDetail{
+			App:    app,
+			Grants: make([]*aperiov1.ShadowItOauthAppGrant, 0, len(grants)),
+		},
+	}
+	for _, grant := range grants {
+		response.Data.Grants = append(response.Data.Grants, grant.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) authenticatedOrganization(ctx context.Context, header http.Header) (string, error) {
+	if a.db == nil {
+		return "", connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
+	}
+	organizationID, err := a.organizationIDFromSession(ctx, header)
+	if err != nil {
+		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	return organizationID, nil
 }
 
 type rpcWideEvent struct {
@@ -721,6 +880,309 @@ func validateFindingListRequest(req *aperiov1.ListFindingsRequest) error {
 
 func intPlaceholder(value int) string {
 	return strconv.Itoa(value)
+}
+
+func (a *App) listIntegrations(ctx context.Context, organizationID string) ([]integrationRow, error) {
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT
+			id,
+			provider::text,
+			display_name,
+			external_account_id,
+			status::text,
+			mode::text,
+			array_to_json(scopes)::text,
+			array_to_json(disabled_checks)::text,
+			google_mailbox_scan_client_email IS NOT NULL AND encrypted_google_mailbox_scan_private_key IS NOT NULL,
+			COALESCE(google_mailbox_scan_client_email, ''),
+			last_sync_at,
+			created_at
+		FROM integration_connections
+		WHERE organization_id = $1
+		ORDER BY created_at DESC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var integrations []integrationRow
+	for rows.Next() {
+		var row integrationRow
+		var scopesJSON, disabledChecksJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.Provider,
+			&row.DisplayName,
+			&row.ExternalAccountID,
+			&row.Status,
+			&row.Mode,
+			&scopesJSON,
+			&disabledChecksJSON,
+			&row.GoogleMailboxScanEnabled,
+			&row.GoogleMailboxScanClientEmail,
+			&row.LastSyncAt,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(scopesJSON), &row.Scopes)
+		_ = json.Unmarshal([]byte(disabledChecksJSON), &row.DisabledChecks)
+		integrations = append(integrations, row)
+	}
+	return integrations, rows.Err()
+}
+
+func (row integrationRow) toProto() *aperiov1.IntegrationConnection {
+	return &aperiov1.IntegrationConnection{
+		Id:                           row.ID,
+		Provider:                     row.Provider,
+		DisplayName:                  row.DisplayName,
+		ExternalAccountId:            row.ExternalAccountID,
+		Status:                       row.Status,
+		Mode:                         row.Mode,
+		Scopes:                       row.Scopes,
+		DisabledChecks:               row.DisabledChecks,
+		GoogleMailboxScanEnabled:     row.GoogleMailboxScanEnabled,
+		GoogleMailboxScanClientEmail: row.GoogleMailboxScanClientEmail,
+		LastSyncAt:                   nullTimeString(row.LastSyncAt),
+		CreatedAt:                    row.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (a *App) listSiemDestinations(ctx context.Context, organizationID string) ([]siemDestinationRow, error) {
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT
+			id,
+			kind::text,
+			name,
+			COALESCE(endpoint_url, ''),
+			COALESCE(file_path, ''),
+			COALESCE(index, ''),
+			array_to_json(streams)::text,
+			status::text,
+			last_delivery_at,
+			COALESCE(last_error, ''),
+			deliveries_ok,
+			deliveries_fail,
+			created_at
+		FROM siem_destinations
+		WHERE organization_id = $1
+		ORDER BY created_at DESC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var destinations []siemDestinationRow
+	for rows.Next() {
+		var row siemDestinationRow
+		var streamsJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.Kind,
+			&row.Name,
+			&row.EndpointURL,
+			&row.FilePath,
+			&row.Index,
+			&streamsJSON,
+			&row.Status,
+			&row.LastDeliveryAt,
+			&row.LastError,
+			&row.DeliveriesOk,
+			&row.DeliveriesFail,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(streamsJSON), &row.Streams)
+		destinations = append(destinations, row)
+	}
+	return destinations, rows.Err()
+}
+
+func (row siemDestinationRow) toProto() *aperiov1.SiemDestination {
+	return &aperiov1.SiemDestination{
+		Id:             row.ID,
+		Kind:           row.Kind,
+		Name:           row.Name,
+		EndpointUrl:    row.EndpointURL,
+		FilePath:       row.FilePath,
+		Index:          row.Index,
+		Streams:        row.Streams,
+		Status:         row.Status,
+		LastDeliveryAt: nullTimeString(row.LastDeliveryAt),
+		LastError:      row.LastError,
+		DeliveriesOk:   row.DeliveriesOk,
+		DeliveriesFail: row.DeliveriesFail,
+		CreatedAt:      row.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (a *App) listShadowItOauthApps(ctx context.Context, organizationID string) ([]shadowItOauthAppRow, error) {
+	rows, err := a.db.QueryContext(ctx, `
+		WITH grant_rollup AS (
+			SELECT
+				g.asset_id,
+				COUNT(DISTINCT g.id)::int AS user_count,
+				MAX(g.last_observed_at) AS last_observed_at,
+				COALESCE(json_agg(DISTINCT scope) FILTER (WHERE scope IS NOT NULL), '[]'::json) AS scopes
+			FROM oauth_app_grants g
+			LEFT JOIN LATERAL unnest(g.scopes) AS scope ON TRUE
+			WHERE g.organization_id = $1
+			GROUP BY g.asset_id
+		)
+		SELECT
+			sa.id,
+			COALESCE(sa.provider::text, ''),
+			sa.name,
+			COALESCE(sa.summary, ''),
+			COALESCE(sa.external_id, ''),
+			array_to_json(sa.labels)::text,
+			sa.criticality::text,
+			sa.contains_sensitive_data,
+			sa.risk_score,
+			COALESCE(gr.last_observed_at, sa.last_observed_at),
+			COALESCE(gr.user_count, 0),
+			COALESCE(gr.scopes::text, '[]'),
+			COALESCE(ic.id, ''),
+			COALESCE(ic.provider::text, ''),
+			COALESCE(ic.display_name, '')
+		FROM security_assets sa
+		LEFT JOIN integration_connections ic ON ic.id = sa.integration_id
+		LEFT JOIN grant_rollup gr ON gr.asset_id = sa.id
+		WHERE sa.organization_id = $1 AND sa.type = 'OAUTH_APP' AND 'shadow-it' = ANY(sa.labels)
+		ORDER BY sa.risk_score DESC, sa.name ASC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var apps []shadowItOauthAppRow
+	for rows.Next() {
+		var row shadowItOauthAppRow
+		var labelsJSON, scopesJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.Provider,
+			&row.Name,
+			&row.Summary,
+			&row.ExternalID,
+			&labelsJSON,
+			&row.Criticality,
+			&row.ContainsSensitiveData,
+			&row.RiskScore,
+			&row.LastObservedAt,
+			&row.UserCount,
+			&scopesJSON,
+			&row.IntegrationID,
+			&row.IntegrationProvider,
+			&row.IntegrationName,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(labelsJSON), &row.Labels)
+		_ = json.Unmarshal([]byte(scopesJSON), &row.Scopes)
+		apps = append(apps, row)
+	}
+	return apps, rows.Err()
+}
+
+func (row shadowItOauthAppRow) toProto() *aperiov1.ShadowItOauthApp {
+	app := &aperiov1.ShadowItOauthApp{
+		Id:                    row.ID,
+		Provider:              row.Provider,
+		Name:                  row.Name,
+		Summary:               row.Summary,
+		ExternalId:            row.ExternalID,
+		Labels:                row.Labels,
+		Criticality:           row.Criticality,
+		ContainsSensitiveData: row.ContainsSensitiveData,
+		RiskScore:             row.RiskScore,
+		LastObservedAt:        nullTimeString(row.LastObservedAt),
+		UserCount:             row.UserCount,
+		Scopes:                row.Scopes,
+	}
+	if row.IntegrationID != "" {
+		app.Integration = &aperiov1.FindingIntegration{
+			Id:          row.IntegrationID,
+			Provider:    row.IntegrationProvider,
+			DisplayName: row.IntegrationName,
+		}
+	}
+	return app
+}
+
+func (a *App) listShadowItOauthAppGrants(
+	ctx context.Context,
+	organizationID string,
+	assetID string,
+) (*aperiov1.ShadowItOauthAppRef, []shadowItOauthAppGrantRow, error) {
+	var app aperiov1.ShadowItOauthAppRef
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT id, name, COALESCE(external_id, ''), COALESCE(provider::text, '')
+		FROM security_assets
+		WHERE id = $1 AND organization_id = $2 AND type = 'OAUTH_APP'
+	`, assetID, organizationID).Scan(&app.Id, &app.Name, &app.ExternalId, &app.Provider); err != nil {
+		return nil, nil, err
+	}
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT
+			id,
+			user_email,
+			COALESCE(user_external_id, ''),
+			COALESCE(user_display_name, ''),
+			array_to_json(scopes)::text,
+			anonymous,
+			native_app,
+			last_observed_at
+		FROM oauth_app_grants
+		WHERE organization_id = $1 AND asset_id = $2
+		ORDER BY user_email ASC
+	`, organizationID, assetID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var grants []shadowItOauthAppGrantRow
+	for rows.Next() {
+		var row shadowItOauthAppGrantRow
+		var scopesJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.UserEmail,
+			&row.UserExternalID,
+			&row.UserDisplayName,
+			&scopesJSON,
+			&row.Anonymous,
+			&row.NativeApp,
+			&row.LastObservedAt,
+		); err != nil {
+			return nil, nil, err
+		}
+		_ = json.Unmarshal([]byte(scopesJSON), &row.Scopes)
+		grants = append(grants, row)
+	}
+	return &app, grants, rows.Err()
+}
+
+func (row shadowItOauthAppGrantRow) toProto() *aperiov1.ShadowItOauthAppGrant {
+	return &aperiov1.ShadowItOauthAppGrant{
+		Id:              row.ID,
+		UserEmail:       row.UserEmail,
+		UserExternalId:  row.UserExternalID,
+		UserDisplayName: row.UserDisplayName,
+		Scopes:          row.Scopes,
+		Anonymous:       row.Anonymous,
+		NativeApp:       row.NativeApp,
+		LastObservedAt:  row.LastObservedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func nullTimeString(value sql.NullTime) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.UTC().Format(time.RFC3339Nano)
 }
 
 // openFindings loads the same finding fields used by the TypeScript risk
