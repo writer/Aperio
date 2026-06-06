@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { resetPassword, setAuthToken } from "../../lib/api";
+import { resetPassword } from "../../lib/api";
 import { useAuth } from "./auth-shell";
 import { AuthLayout } from "./auth-layout";
 import { Button } from "../ui/button";
@@ -31,8 +31,7 @@ export function ResetPasswordPage() {
     setSaving(true);
     setMessage("");
     try {
-      const response = await resetPassword({ token, password });
-      setAuthToken(response.data.token);
+      await resetPassword({ token, password });
       await refreshSession();
       router.replace("/");
     } catch (error) {

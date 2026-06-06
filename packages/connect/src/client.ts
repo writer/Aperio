@@ -80,7 +80,6 @@ type ConnectProvider = ConnectFinding["integration"]["provider"];
 type ConnectTenantRole = "OWNER" | "ADMIN" | "SECURITY_ANALYST" | "VIEWER";
 
 export type ConnectAuthSession = {
-  token: string;
   user: {
     id: string;
     email: string;
@@ -596,7 +595,6 @@ function parseMetadata(metadataJson: string): Record<string, unknown> | null {
 
 function authSessionFromProto(session: ProtoAuthSession): ConnectAuthSession {
   return {
-    token: session.token,
     user: {
       id: session.user?.id ?? "",
       email: session.user?.email ?? "",

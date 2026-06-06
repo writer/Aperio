@@ -18,7 +18,6 @@ import {
 import { useToast } from "../ui/toast";
 import {
   fetchWorkspaces,
-  setAuthToken,
   switchWorkspace,
   type WorkspaceMembership
 } from "../../lib/api";
@@ -96,7 +95,6 @@ export function TopNav() {
     setSwitchingSlug(workspace.slug);
     try {
       const response = await switchWorkspace(workspace.slug);
-      setAuthToken(response.data.token);
       setAccountMenuOpen(false);
       setWorkspaces(null);
       if (typeof window !== "undefined") {

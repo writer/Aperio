@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { acceptInvite, setAuthToken } from "../../lib/api";
+import { acceptInvite } from "../../lib/api";
 import { useAuth } from "./auth-shell";
 import { AuthLayout } from "./auth-layout";
 import { Button } from "../ui/button";
@@ -28,12 +28,11 @@ export function AcceptInvitePage() {
     setSaving(true);
     setMessage("");
     try {
-      const response = await acceptInvite({
+      await acceptInvite({
         token,
         displayName: displayName.trim() || undefined,
         password
       });
-      setAuthToken(response.data.token);
       await refreshSession();
       router.replace("/");
     } catch (error) {
