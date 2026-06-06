@@ -165,7 +165,13 @@ async function run(command, args) {
 }
 
 function start(label, command, args) {
-  const child = spawn(command, args, { cwd: root, env: process.env, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
+  const child = spawn(command, args, {
+    cwd: root,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: process.platform === "win32",
+    detached: process.platform !== "win32"
+  });
   pipe(label, child.stdout);
   pipe(label, child.stderr);
   child.on("exit", (code, signal) => {
@@ -189,12 +195,37 @@ function pipe(label, stream) {
   });
 }
 
-function shutdown(exitCode) {
-  shuttingDown = true;
-  for (const child of children) {
-    if (!child.killed) {
-      child.kill("SIGTERM");
+function terminate(child, signal) {
+  if (!child.pid) {
+    return;
+  }
+  try {
+    if (process.platform === "win32") {
+      child.kill(signal);
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // process already exited
     }
   }
-  setTimeout(() => process.exit(exitCode), 750).unref();
+}
+
+function shutdown(exitCode) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  for (const child of children) {
+    terminate(child, "SIGTERM");
+  }
+  setTimeout(() => {
+    for (const child of children) {
+      terminate(child, "SIGKILL");
+    }
+    process.exit(exitCode);
+  }, 750).unref();
 }

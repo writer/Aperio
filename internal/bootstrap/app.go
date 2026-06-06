@@ -575,8 +575,29 @@ func (a *App) CreateIntegration(
 	if err := validateCompatExternalAccount(provider, externalAccountID); err != nil {
 		return nil, err
 	}
+	accessToken := strings.TrimSpace(req.Msg.GetCredentials().GetAccessToken())
+	if len(accessToken) < 8 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("integration access token is required"))
+	}
+	encryptedAccessToken, err := compatEncryptString(accessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "access_token"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration credential encryption failed"))
+	}
+	credentials := map[string]any{
+		"refreshToken":  req.Msg.GetCredentials().GetRefreshToken(),
+		"webhookSecret": req.Msg.GetCredentials().GetWebhookSecret(),
+	}
+	encryptedRefreshToken, err := encryptedOptionalSecret(credentials, "refreshToken", compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "refresh_token"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration refresh token encryption failed"))
+	}
+	encryptedWebhookSecret, err := encryptedOptionalSecret(credentials, "webhookSecret", compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "webhook_secret"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration webhook secret encryption failed"))
+	}
+	scopes := compatScopesForMode(provider, mode)
 	id := compatID("int")
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, mode); err != nil {
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, mode, scopes); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
@@ -588,7 +609,7 @@ func (a *App) CreateIntegration(
 			ExternalAccountId: externalAccountID,
 			Status:            "CONNECTED",
 			Mode:              mode,
-			Scopes:            []string{},
+			Scopes:            scopes,
 			DisabledChecks:    []string{},
 			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
 		},
@@ -675,8 +696,11 @@ func (a *App) UpdateGoogleMailboxScanConfig(
 	if req.Msg.Enabled {
 		email = optionalStringFromProto(req.Msg.ServiceAccountClientEmail)
 		if strings.TrimSpace(req.Msg.PrivateKey) != "" {
-			placeholder := "go-managed-private-key"
-			key = &placeholder
+			encrypted, err := compatEncryptString(req.Msg.PrivateKey, auth.OrganizationID+":"+id+":google_mailbox_private_key")
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, errors.New("google mailbox private key encryption failed"))
+			}
+			key = &encrypted
 		}
 	}
 	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, email, key, id, auth.OrganizationID); err != nil {
@@ -711,29 +735,25 @@ func (a *App) ForceSyncIntegration(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+	result, err := a.compatForceSync(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
 		return nil, err
 	}
-	id := strings.TrimSpace(req.Msg.IntegrationId)
-	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
-	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	payload, ok := result.(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("force sync failed"))
 	}
-	for _, row := range rows {
-		if row.ID == id {
-			return connect.NewResponse(&aperiov1.ForceSyncIntegrationResponse{
-				Data: row.toProto(),
-				Sync: &aperiov1.SyncSummary{
-					SampleCount:    0,
-					EventsIngested: 0,
-					FindingsOpened: 0,
-					Sources:        []string{},
-				},
-			}), nil
-		}
-	}
-	return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	data, _ := payload["data"].(*aperiov1.IntegrationConnection)
+	sync := asMap(payload["sync"])
+	return connect.NewResponse(&aperiov1.ForceSyncIntegrationResponse{
+		Data: data,
+		Sync: &aperiov1.SyncSummary{
+			SampleCount:    int32(intValue(sync["sampleCount"])),
+			EventsIngested: int32(intValue(sync["eventsIngested"])),
+			FindingsOpened: int32(intValue(sync["findingsOpened"])),
+			Sources:        stringSlice(sync["sources"]),
+		},
+	}), nil
 }
 
 func (a *App) ListSiemCatalog(
