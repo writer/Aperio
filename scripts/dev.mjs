@@ -96,7 +96,7 @@ function parsedURL(value) {
 
 async function commandExists(command) {
   return new Promise((resolve) => {
-    const probe = spawn(command, ["--version"], { stdio: "ignore" });
+    const probe = spawn(command, ["--version"], { stdio: "ignore", shell: process.platform === "win32" });
     probe.on("error", () => resolve(false));
     probe.on("exit", (code) => resolve(code === 0));
   });
@@ -152,7 +152,7 @@ function sleep(ms) {
 
 async function run(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, env: process.env, stdio: "inherit" });
+    const child = spawn(command, args, { cwd: root, env: process.env, stdio: "inherit", shell: process.platform === "win32" });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) {
@@ -165,7 +165,7 @@ async function run(command, args) {
 }
 
 function start(label, command, args) {
-  const child = spawn(command, args, { cwd: root, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(command, args, { cwd: root, env: process.env, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
   pipe(label, child.stdout);
   pipe(label, child.stderr);
   child.on("exit", (code, signal) => {

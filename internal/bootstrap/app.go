@@ -572,6 +572,9 @@ func (a *App) CreateIntegration(
 	if provider == "" || displayName == "" || externalAccountID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("provider, display_name, and external_account_id are required"))
 	}
+	if err := validateCompatExternalAccount(provider, externalAccountID); err != nil {
+		return nil, err
+	}
 	id := compatID("int")
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, mode); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)

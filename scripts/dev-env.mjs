@@ -7,8 +7,8 @@ export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 export function loadDevEnv() {
   const defaulted = new Set();
-  loadEnvFile(path.join(root, ".env"));
   loadEnvFile(path.join(root, ".env.local"));
+  loadEnvFile(path.join(root, ".env"));
   applyDevDefaults(defaulted);
   return { defaulted };
 }
