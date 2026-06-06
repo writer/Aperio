@@ -13,6 +13,9 @@
 //                          Poll a TCP endpoint until reachable (target may be a
 //                          URL or host:port). Exit 0 on success, 1 on timeout.
 import net from "node:net";
+import { loadDevEnv } from "./dev-env.mjs";
+
+loadDevEnv();
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 

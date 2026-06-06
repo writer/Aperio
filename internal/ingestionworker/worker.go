@@ -117,20 +117,12 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 }
 
 func DedupeKey(payload JobPayload, finding Finding) string {
-	encoded, _ := json.Marshal(struct {
-		OrganizationID string `json:"organizationId"`
-		IntegrationID  string `json:"integrationId"`
-		Provider       string `json:"provider"`
-		RuleID         string `json:"ruleId"`
-		Target         string `json:"target"`
-	}{
-		OrganizationID: payload.OrganizationID,
-		IntegrationID:  payload.IntegrationID,
-		Provider:       payload.Provider,
-		RuleID:         finding.RuleID,
-		Target:         finding.Target,
-	})
-	sum := sha256.Sum256(encoded)
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		payload.OrganizationID,
+		payload.IntegrationID,
+		finding.RuleID,
+		finding.Target,
+	}, ":")))
 	return hex.EncodeToString(sum[:])
 }
 

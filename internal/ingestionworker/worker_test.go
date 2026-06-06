@@ -55,9 +55,16 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	if first == "" || first != second {
 		t.Fatalf("dedupe key not stable: %q %q", first, second)
 	}
+	if first != "19ee6798462d3e0e56d02df0795cfeff7114cf4f88f6f735abeff8b625b472f7" {
+		t.Fatalf("dedupe key = %s, want TS-compatible hash", first)
+	}
 	payload.EventType = "OTHER_EVENT"
 	if DedupeKey(payload, finding) != first {
 		t.Fatal("dedupe key should exclude event type so repeated observations update the same finding")
+	}
+	payload.Provider = "SLACK"
+	if DedupeKey(payload, finding) != first {
+		t.Fatal("dedupe key should exclude provider to match the TypeScript worker")
 	}
 }
 
