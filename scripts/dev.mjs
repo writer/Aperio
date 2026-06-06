@@ -35,6 +35,7 @@ async function avoidDefaultPortConflicts(defaulted) {
   if (skipDocker) {
     return;
   }
+  const needsNats = usesNatsEventBus();
   if (defaulted.has("DATABASE_URL")) {
     const composePort = await composePublishedHostPort("postgres", 5432);
     if (composePort) {
@@ -45,7 +46,7 @@ async function avoidDefaultPortConflicts(defaulted) {
       console.warn(`[dev] 127.0.0.1:5432 is in use; starting Aperio Postgres on ${port}`);
     }
   }
-  if (defaulted.has("APERIO_NATS_URL")) {
+  if (needsNats && defaulted.has("APERIO_NATS_URL")) {
     const composePort = await composePublishedHostPort("nats", 4222);
     if (composePort) {
       useNatsPort(composePort);
@@ -55,7 +56,7 @@ async function avoidDefaultPortConflicts(defaulted) {
       console.warn(`[dev] 127.0.0.1:4222 is in use; starting Aperio NATS on ${port}`);
     }
   }
-  if (!process.env.APERIO_NATS_MONITOR_PORT) {
+  if (needsNats && !process.env.APERIO_NATS_MONITOR_PORT) {
     const composePort = await composePublishedHostPort("nats", 8222);
     if (composePort) {
       process.env.APERIO_NATS_MONITOR_PORT = String(composePort);
@@ -76,21 +77,28 @@ function useNatsPort(port) {
 }
 
 async function setupInfra() {
+  const needsNats = usesNatsEventBus();
   const services = [];
   if (!(await canConnect(databaseHost(), databasePort()))) {
     services.push("postgres");
   }
-  if (!(await canConnect(natsHost(), natsPort()))) {
+  if (needsNats && !(await canConnect(natsHost(), natsPort()))) {
     services.push("nats");
   }
   if (!skipDocker && services.length > 0 && (await commandExists("docker"))) {
     await run("docker", ["compose", "up", "-d", ...services]);
   } else if (!skipDocker) {
-    const reason = services.length === 0 ? "Postgres and NATS are already reachable" : "docker is not available";
+    const reason = services.length === 0 ? "Required local services are already reachable" : "docker is not available";
     console.warn(`[dev] ${reason}; skipping docker compose startup`);
   }
   await waitForTcp("postgres", databaseHost(), databasePort(), 30_000);
-  await waitForTcp("nats", natsHost(), natsPort(), 30_000);
+  if (needsNats) {
+    await waitForTcp("nats", natsHost(), natsPort(), 30_000);
+  }
+}
+
+function usesNatsEventBus() {
+  return String(process.env.APERIO_EVENT_BUS ?? "").trim().toLowerCase() === "nats";
 }
 
 function databaseHost() {
