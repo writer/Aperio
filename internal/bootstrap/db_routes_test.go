@@ -244,6 +244,20 @@ func TestDBGoogleMailboxScanConfig(t *testing.T) {
 		t.Fatal("expected legacy ad-hoc AAD to fail")
 	}
 
+	legacyEncryptedKey, err := compatEncryptString(privateKey, compatLegacyIntegrationSecretAAD(auth.OrganizationID, integrationID, "google_mailbox_private_key"))
+	if err != nil {
+		t.Fatalf("encrypt legacy mailbox key: %v", err)
+	}
+	if _, err := app.db.ExecContext(ctx, `UPDATE integration_connections SET encrypted_google_mailbox_scan_private_key = $1 WHERE id = $2`, legacyEncryptedKey, integrationID); err != nil {
+		t.Fatalf("seed legacy mailbox key: %v", err)
+	}
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": clientEmail,
+	}, auditAuth); err != nil {
+		t.Fatalf("reuse legacy mailbox key: %v", err)
+	}
+
 	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
 		"enabled":                   true,
 		"serviceAccountClientEmail": clientEmail,
@@ -268,8 +282,8 @@ func TestDBGoogleMailboxScanConfig(t *testing.T) {
 	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action IN ('integration.google_mailbox_scan.enable','integration.google_mailbox_scan.disable')`, auth.OrganizationID, integrationID).Scan(&auditRows); err != nil {
 		t.Fatalf("query audit rows: %v", err)
 	}
-	if auditRows != 3 {
-		t.Fatalf("expected 3 mailbox audit rows, got %d", auditRows)
+	if auditRows != 4 {
+		t.Fatalf("expected 4 mailbox audit rows, got %d", auditRows)
 	}
 }
 

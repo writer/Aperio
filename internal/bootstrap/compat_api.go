@@ -817,7 +817,7 @@ func (a *App) compatUpdateGoogleMailboxConfig(ctx context.Context, id string, bo
 		if !currentKey.Valid || !currentEmail.Valid || strings.TrimSpace(currentEmail.String) != nextEmail {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("Private key is required when enabling mailbox scanning"))
 		}
-		if _, err := compatDecryptString(currentKey.String, keyAAD); err != nil {
+		if _, err := compatDecryptGoogleMailboxPrivateKey(currentKey.String, auth.OrganizationID, id, external); err != nil {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("google mailbox private key is unavailable"))
 		}
 		if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, nextEmail, id, auth.OrganizationID); err != nil {
@@ -1940,6 +1940,21 @@ func compatDecryptIntegrationSecret(encryptedValue string, organizationID string
 		return "", err
 	}
 	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, suffix))
+	if legacyErr == nil {
+		return legacy, nil
+	}
+	return "", err
+}
+
+func compatDecryptGoogleMailboxPrivateKey(encryptedValue string, organizationID string, integrationID string, externalAccountID string) (string, error) {
+	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, "GOOGLE_WORKSPACE", externalAccountID, "gmail_scan_private_key"))
+	if err == nil {
+		return canonical, nil
+	}
+	if strings.TrimSpace(integrationID) == "" {
+		return "", err
+	}
+	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, "google_mailbox_private_key"))
 	if legacyErr == nil {
 		return legacy, nil
 	}
