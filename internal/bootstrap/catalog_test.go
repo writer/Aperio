@@ -65,6 +65,47 @@ func TestConnectorCatalogMarshalsEmptySlicesAsArrays(t *testing.T) {
 	}
 }
 
+func TestConnectorCatalogAdvertisesOnlyExecutableRemediationActions(t *testing.T) {
+	for _, connector := range compatConnectorCatalog() {
+		for _, action := range connector.RemediationActions {
+			definition, ok := findRemediationActionDefinition(action.Key)
+			if !ok {
+				t.Fatalf("catalog action %s is not classified", action.Key)
+			}
+			if definition.Class != remediationActionRealProvider && definition.Class != remediationActionLocalOnly {
+				t.Fatalf("catalog advertises non-executable action %s as %s", action.Key, definition.Class)
+			}
+		}
+	}
+	for _, connector := range connectorCatalogProto() {
+		for _, action := range connector.RemediationActions {
+			definition, ok := findRemediationActionDefinition(action.Key)
+			if !ok {
+				t.Fatalf("typed catalog action %s is not classified", action.Key)
+			}
+			if definition.Class != remediationActionRealProvider && definition.Class != remediationActionLocalOnly {
+				t.Fatalf("typed catalog advertises non-executable action %s as %s", action.Key, definition.Class)
+			}
+		}
+	}
+	slack := findConnectorDefinition("SLACK")
+	if slack == nil {
+		t.Fatal("expected Slack connector definition")
+	}
+	if !connectorHasRemediationAction(slack, "slack.deactivate_user") {
+		t.Fatal("known unsupported Slack action should remain recognized by executor registry")
+	}
+	exposed := compatConnectorCatalog()
+	for _, connector := range exposed {
+		if connector.Provider != "SLACK" {
+			continue
+		}
+		if len(connector.RemediationActions) != 1 || connector.RemediationActions[0].Key != "slack.revoke_app_install" {
+			t.Fatalf("Slack executable actions = %+v, want only slack.revoke_app_install", connector.RemediationActions)
+		}
+	}
+}
+
 func TestSiemCatalogExposesDestinationFields(t *testing.T) {
 	catalog := compatSiemCatalog()
 	wantKinds := []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE"}

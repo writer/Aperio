@@ -10,25 +10,75 @@ import (
 	"testing"
 )
 
-func TestExecuteRemediationOktaSuspend(t *testing.T) {
+func TestRemediationActionClassificationMatrix(t *testing.T) {
+	expected := map[string]struct {
+		provider string
+		class    remediationActionClass
+	}{
+		"github.revoke_oauth_app":          {"GITHUB", remediationActionUnsupported},
+		"github.enforce_branch_protection": {"GITHUB", remediationActionUnsupported},
+		"slack.deactivate_user":            {"SLACK", remediationActionUnsupported},
+		"slack.revoke_app_install":         {"SLACK", remediationActionRealProvider},
+		"google.suspend_user":              {"GOOGLE_WORKSPACE", remediationActionUnsupported},
+		"google.revoke_oauth_grants":       {"GOOGLE_WORKSPACE", remediationActionUnsupported},
+		"okta.suspend_user":                {"OKTA", remediationActionUnsupported},
+		"okta.reset_mfa_factors":           {"OKTA", remediationActionUnsupported},
+		"ms365.revoke_sessions":            {"MICROSOFT_365", remediationActionUnsupported},
+		"ms365.disable_user":               {"MICROSOFT_365", remediationActionUnsupported},
+		"atlassian.revoke_user_access":     {"ATLASSIAN", remediationActionUnsupported},
+	}
+	if len(remediationActionDefinitions) != len(expected) {
+		t.Fatalf("classification table has %d actions, want %d", len(remediationActionDefinitions), len(expected))
+	}
+	for _, definition := range remediationActionDefinitions {
+		want, ok := expected[definition.Action]
+		if !ok {
+			t.Fatalf("unexpected action classification: %+v", definition)
+		}
+		if definition.Provider != want.provider || definition.Class != want.class {
+			t.Fatalf("classification for %s = (%s,%s), want (%s,%s)", definition.Action, definition.Provider, definition.Class, want.provider, want.class)
+		}
+	}
+	for _, connector := range rawConnectorCatalog() {
+		for _, action := range connector.RemediationActions {
+			definition, ok := findRemediationActionDefinition(action.Key)
+			if !ok {
+				t.Fatalf("catalog action %s is not classified", action.Key)
+			}
+			if definition.Provider != connector.Provider {
+				t.Fatalf("catalog action %s classified for %s, want %s", action.Key, definition.Provider, connector.Provider)
+			}
+		}
+	}
+}
+
+func TestExecuteUnsupportedRemediationMatrix(t *testing.T) {
 	app := &App{}
-	result := app.executeRemediation(context.Background(), remediationRequest{
-		Provider:          "OKTA",
-		Action:            "okta.suspend_user",
-		ExternalAccountID: "acme.okta.com",
-		TargetIdentifier:  "user@example.com",
-	})
-	if !result.Success {
-		t.Fatal("expected okta.suspend_user to succeed")
-	}
-	if !strings.HasPrefix(result.ProviderRequestID, "okta_") {
-		t.Fatalf("unexpected provider request id: %s", result.ProviderRequestID)
-	}
-	if len(result.Effects) != 3 {
-		t.Fatalf("expected 3 effects, got %d", len(result.Effects))
-	}
-	if !strings.Contains(result.Effects[0], "user@example.com") {
-		t.Fatalf("expected target in effect: %s", result.Effects[0])
+	for _, definition := range remediationActionDefinitions {
+		if definition.Class != remediationActionUnsupported {
+			continue
+		}
+		t.Run(definition.Action, func(t *testing.T) {
+			result := app.executeRemediation(context.Background(), remediationRequest{
+				Provider:          definition.Provider,
+				Action:            definition.Action,
+				ExternalAccountID: "tenant.example",
+				TargetIdentifier:  "user@example.com",
+				IntegrationToken:  "local-token",
+			})
+			if result.Success {
+				t.Fatal("expected unsupported action to fail")
+			}
+			if result.ProviderRequestID != "" {
+				t.Fatalf("unsupported action returned provider request id %q", result.ProviderRequestID)
+			}
+			if len(result.Effects) != 0 {
+				t.Fatalf("expected no effects, got %d", len(result.Effects))
+			}
+			if !strings.Contains(strings.ToLower(result.Message), "unavailable") {
+				t.Fatalf("expected unavailable message, got %q", result.Message)
+			}
+		})
 	}
 }
 
@@ -130,6 +180,9 @@ func TestExecuteRemediationSlackRevokeRequiresTargetBeforeNetwork(t *testing.T) 
 	if result.Success {
 		t.Fatal("expected missing Slack app id to fail")
 	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("missing target returned provider request id %q", result.ProviderRequestID)
+	}
 	if called.Load() != 0 {
 		t.Fatalf("expected no provider request, got %d", called.Load())
 	}
@@ -149,10 +202,13 @@ func TestExecuteRemediationNotImplemented(t *testing.T) {
 	if result.Success {
 		t.Fatal("expected ms365.revoke_sessions to be unimplemented")
 	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("unsupported action returned provider request id %q", result.ProviderRequestID)
+	}
 	if len(result.Effects) != 0 {
 		t.Fatalf("expected no effects, got %d", len(result.Effects))
 	}
-	if !strings.Contains(result.Message, "not yet implemented") {
+	if !strings.Contains(strings.ToLower(result.Message), "unavailable") {
 		t.Fatalf("unexpected message: %s", result.Message)
 	}
 }
@@ -168,7 +224,7 @@ func TestExecuteRemediationUnknownAction(t *testing.T) {
 	if result.Success {
 		t.Fatal("expected unknown action to fail")
 	}
-	if !strings.HasPrefix(result.ProviderRequestID, "unknown_") {
+	if result.ProviderRequestID != "" {
 		t.Fatalf("unexpected provider request id: %s", result.ProviderRequestID)
 	}
 }

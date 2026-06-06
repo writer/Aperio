@@ -1272,15 +1272,20 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	if note != nil {
 		noteValue = *note
 	}
-	metadata, err := json.Marshal(map[string]any{
+	metadataFields := map[string]any{
 		"provider":          provider,
 		"integrationId":     integrationID,
 		"actionKey":         action,
 		"targetIdentifier":  targetIdentifier,
-		"providerRequestId": result.ProviderRequestID,
 		"note":              noteValue,
-		"effects":           result.Effects,
-	})
+	}
+	if result.ProviderRequestID != "" {
+		metadataFields["providerRequestId"] = result.ProviderRequestID
+	}
+	if len(result.Effects) > 0 {
+		metadataFields["effects"] = result.Effects
+	}
+	metadata, err := json.Marshal(metadataFields)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
