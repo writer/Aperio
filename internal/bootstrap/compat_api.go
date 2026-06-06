@@ -1277,6 +1277,9 @@ func boolValue(value any) bool {
 }
 
 func stringSlice(value any) []string {
+	if typed, ok := value.([]string); ok {
+		return typed
+	}
 	raw, ok := value.([]any)
 	if !ok {
 		return []string{}

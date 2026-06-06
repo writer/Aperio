@@ -465,6 +465,76 @@ func (a *App) GetFinding(
 	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
 }
 
+func (a *App) UpdateFindingStatus(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateFindingStatusRequest],
+) (*connect.Response[aperiov1.UpdateFindingStatusResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	body := map[string]any{
+		"status":         req.Msg.Status,
+		"resolutionNote": req.Msg.ResolutionNote,
+	}
+	result, err := a.compatUpdateFinding(ctx, strings.TrimSpace(req.Msg.Id), body, auth)
+	if err != nil {
+		return nil, err
+	}
+	data, ok := result.(map[string]any)["data"].(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("finding update failed"))
+	}
+	return connect.NewResponse(&aperiov1.UpdateFindingStatusResponse{
+		Data: &aperiov1.FindingStatusUpdate{
+			Id:     stringFromAny(data["id"]),
+			Status: stringFromAny(data["status"]),
+		},
+	}), nil
+}
+
+func (a *App) RemediateFinding(
+	ctx context.Context,
+	req *connect.Request[aperiov1.RemediateFindingRequest],
+) (*connect.Response[aperiov1.RemediateFindingResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatRemediateFinding(ctx, strings.TrimSpace(req.Msg.FindingId), map[string]any{
+		"action":           req.Msg.Action,
+		"targetIdentifier": req.Msg.TargetIdentifier,
+		"note":             req.Msg.Note,
+	}, auth)
+	if err != nil {
+		return nil, err
+	}
+	data, ok := result.(map[string]any)["data"].(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("remediation failed"))
+	}
+	return connect.NewResponse(&aperiov1.RemediateFindingResponse{
+		Data: &aperiov1.RemediationResult{
+			FindingId:         stringFromAny(data["findingId"]),
+			Action:            stringFromAny(data["action"]),
+			Success:           boolFromAny(data["success"]),
+			Message:           stringFromAny(data["message"]),
+			ProviderRequestId: stringFromAny(data["providerRequestId"]),
+			Effects:           stringSlice(data["effects"]),
+		},
+	}), nil
+}
+
+func (a *App) ListConnectorCatalog(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListConnectorCatalogRequest],
+) (*connect.Response[aperiov1.ListConnectorCatalogResponse], error) {
+	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.ListConnectorCatalogResponse{Data: connectorCatalogProto()}), nil
+}
+
 func (a *App) ListIntegrations(
 	ctx context.Context,
 	req *connect.Request[aperiov1.ListIntegrationsRequest],
@@ -484,6 +554,195 @@ func (a *App) ListIntegrations(
 	return connect.NewResponse(response), nil
 }
 
+func (a *App) CreateIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CreateIntegrationRequest],
+) (*connect.Response[aperiov1.CreateIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	provider := strings.TrimSpace(req.Msg.Provider)
+	displayName := strings.TrimSpace(req.Msg.DisplayName)
+	externalAccountID := strings.TrimSpace(req.Msg.ExternalAccountId)
+	mode := firstNonEmpty(req.Msg.Mode, "READ_ONLY")
+	if provider == "" || displayName == "" || externalAccountID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("provider, display_name, and external_account_id are required"))
+	}
+	id := compatID("int")
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, mode); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
+	return connect.NewResponse(&aperiov1.CreateIntegrationResponse{
+		Data: &aperiov1.IntegrationConnection{
+			Id:                id,
+			Provider:          provider,
+			DisplayName:       displayName,
+			ExternalAccountId: externalAccountID,
+			Status:            "CONNECTED",
+			Mode:              mode,
+			Scopes:            []string{},
+			DisabledChecks:    []string{},
+			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	}), nil
+}
+
+func (a *App) DeleteIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.DeleteIntegrationRequest],
+) (*connect.Response[aperiov1.DeleteIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if _, err := a.compatDeleteIntegration(ctx, strings.TrimSpace(req.Msg.Id), auth); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.DeleteIntegrationResponse{Data: &aperiov1.DeleteResult{Ok: true}}), nil
+}
+
+func (a *App) GetIntegrationChecks(
+	ctx context.Context,
+	req *connect.Request[aperiov1.GetIntegrationChecksRequest],
+) (*connect.Response[aperiov1.GetIntegrationChecksResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	state, err := a.integrationChecksProto(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.GetIntegrationChecksResponse{Data: state}), nil
+}
+
+func (a *App) UpdateIntegrationChecks(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateIntegrationChecksRequest],
+) (*connect.Response[aperiov1.UpdateIntegrationChecksResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	disabled := req.Msg.DisabledChecks
+	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: integrationCheckStateProto(id, disabled)}), nil
+}
+
+func (a *App) GetGoogleMailboxScanConfig(
+	ctx context.Context,
+	req *connect.Request[aperiov1.GetGoogleMailboxScanConfigRequest],
+) (*connect.Response[aperiov1.GetGoogleMailboxScanConfigResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	config, err := a.googleMailboxScanConfigProto(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.GetGoogleMailboxScanConfigResponse{Data: config}), nil
+}
+
+func (a *App) UpdateGoogleMailboxScanConfig(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateGoogleMailboxScanConfigRequest],
+) (*connect.Response[aperiov1.UpdateGoogleMailboxScanConfigResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	var email *string
+	var key *string
+	if req.Msg.Enabled {
+		email = optionalStringFromProto(req.Msg.ServiceAccountClientEmail)
+		if strings.TrimSpace(req.Msg.PrivateKey) != "" {
+			placeholder := "go-managed-private-key"
+			key = &placeholder
+		}
+	}
+	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, email, key, id, auth.OrganizationID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&aperiov1.UpdateGoogleMailboxScanConfigResponse{Data: &aperiov1.GoogleMailboxScanConfig{
+		Enabled:                   req.Msg.Enabled,
+		ServiceAccountClientEmail: stringPtrValue(email),
+	}}), nil
+}
+
+func (a *App) StartGoogleWorkspaceOAuth(
+	ctx context.Context,
+	req *connect.Request[aperiov1.StartGoogleWorkspaceOAuthRequest],
+) (*connect.Response[aperiov1.StartGoogleWorkspaceOAuthResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	mode := url.QueryEscape(firstNonEmpty(req.Msg.Mode, "READ_ONLY"))
+	return connect.NewResponse(&aperiov1.StartGoogleWorkspaceOAuthResponse{Data: &aperiov1.OAuthStart{Url: "/connectors?googleWorkspaceOAuth=configure&mode=" + mode}}), nil
+}
+
+func (a *App) ForceSyncIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ForceSyncIntegrationRequest],
+) (*connect.Response[aperiov1.ForceSyncIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
+	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return connect.NewResponse(&aperiov1.ForceSyncIntegrationResponse{
+				Data: row.toProto(),
+				Sync: &aperiov1.SyncSummary{
+					SampleCount:    0,
+					EventsIngested: 0,
+					FindingsOpened: 0,
+					Sources:        []string{},
+				},
+			}), nil
+		}
+	}
+	return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+}
+
+func (a *App) ListSiemCatalog(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListSiemCatalogRequest],
+) (*connect.Response[aperiov1.ListSiemCatalogResponse], error) {
+	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.ListSiemCatalogResponse{Data: siemCatalogProto()}), nil
+}
+
 func (a *App) ListSiemDestinations(
 	ctx context.Context,
 	req *connect.Request[aperiov1.ListSiemDestinationsRequest],
@@ -501,6 +760,208 @@ func (a *App) ListSiemDestinations(
 		response.Data = append(response.Data, row.toProto())
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (a *App) CreateSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CreateSiemDestinationRequest],
+) (*connect.Response[aperiov1.CreateSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	kind := strings.TrimSpace(req.Msg.Kind)
+	name := strings.TrimSpace(req.Msg.Name)
+	streams := req.Msg.Streams
+	if len(streams) == 0 {
+		streams = []string{"FINDINGS"}
+	}
+	endpointURL := optionalStringFromProto(req.Msg.EndpointUrl)
+	if err := validateCompatSiemEndpoint(endpointURL); err != nil {
+		return nil, err
+	}
+	filePath := optionalStringFromProto(req.Msg.FilePath)
+	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
+	}
+	id := compatID("siem")
+	encryptedToken := hashedProtoSecret(req.Msg.Token)
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringFromProto(req.Msg.Index), encryptedToken, streams); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&aperiov1.CreateSiemDestinationResponse{Data: &aperiov1.SiemDestination{
+		Id:          id,
+		Kind:        kind,
+		Name:        name,
+		EndpointUrl: stringPtrValue(endpointURL),
+		FilePath:    stringPtrValue(filePath),
+		Index:       req.Msg.Index,
+		Streams:     streams,
+		Status:      "ACTIVE",
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+	}}), nil
+}
+
+func (a *App) DeleteSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.DeleteSiemDestinationRequest],
+) (*connect.Response[aperiov1.DeleteSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if _, err := a.compatDeleteSiem(ctx, strings.TrimSpace(req.Msg.Id), auth); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.DeleteSiemDestinationResponse{Data: &aperiov1.DeleteResult{Ok: true}}), nil
+}
+
+func (a *App) TestSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.TestSiemDestinationRequest],
+) (*connect.Response[aperiov1.TestSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.Id)
+	return connect.NewResponse(&aperiov1.TestSiemDestinationResponse{Data: &aperiov1.SiemTestResult{
+		DestinationId: id,
+		Ok:            false,
+		Message:       "SIEM test dispatch is not yet available in the Go runtime",
+	}}), nil
+}
+
+func (a *App) integrationChecksProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.IntegrationCheckState, error) {
+	var disabledJSON string
+	if err := a.db.QueryRowContext(ctx, `SELECT array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&disabledJSON); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	}
+	disabled := []string{}
+	_ = json.Unmarshal([]byte(disabledJSON), &disabled)
+	return integrationCheckStateProto(id, disabled), nil
+}
+
+func integrationCheckStateProto(id string, disabled []string) *aperiov1.IntegrationCheckState {
+	return &aperiov1.IntegrationCheckState{
+		IntegrationId:  id,
+		DisabledChecks: disabled,
+		Checks:         []*aperiov1.FindingCheckStatus{},
+	}
+}
+
+func (a *App) googleMailboxScanConfigProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.GoogleMailboxScanConfig, error) {
+	var email sql.NullString
+	var key sql.NullString
+	if err := a.db.QueryRowContext(ctx, `SELECT google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&email, &key); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	}
+	return &aperiov1.GoogleMailboxScanConfig{
+		Enabled:                   email.Valid && key.Valid,
+		ServiceAccountClientEmail: nullStringValue(email),
+	}, nil
+}
+
+func connectorCatalogProto() []*aperiov1.ConnectorDefinition {
+	providers := []string{"GITHUB", "SLACK", "GOOGLE_WORKSPACE", "ONE_PASSWORD", "OKTA", "MICROSOFT_365", "ATLASSIAN"}
+	out := make([]*aperiov1.ConnectorDefinition, 0, len(providers))
+	for _, provider := range providers {
+		out = append(out, &aperiov1.ConnectorDefinition{
+			Provider:           provider,
+			Name:               strings.ReplaceAll(provider, "_", " "),
+			Category:           "Productivity",
+			Availability:       "preview",
+			Description:        "Go-managed connector",
+			ReadScopes:         []string{},
+			RemediationScopes:  []string{},
+			RemediationActions: []*aperiov1.RemediationAction{},
+			FindingChecks:      []*aperiov1.FindingCheck{},
+			DocsUrl:            "",
+			Fields: []*aperiov1.ConnectorField{{
+				Key:      "accessToken",
+				Label:    "Access token",
+				Type:     "password",
+				Required: true,
+				Secret:   true,
+			}},
+		})
+	}
+	return out
+}
+
+func siemCatalogProto() []*aperiov1.SiemDestinationDefinition {
+	kinds := []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE"}
+	out := make([]*aperiov1.SiemDestinationDefinition, 0, len(kinds))
+	for _, kind := range kinds {
+		label := strings.ReplaceAll(kind, "_", " ")
+		out = append(out, &aperiov1.SiemDestinationDefinition{
+			Kind:           kind,
+			Name:           label,
+			Vendor:         label,
+			Description:    "Go-managed SIEM destination",
+			Category:       "Generic",
+			DefaultStreams: []string{"FINDINGS"},
+			Fields:         []*aperiov1.SiemField{},
+		})
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func optionalStringFromProto(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func nullStringValue(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func stringFromAny(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func boolFromAny(value any) bool {
+	typed, _ := value.(bool)
+	return typed
+}
+
+func hashedProtoSecret(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(value))
+	encoded := hex.EncodeToString(sum[:])
+	return &encoded
 }
 
 func (a *App) ListShadowItOauthApps(

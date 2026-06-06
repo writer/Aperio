@@ -44,6 +44,21 @@ func TestCheckHealthConnectEndpoint(t *testing.T) {
 	}
 }
 
+func TestTypedCatalogConnectEndpointIsRegistered(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	server := httptest.NewServer(app.Handler())
+	defer server.Close()
+	client := aperiov1connect.NewAperioServiceClient(server.Client(), server.URL)
+
+	_, err := client.ListConnectorCatalog(
+		context.Background(),
+		connect.NewRequest(&aperiov1.ListConnectorCatalogRequest{}),
+	)
+	if connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("expected unavailable without database, got %v", err)
+	}
+}
+
 func TestReadyzReportsDependencyHealth(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
