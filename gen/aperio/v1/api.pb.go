@@ -7421,7 +7421,7 @@ type SecurityIdentity struct {
 	Integration      *FindingIntegration    `protobuf:"bytes,7,opt,name=integration,proto3" json:"integration,omitempty"`
 	Role             string                 `protobuf:"bytes,8,opt,name=role,proto3" json:"role,omitempty"`
 	Privileged       bool                   `protobuf:"varint,9,opt,name=privileged,proto3" json:"privileged,omitempty"`
-	MfaEnabled       bool                   `protobuf:"varint,10,opt,name=mfa_enabled,json=mfaEnabled,proto3" json:"mfa_enabled,omitempty"`
+	MfaEnabled       *bool                  `protobuf:"varint,10,opt,name=mfa_enabled,json=mfaEnabled,proto3,oneof" json:"mfa_enabled,omitempty"`
 	Status           string                 `protobuf:"bytes,11,opt,name=status,proto3" json:"status,omitempty"`
 	IsExternal       bool                   `protobuf:"varint,12,opt,name=is_external,json=isExternal,proto3" json:"is_external,omitempty"`
 	LastObservedAt   string                 `protobuf:"bytes,13,opt,name=last_observed_at,json=lastObservedAt,proto3" json:"last_observed_at,omitempty"`
@@ -7525,8 +7525,8 @@ func (x *SecurityIdentity) GetPrivileged() bool {
 }
 
 func (x *SecurityIdentity) GetMfaEnabled() bool {
-	if x != nil {
-		return x.MfaEnabled
+	if x != nil && x.MfaEnabled != nil {
+		return *x.MfaEnabled
 	}
 	return false
 }
@@ -9986,7 +9986,7 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x13exposed_data_assets\x18\x04 \x01(\x05R\x11exposedDataAssets\x12%\n" +
 	"\x0eunowned_assets\x18\x05 \x01(\x05R\runownedAssets\x12+\n" +
 	"\x11active_exceptions\x18\x06 \x01(\x05R\x10activeExceptions\x123\n" +
-	"\x16top_blast_radius_score\x18\a \x01(\x05R\x13topBlastRadiusScore\"\xdf\x03\n" +
+	"\x16top_blast_radius_score\x18\a \x01(\x05R\x13topBlastRadiusScore\"\xf4\x03\n" +
 	"\x10SecurityIdentity\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tentity_id\x18\x02 \x01(\tR\bentityId\x12\x12\n" +
@@ -9998,17 +9998,18 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x04role\x18\b \x01(\tR\x04role\x12\x1e\n" +
 	"\n" +
 	"privileged\x18\t \x01(\bR\n" +
-	"privileged\x12\x1f\n" +
+	"privileged\x12$\n" +
 	"\vmfa_enabled\x18\n" +
-	" \x01(\bR\n" +
-	"mfaEnabled\x12\x16\n" +
+	" \x01(\bH\x00R\n" +
+	"mfaEnabled\x88\x01\x01\x12\x16\n" +
 	"\x06status\x18\v \x01(\tR\x06status\x12\x1f\n" +
 	"\vis_external\x18\f \x01(\bR\n" +
 	"isExternal\x12(\n" +
 	"\x10last_observed_at\x18\r \x01(\tR\x0elastObservedAt\x12,\n" +
 	"\x12linked_asset_count\x18\x0e \x01(\x05R\x10linkedAssetCount\x12\x1d\n" +
 	"\n" +
-	"risk_score\x18\x0f \x01(\x05R\triskScore\"w\n" +
+	"risk_score\x18\x0f \x01(\x05R\triskScoreB\x0e\n" +
+	"\f_mfa_enabled\"w\n" +
 	"\rSecurityGraph\x122\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x1c.aperio.v1.SecurityGraphNodeR\x05nodes\x122\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1c.aperio.v1.SecurityGraphEdgeR\x05edges\"\xd5\x01\n" +
@@ -10637,6 +10638,7 @@ func file_aperio_v1_api_proto_init() {
 		return
 	}
 	file_aperio_v1_api_proto_msgTypes[107].OneofWrappers = []any{}
+	file_aperio_v1_api_proto_msgTypes[127].OneofWrappers = []any{}
 	file_aperio_v1_api_proto_msgTypes[139].OneofWrappers = []any{}
 	file_aperio_v1_api_proto_msgTypes[148].OneofWrappers = []any{}
 	type x struct{}

@@ -787,7 +787,7 @@ message SecurityIdentity {
   FindingIntegration integration = 7;
   string role = 8;
   bool privileged = 9;
-  bool mfa_enabled = 10;
+  optional bool mfa_enabled = 10;
   string status = 11;
   bool is_external = 12;
   string last_observed_at = 13;

@@ -138,6 +138,58 @@ func remediationExternalAccountID(provider string) string {
 	}
 }
 
+func TestDBDisableMFARequiresCurrentCode(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	ctx := context.Background()
+	auth := seedOrgUserWithRole(t, app, baseAuth.OrganizationID, "ADMIN")
+	password := strings.Join([]string{"correct", "horse", "battery", "staple"}, " ")
+	const secret = "JBSWY3DPEHPK3PXP"
+	if _, err := app.db.ExecContext(ctx, `
+		UPDATE users
+		SET password_hash = $1, mfa_enabled = TRUE, mfa_secret_encrypted = $2, mfa_last_counter = NULL, updated_at = NOW()
+		WHERE id = $3 AND organization_id = $4
+	`, compatHashPassword(password), secret, auth.UserID, auth.OrganizationID); err != nil {
+		t.Fatalf("enable seeded MFA: %v", err)
+	}
+
+	header := seedSessionHeader(t, app, auth)
+	validCode := compatHOTP([]byte("Hello!\xde\xad\xbe\xef"), uint64(time.Now().Unix()/30))
+	badCode := "000000"
+	if badCode == validCode {
+		badCode = "111111"
+	}
+	badReq := connect.NewRequest(&aperiov1.DisableMfaRequest{Password: password, Code: badCode})
+	copyCompatHeaders(badReq.Header(), header)
+	if _, err := app.DisableMfa(ctx, badReq); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("DisableMfa wrong code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+
+	var enabled bool
+	var storedSecret sql.NullString
+	if err := app.db.QueryRowContext(ctx, `SELECT mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&enabled, &storedSecret); err != nil {
+		t.Fatalf("query MFA after bad code: %v", err)
+	}
+	if !enabled || !storedSecret.Valid {
+		t.Fatal("wrong MFA code should not disable MFA")
+	}
+
+	goodReq := connect.NewRequest(&aperiov1.DisableMfaRequest{Password: password, Code: validCode})
+	copyCompatHeaders(goodReq.Header(), header)
+	resp, err := app.DisableMfa(ctx, goodReq)
+	if err != nil {
+		t.Fatalf("DisableMfa valid code: %v", err)
+	}
+	if resp.Msg.Data == nil || resp.Msg.Data.User == nil || resp.Msg.Data.User.MfaEnabled {
+		t.Fatalf("DisableMfa response MFA state = %#v, want disabled", resp.Msg.Data)
+	}
+	if err := app.db.QueryRowContext(ctx, `SELECT mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&enabled, &storedSecret); err != nil {
+		t.Fatalf("query MFA after valid code: %v", err)
+	}
+	if enabled || storedSecret.Valid {
+		t.Fatalf("valid MFA disable persisted enabled=%v secretValid=%v, want disabled/null", enabled, storedSecret.Valid)
+	}
+}
+
 func TestDBIntegrationLifecycle(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()

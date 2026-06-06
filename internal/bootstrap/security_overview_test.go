@@ -155,3 +155,78 @@ func TestComputeSecurityOverview(t *testing.T) {
 		t.Fatalf("dwd scopes = %v, want 2", scopes)
 	}
 }
+
+func TestSecurityOverviewPreservesUnknownMFAState(t *testing.T) {
+	result := computeSecurityOverview(
+		[]overviewIdentity{
+			{
+				ID:           "unknown-mfa",
+				Provider:     "GOOGLE_WORKSPACE",
+				ExternalID:   "unknown@example.com",
+				Email:        "unknown@example.com",
+				DisplayName:  "Unknown MFA Admin",
+				Kind:         "USER",
+				Status:       "ACTIVE",
+				Role:         "Administrator",
+				IsPrivileged: true,
+			},
+		},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	summary := result["summary"].(map[string]any)
+	if summary["adminIdentitiesWithoutMfa"].(int) != 0 {
+		t.Fatalf("unknown MFA counted as disabled: %v", summary["adminIdentitiesWithoutMfa"])
+	}
+	identitiesJSON := result["identities"].([]any)
+	identity := identitiesJSON[0].(map[string]any)
+	if identity["mfaEnabled"] != nil {
+		t.Fatalf("unknown MFA mfaEnabled = %v, want nil", identity["mfaEnabled"])
+	}
+
+	proto := securityOverviewFromMap(result)
+	if len(proto.Identities) != 1 {
+		t.Fatalf("proto identities length = %d, want 1", len(proto.Identities))
+	}
+	if proto.Identities[0].MfaEnabled != nil {
+		t.Fatalf("proto unknown MFA = %v, want nil", proto.Identities[0].MfaEnabled)
+	}
+}
+
+func TestSecurityOverviewFromMapPreservesExplicitMFAFalse(t *testing.T) {
+	proto := securityOverviewFromMap(map[string]any{
+		"summary": map[string]any{},
+		"identities": []map[string]any{
+			{
+				"id":               "identity:u1",
+				"entityId":         "u1",
+				"kind":             "USER",
+				"name":             "Disabled MFA Admin",
+				"role":             "Administrator",
+				"privileged":       true,
+				"mfaEnabled":       false,
+				"status":           "ACTIVE",
+				"isExternal":       false,
+				"linkedAssetCount": 0,
+				"riskScore":        80,
+			},
+		},
+		"graph":                 map[string]any{"nodes": []any{}, "edges": []any{}},
+		"oauthApps":             []any{},
+		"dataAssets":            []any{},
+		"attackPaths":           []any{},
+		"ownershipGaps":         []any{},
+		"exceptions":            []any{},
+		"domainWideDelegations": []any{},
+	})
+
+	if len(proto.Identities) != 1 {
+		t.Fatalf("proto identities length = %d, want 1", len(proto.Identities))
+	}
+	if proto.Identities[0].MfaEnabled == nil || *proto.Identities[0].MfaEnabled {
+		t.Fatalf("proto explicit disabled MFA = %v, want false", proto.Identities[0].MfaEnabled)
+	}
+}

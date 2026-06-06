@@ -1021,7 +1021,7 @@ function securityIdentityFromProto(
       : null,
     role: identity.role,
     privileged: identity.privileged,
-    mfaEnabled: identity.mfaEnabled,
+    mfaEnabled: identity.mfaEnabled ?? null,
     status: identity.status as ConnectSecurityIdentity["status"],
     isExternal: identity.isExternal,
     lastObservedAt: identity.lastObservedAt || null,

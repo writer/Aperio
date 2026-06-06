@@ -814,10 +814,15 @@ func (a *App) compatMFAEnable(ctx context.Context, body map[string]any, auth com
 
 func (a *App) compatMFADisable(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
 	var hash string
-	if err := a.db.QueryRowContext(ctx, `SELECT password_hash FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&hash); err != nil || !compatVerifyPassword(requiredString(body, "password"), hash) {
+	var mfaEnabled bool
+	var mfaSecret sql.NullString
+	if err := a.db.QueryRowContext(ctx, `SELECT password_hash, mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&hash, &mfaEnabled, &mfaSecret); err != nil || !compatVerifyPassword(requiredString(body, "password"), hash) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid password"))
 	}
-	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $1`, auth.UserID)
+	if mfaEnabled && (!mfaSecret.Valid || !compatVerifyTOTP(mfaSecret.String, requiredString(body, "code"))) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
+	}
+	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID)
 	_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET mfa_verified_at = NULL WHERE id = $1`, auth.SessionID)
 	return a.compatSession(ctx, auth, "")
 }
