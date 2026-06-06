@@ -52,7 +52,7 @@ function applyDevDefaults(defaulted) {
     NEXT_PUBLIC_CONNECT_API_BASE_URL: "http://localhost:4100",
     APERIO_SESSION_IDLE_MINUTES: "120",
     APERIO_ENCRYPTION_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    APERIO_AUTH_SECRET: "local-dev-auth-secret-at-least-thirty-two-chars",
+    APERIO_AUTH_SECRET: "development-demo-auth-secret-not-for-production",
     APERIO_EVENT_BUS: "noop",
     APERIO_NATS_URL: "nats://127.0.0.1:4222",
     APERIO_NATS_STREAM: "CEREBRO_EVENTS"
