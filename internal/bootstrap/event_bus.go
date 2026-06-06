@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -28,12 +29,20 @@ type encodedAperioEvent struct {
 	payload []byte
 }
 
+type aperioEventBus struct {
+	mu         sync.Mutex
+	servers    string
+	streamName string
+	nc         *nats.Conn
+	js         nats.JetStreamContext
+}
+
 func (a *App) publishFindingLifecycleEvent(ctx context.Context, findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote string, occurredAt time.Time) {
 	event, err := encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote, occurredAt)
 	if err != nil {
 		return
 	}
-	_ = publishAperioEvent(ctx, event)
+	_ = a.publishAperioEvent(ctx, event)
 }
 
 func encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote string, occurredAt time.Time) (encodedAperioEvent, error) {
@@ -81,10 +90,17 @@ func encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previ
 	}, nil
 }
 
-func publishAperioEvent(ctx context.Context, event encodedAperioEvent) error {
+func (a *App) publishAperioEvent(ctx context.Context, event encodedAperioEvent) error {
 	if strings.ToLower(strings.TrimSpace(os.Getenv("APERIO_EVENT_BUS"))) != "nats" {
 		return nil
 	}
+	if a.eventBus == nil {
+		a.eventBus = &aperioEventBus{}
+	}
+	return a.eventBus.publish(ctx, event)
+}
+
+func (b *aperioEventBus) publish(ctx context.Context, event encodedAperioEvent) error {
 	servers := strings.TrimSpace(os.Getenv("APERIO_NATS_URL"))
 	if servers == "" {
 		servers = defaultAperioNATSURL
@@ -93,12 +109,9 @@ func publishAperioEvent(ctx context.Context, event encodedAperioEvent) error {
 	if streamName == "" {
 		streamName = defaultAperioNATSStream
 	}
-	nc, err := nats.Connect(servers, nats.Timeout(aperioEventPublishConnectTimeout))
-	if err != nil {
-		return err
-	}
-	defer nc.Close()
-	js, err := nc.JetStream(nats.Context(ctx))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	js, err := b.jetStream(ctx, servers, streamName)
 	if err != nil {
 		return err
 	}
@@ -107,6 +120,29 @@ func publishAperioEvent(ctx context.Context, event encodedAperioEvent) error {
 	}
 	_, err = js.Publish(event.subject, event.payload, nats.MsgId(event.id), nats.Context(ctx))
 	return err
+}
+
+func (b *aperioEventBus) jetStream(ctx context.Context, servers string, streamName string) (nats.JetStreamContext, error) {
+	if b.nc != nil && !b.nc.IsClosed() && b.servers == servers && b.streamName == streamName && b.js != nil {
+		return b.js, nil
+	}
+	if b.nc != nil {
+		b.nc.Close()
+	}
+	nc, err := nats.Connect(servers, nats.Timeout(aperioEventPublishConnectTimeout))
+	if err != nil {
+		return nil, err
+	}
+	js, err := nc.JetStream(nats.Context(ctx))
+	if err != nil {
+		nc.Close()
+		return nil, err
+	}
+	b.servers = servers
+	b.streamName = streamName
+	b.nc = nc
+	b.js = js
+	return js, nil
 }
 
 func compactEventAttributes(attributes map[string]string) map[string]string {

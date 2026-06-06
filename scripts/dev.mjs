@@ -266,6 +266,8 @@ function terminate(child, signal) {
   }
   try {
     if (process.platform === "win32") {
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      killer.on("error", () => {});
       child.kill(signal);
     } else {
       process.kill(-child.pid, signal);

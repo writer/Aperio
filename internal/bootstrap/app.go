@@ -34,9 +34,10 @@ var errInvalidSession = errors.New("invalid session")
 // infrastructural dependencies here so endpoint implementations stay easy to
 // move from the current TypeScript API into Go one route at a time.
 type App struct {
-	cfg config.Config
-	db  *sql.DB
-	mux *http.ServeMux
+	cfg      config.Config
+	db       *sql.DB
+	mux      *http.ServeMux
+	eventBus *aperioEventBus
 }
 
 // dashboardMetrics mirrors the existing web dashboard response shape. Keeping
@@ -194,9 +195,10 @@ type riskExceptionRow struct {
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
 	app := &App{
-		cfg: cfg,
-		db:  db,
-		mux: http.NewServeMux(),
+		cfg:      cfg,
+		db:       db,
+		mux:      http.NewServeMux(),
+		eventBus: &aperioEventBus{},
 	}
 	app.routes()
 	return app
@@ -1034,28 +1036,6 @@ func siemFieldsProto(fields []siemField) []*aperiov1.SiemField {
 		})
 	}
 	return out
-}
-
-func optionalStringFromProto(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func stringPtrValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func nullStringValue(value sql.NullString) string {
-	if !value.Valid {
-		return ""
-	}
-	return value.String
 }
 
 func stringFromAny(value any) string {
