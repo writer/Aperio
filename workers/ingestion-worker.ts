@@ -10,13 +10,11 @@ import {
   encodeIngestionJobEvent
 } from "@aperio/shared/protobuf-contracts";
 import { calculateFindingRiskScore } from "@aperio/shared/risk-scoring";
-import {
-  drainSiemDeliveries,
-  enqueueSiemDeliveries
-} from "./siem-dispatcher";
+import { enqueueSiemDeliveries } from "./siem-dispatcher";
 import { publishAperioEvent } from "./event-bus";
 
 type IngestionPayload = {
+  jobId?: string;
   organizationId: string;
   integrationId: string;
   provider: Provider;
@@ -1046,27 +1044,39 @@ export class IngestionWorker {
       throw new Error("Integration token failed minimum integrity validation");
     }
 
-    const event = await prisma.ingestedEvent.create({
-      data: {
+    const findings = evaluateSecurityRules(payload, integration.disabledChecks).map(
+      (finding) => scoreFinding(payload, finding)
+    );
+    const processedFindings: ProcessedFinding[] = [];
+    let eventId = "";
+
+    await prisma.$transaction(async (tx) => {
+      const eventData = {
         organizationId: payload.organizationId,
         integrationId: integration.id,
         provider: payload.provider,
         eventType: payload.eventType,
         source: payload.source,
         actor: payload.actor,
-        severity: "INFO",
+        severity: "INFO" as const,
         payload: jsonSafe(payload.payload),
-        processingStatus: "RECEIVED",
+        processingStatus: "RECEIVED" as const,
         occurredAt: payload.occurredAt
-      }
-    });
+      };
+      const event = payload.jobId
+        ? await tx.ingestedEvent.upsert({
+            where: { ingestionJobId: payload.jobId },
+            update: eventData,
+            create: {
+              ...eventData,
+              ingestionJobId: payload.jobId
+            }
+          })
+        : await tx.ingestedEvent.create({
+            data: eventData
+          });
+      eventId = event.id;
 
-    const findings = evaluateSecurityRules(payload, integration.disabledChecks).map(
-      (finding) => scoreFinding(payload, finding)
-    );
-    const processedFindings: ProcessedFinding[] = [];
-
-    await prisma.$transaction(async (tx) => {
       for (const finding of findings) {
         const currentDedupeKey = dedupeKey(payload, finding);
         const existingFinding = await tx.securityFinding.findUnique({
@@ -1093,50 +1103,46 @@ export class IngestionWorker {
               ? "reopened"
               : "updated";
 
-        let findingId: string;
-        if (existingFinding) {
-          const updatedFinding = await tx.securityFinding.update({
-            where: { id: existingFinding.id },
-            data: {
-              title: finding.title,
-              description: finding.description,
-              severity: finding.severity,
-              riskScore: finding.riskScore,
-              remediationSteps: finding.remediationSteps,
-              status: nextStatus,
-              eventId: event.id,
-              detectedAt: new Date(),
-              resolvedAt:
-                nextStatus === "MUTED" ? existingFinding.resolvedAt : null,
-              resolvedById:
-                nextStatus === "MUTED" ? existingFinding.resolvedById : null,
-              evidence: buildFindingEvidence(payload, finding, event.id)
-            },
-            select: { id: true }
-          });
-          findingId = updatedFinding.id;
-        } else {
-          const createdFinding = await tx.securityFinding.create({
-            data: {
+        const upsertedFinding = await tx.securityFinding.upsert({
+          where: {
+            organizationId_dedupeKey: {
               organizationId: payload.organizationId,
-              integrationId: integration.id,
-              eventId: event.id,
-              dedupeKey: currentDedupeKey,
+              dedupeKey: currentDedupeKey
+            }
+          },
+          update: {
+            title: finding.title,
+            description: finding.description,
+            severity: finding.severity,
+            riskScore: finding.riskScore,
+            remediationSteps: finding.remediationSteps,
+            status: nextStatus,
+            eventId: event.id,
+            detectedAt: new Date(),
+            resolvedAt:
+              nextStatus === "MUTED" ? existingFinding?.resolvedAt : null,
+            resolvedById:
+              nextStatus === "MUTED" ? existingFinding?.resolvedById : null,
+            evidence: buildFindingEvidence(payload, finding, event.id)
+          },
+          create: {
+            organizationId: payload.organizationId,
+            integrationId: integration.id,
+            eventId: event.id,
+            dedupeKey: currentDedupeKey,
               title: finding.title,
               description: finding.description,
               severity: finding.severity,
               status: nextStatus,
-              riskScore: finding.riskScore,
-              remediationSteps: finding.remediationSteps,
+            riskScore: finding.riskScore,
+            remediationSteps: finding.remediationSteps,
               evidence: buildFindingEvidence(payload, finding, event.id)
-            },
-            select: { id: true }
-          });
-          findingId = createdFinding.id;
-        }
+          },
+          select: { id: true }
+        });
 
         processedFindings.push({
-          findingId,
+          findingId: upsertedFinding.id,
           ruleId: finding.ruleId,
           dedupeKey: currentDedupeKey,
           previousStatus: existingFinding?.status ?? "NEW",
@@ -1210,7 +1216,7 @@ export class IngestionWorker {
               target: finding.target,
               provider: payload.provider,
               integrationId: integration.id,
-              sourceEventId: event.id,
+              sourceEventId: eventId,
               source: payload.source,
               eventType: payload.eventType,
               actor: payload.actor ?? null,
@@ -1219,13 +1225,10 @@ export class IngestionWorker {
           })
         )
       );
-      void drainSiemDeliveries().catch(() => {
-        // dispatcher already records per-destination errors
-      });
     }
 
     return {
-      eventId: event.id,
+      eventId,
       findings: processedFindings
     };
   }
@@ -1233,7 +1236,8 @@ export class IngestionWorker {
 
 function nextRetryAt(attempt: number): Date {
   const delaySeconds = Math.min(60 * 30, 2 ** Math.max(0, attempt - 1) * 30);
-  return new Date(Date.now() + delaySeconds * 1000);
+  const jitter = 0.8 + Math.random() * 0.4;
+  return new Date(Date.now() + Math.round(delaySeconds * jitter) * 1000);
 }
 
 function apiJobStatus(status: PersistedIngestionJob["status"]): IngestionJob["status"] {
@@ -1242,6 +1246,7 @@ function apiJobStatus(status: PersistedIngestionJob["status"]): IngestionJob["st
 
 function toIngestionPayload(job: PersistedIngestionJob): IngestionPayload {
   return {
+    jobId: job.id,
     organizationId: job.organizationId,
     integrationId: job.integrationId,
     provider: job.provider,

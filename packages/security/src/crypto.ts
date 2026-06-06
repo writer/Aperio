@@ -32,6 +32,15 @@ function resolveKey(rawKey = process.env.APERIO_ENCRYPTION_KEY): Buffer {
   }
 
   const trimmed = rawKey.trim();
+  const hasExplicitEncoding =
+    trimmed.startsWith("base64:") ||
+    trimmed.startsWith("base64url:") ||
+    trimmed.startsWith("hex:");
+  if (!hasExplicitEncoding && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production"
+    );
+  }
   const key = trimmed.startsWith("base64:")
     ? Buffer.from(trimmed.slice("base64:".length), "base64")
     : trimmed.startsWith("base64url:")
@@ -130,8 +139,11 @@ export function decryptString(
   }
 }
 
-const PASSWORD_HASH_VERSION = "s1";
+const PASSWORD_HASH_VERSION = "s2";
 const PASSWORD_SALT_BYTES = 16;
+const DEFAULT_SCRYPT_N = 16384;
+const DEFAULT_SCRYPT_R = 8;
+const DEFAULT_SCRYPT_P = 1;
 const TOTP_STEP_SECONDS = 30;
 const TOTP_DIGITS = 6;
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -142,32 +154,57 @@ export function hashPassword(password: string): string {
   }
 
   const salt = randomBytes(PASSWORD_SALT_BYTES);
-  const derivedKey = scryptSync(password, salt, KEY_BYTES);
+  const params = passwordScryptParams();
+  const derivedKey = scryptSync(password, salt, KEY_BYTES, params);
   return [
     PASSWORD_HASH_VERSION,
+    String(params.N),
+    String(params.r),
+    String(params.p),
     salt.toString("base64url"),
     derivedKey.toString("base64url")
   ].join("$");
 }
 
 export function verifyPassword(password: string, passwordHash: string): boolean {
-  const [version, saltPart, hashPart] = passwordHash.split("$");
+  const [version, ...parts] = passwordHash.split("$");
+  const legacy = version === "s1";
+  const saltPart = legacy ? parts[0] : parts[3];
+  const hashPart = legacy ? parts[1] : parts[4];
 
-  if (
-    version !== PASSWORD_HASH_VERSION ||
-    !saltPart ||
-    !hashPart
-  ) {
+  if (!saltPart || !hashPart || (version !== "s1" && version !== "s2")) {
     throw new Error("Unsupported password hash format");
   }
 
   const expected = decodeBase64Url(hashPart);
-  const actual = scryptSync(password, decodeBase64Url(saltPart), KEY_BYTES);
+  const actual = scryptSync(
+    password,
+    decodeBase64Url(saltPart),
+    KEY_BYTES,
+    legacy
+      ? undefined
+      : {
+          N: Number(parts[0]),
+          r: Number(parts[1]),
+          p: Number(parts[2])
+        }
+  );
 
   return (
     expected.length === actual.length &&
     timingSafeEqual(expected, actual)
   );
+}
+
+function passwordScryptParams() {
+  const N = Number(process.env.APERIO_PASSWORD_SCRYPT_N ?? DEFAULT_SCRYPT_N);
+  const r = Number(process.env.APERIO_PASSWORD_SCRYPT_R ?? DEFAULT_SCRYPT_R);
+  const p = Number(process.env.APERIO_PASSWORD_SCRYPT_P ?? DEFAULT_SCRYPT_P);
+  return {
+    N: Number.isInteger(N) && N > 1 ? N : DEFAULT_SCRYPT_N,
+    r: Number.isInteger(r) && r > 0 ? r : DEFAULT_SCRYPT_R,
+    p: Number.isInteger(p) && p > 0 ? p : DEFAULT_SCRYPT_P
+  };
 }
 
 export function createOneTimeToken(): { token: string; tokenHash: string } {
@@ -273,20 +310,37 @@ export function verifyTotpCode(
   code: string,
   window = 1
 ): boolean {
+  return verifyTotpCodeWithCounter(secret, code, { window }) !== null;
+}
+
+export function verifyTotpCodeWithCounter(
+  secret: string,
+  code: string,
+  options?: {
+    window?: number;
+    afterCounter?: number | null;
+  }
+): { counter: number } | null {
   const normalizedCode = code.replace(/\s|-/g, "");
 
   if (!/^\d{6}$/.test(normalizedCode)) {
-    return false;
+    return null;
   }
 
   const decodedSecret = decodeBase32(secret);
   const counter = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS);
+  const window = options?.window ?? 1;
+  const afterCounter = options?.afterCounter ?? null;
 
   for (let offset = -window; offset <= window; offset += 1) {
-    if (hotp(decodedSecret, counter + offset) === normalizedCode) {
-      return true;
+    const candidateCounter = counter + offset;
+    if (
+      (afterCounter === null || candidateCounter > afterCounter) &&
+      hotp(decodedSecret, candidateCounter) === normalizedCode
+    ) {
+      return { counter: candidateCounter };
     }
   }
 
-  return false;
+  return null;
 }
