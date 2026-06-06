@@ -1273,11 +1273,11 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		noteValue = *note
 	}
 	metadataFields := map[string]any{
-		"provider":          provider,
-		"integrationId":     integrationID,
-		"actionKey":         action,
-		"targetIdentifier":  targetIdentifier,
-		"note":              noteValue,
+		"provider":         provider,
+		"integrationId":    integrationID,
+		"actionKey":        action,
+		"targetIdentifier": targetIdentifier,
+		"note":             noteValue,
 	}
 	if result.ProviderRequestID != "" {
 		metadataFields["providerRequestId"] = result.ProviderRequestID
