@@ -859,24 +859,116 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
-	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	action := requiredString(body, "action")
-	var exists bool
-	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM security_findings WHERE id = $1 AND organization_id = $2)`, id, auth.OrganizationID).Scan(&exists); err != nil {
+	action := strings.TrimSpace(requiredString(body, "action"))
+	if action == "" || len(action) > 120 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid remediation payload"))
+	}
+	note := optionalStringPtr(body, "note")
+	targetOverride := strings.TrimSpace(stringDefault(body, "targetIdentifier", ""))
+
+	var integrationID, provider, mode, externalAccount, status, evidenceJSON string
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT sf.integration_id, ic.provider::text, ic.mode::text, ic.external_account_id, sf.status::text, COALESCE(sf.evidence::text, '{}')
+		FROM security_findings sf
+		JOIN integration_connections ic ON ic.id = sf.integration_id
+		WHERE sf.id = $1 AND sf.organization_id = $2
+	`, id, auth.OrganizationID).Scan(&integrationID, &provider, &mode, &externalAccount, &status, &evidenceJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if !exists {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
+
+	connector := findConnectorDefinition(provider)
+	if connector == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported connector"))
 	}
-	metadata, _ := json.Marshal(map[string]any{
-		"actionKey": action,
-		"note":      optionalStringPtr(body, "note"),
-		"simulated": false,
+	if !connectorHasRemediationAction(connector, action) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("action %s is not defined for %s", action, connector.Name))
+	}
+	if mode != "REMEDIATION" {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("this connection is read-only. Reconnect with remediation scopes to enable write actions."))
+	}
+
+	targetIdentifier := targetOverride
+	if targetIdentifier == "" {
+		var evidence map[string]any
+		_ = json.Unmarshal([]byte(evidenceJSON), &evidence)
+		if subject, ok := evidence["subject"].(string); ok && subject != "" {
+			targetIdentifier = subject
+		} else if actor, ok := evidence["actor"].(string); ok && actor != "" {
+			targetIdentifier = actor
+		} else {
+			targetIdentifier = externalAccount
+		}
+	}
+
+	result := executeRemediation(provider, action, externalAccount, targetIdentifier)
+
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if result.Success {
+		var resolver any
+		if auth.UserID != "" {
+			resolver = auth.UserID
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE security_findings SET status = 'RESOLVED', resolved_at = NOW(), resolved_by_id = $1 WHERE id = $2 AND organization_id = $3`, resolver, id, auth.OrganizationID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+
+	auditAction := "finding.remediate.failure"
+	if result.Success {
+		auditAction = "finding.remediate.success"
+	}
+	var noteValue any
+	if note != nil {
+		noteValue = *note
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"provider":          provider,
+		"integrationId":     integrationID,
+		"actionKey":         action,
+		"targetIdentifier":  targetIdentifier,
+		"providerRequestId": result.ProviderRequestID,
+		"note":              noteValue,
+		"effects":           result.Effects,
 	})
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,'finding.remediate.unavailable','security_finding',$4,$5,NOW())`, compatID("aud"), auth.OrganizationID, auth.UserID, id, json.RawMessage(metadata))
-	return map[string]any{"data": map[string]any{"findingId": id, "action": action, "success": false, "message": "Provider-side remediation is not yet implemented in the Go runtime", "providerRequestId": compatID("noop"), "effects": []string{}}}, nil
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	var actor any
+	if auth.UserID != "" {
+		actor = auth.UserID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,$4,'security_finding',$5,$6,NOW())`, compatID("aud"), auth.OrganizationID, actor, auditAction, id, metadata); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	committed = true
+
+	return map[string]any{"data": map[string]any{
+		"findingId":         id,
+		"action":            action,
+		"success":           result.Success,
+		"message":           result.Message,
+		"providerRequestId": result.ProviderRequestID,
+		"effects":           result.Effects,
+	}}, nil
 }
 
 func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, error) {
