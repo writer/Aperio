@@ -18,6 +18,8 @@ import (
 
 const leaseDuration = 5 * time.Minute
 
+var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
+
 type Payload struct {
 	Kind           string         `json:"kind"`
 	OrganizationID string         `json:"organizationId"`
@@ -139,6 +141,13 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 		WHERE attempts >= max_attempts
 		  AND status IN ('PENDING', 'FAILED', 'PROCESSING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
+		  AND EXISTS (
+			SELECT 1
+			FROM siem_destinations dst
+			WHERE dst.id = siem_deliveries.destination_id
+			  AND dst.organization_id = siem_deliveries.organization_id
+			  AND dst.kind = 'JSON_FILE'
+		  )
 	`)
 	return err
 }
@@ -166,7 +175,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 			LIMIT $3
 		)
 		RETURNING id, organization_id, destination_id, stream::text, payload, attempts, max_attempts
-	`, d.leaseOwner, time.Now().Add(leaseDuration), limit)
+	`, d.leaseOwner, time.Now().UTC().Add(leaseDuration), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -242,23 +251,35 @@ func destinationLoadFailure(err error) (bool, string) {
 func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string) error {
 	attempts := item.Attempts + 1
 	if ok {
-		_, err := d.db.ExecContext(ctx, `
+		res, err := d.db.ExecContext(ctx, `
 			UPDATE siem_deliveries
 			SET status = 'DELIVERED', attempts = $1, delivered_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
 			WHERE id = $2 AND lease_owner = $3
 		`, attempts, item.ID, d.leaseOwner)
-		return err
+		if err != nil {
+			return err
+		}
+		if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+			return errDeliveryLeaseLost
+		}
+		return nil
 	}
 	status := "FAILED"
 	if permanent || attempts >= item.MaxAttempts {
 		status = "DEAD_LETTER"
 	}
-	nextAttemptAt := time.Now().Add(nextRetryDelay(attempts))
-	_, err := d.db.ExecContext(ctx, `
+	nextAttemptAt := time.Now().UTC().Add(nextRetryDelay(attempts))
+	res, err := d.db.ExecContext(ctx, `
 		UPDATE siem_deliveries
 		SET status = $1, attempts = $2, next_attempt_at = $3, lease_owner = NULL, lease_expires_at = NULL, last_error = $4, updated_at = NOW()
 		WHERE id = $5 AND lease_owner = $6
 	`, status, attempts, nextAttemptAt, truncate(message, 500), item.ID, d.leaseOwner)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+		return errDeliveryLeaseLost
+	}
 	if item.DestinationID.Valid {
 		_, _ = d.db.ExecContext(ctx, `
 			UPDATE siem_destinations
@@ -266,7 +287,7 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 			WHERE id = $2 AND organization_id = $3
 		`, truncate(message, 500), item.DestinationID.String, item.OrganizationID)
 	}
-	return err
+	return nil
 }
 
 func parsePayload(raw json.RawMessage) (Payload, error) {

@@ -1,0 +1,20 @@
+{
+  "destinationId": "dst_1",
+  "stream": "FINDINGS",
+  "payload": {
+    "kind": "finding",
+    "organizationId": "org_1",
+    "occurredAt": "2026-06-06T00:00:00.000Z",
+    "record": {
+      "findingId": "fnd_1",
+      "dedupeKey": "stable-finding",
+      "sourceEventId": "evt_1",
+      "status": "OPEN",
+      "ruleId": "github.public_repository_created",
+      "title": "Public GitHub repository created"
+    }
+  },
+  "expectedDeliveryKey": "64d8bc670765462f2e1a22e94817879593b3ed9d7a716330b326beb259de7338",
+  "reopenedSourceEventId": "evt_2",
+  "reopenedOccurredAt": "2026-06-06T01:00:00.000Z"
+}

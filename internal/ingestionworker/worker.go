@@ -19,6 +19,8 @@ import (
 
 const leaseDuration = 5 * time.Minute
 
+var errIngestionLeaseLost = errors.New("ingestion job lease lost")
+
 type JobPayload struct {
 	OrganizationID string         `json:"organizationId"`
 	IntegrationID  string         `json:"integrationId"`
@@ -154,6 +156,8 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 		UPDATE ingestion_jobs
 		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
 		WHERE attempts >= max_attempts
+		  AND provider = 'GITHUB'
+		  AND event_type = 'PUBLIC_REPOSITORY_CREATED'
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
 	`)
@@ -180,7 +184,7 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 			LIMIT $3
 		)
 		RETURNING id, organization_id, integration_id, provider::text, event_type, source, actor, occurred_at, payload, attempts, max_attempts
-	`, w.leaseOwner, time.Now().Add(leaseDuration), limit)
+	`, w.leaseOwner, time.Now().UTC().Add(leaseDuration), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -199,15 +203,15 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 func (w *Worker) process(ctx context.Context, item job) error {
 	payload, err := item.toPayload()
 	if err != nil {
-		return w.fail(ctx, item, err.Error())
+		return w.fail(ctx, item, fmt.Errorf("parse payload: %w", err).Error())
 	}
 	findings, err := w.findingsForJob(ctx, payload, item)
 	if err != nil {
-		return w.fail(ctx, item, err.Error())
+		return w.fail(ctx, item, fmt.Errorf("load findings: %w", err).Error())
 	}
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		return w.fail(ctx, item, err.Error())
+		return w.fail(ctx, item, fmt.Errorf("begin transaction: %w", err).Error())
 	}
 	txDone := false
 	defer func() {
@@ -223,30 +227,43 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	eventID := "evt_" + randomID()
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO ingested_events (id, organization_id, integration_id, ingestion_job_id, provider, event_type, source, actor, severity, payload, processing_status, occurred_at, processed_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'INFO',$9,'PROCESSED',$10,NOW(),NOW())
-		ON CONFLICT (ingestion_job_id) DO UPDATE SET payload = EXCLUDED.payload, processing_status = 'PROCESSED', processed_at = NOW()
+		VALUES ($1,$2,$3,$4,$5::"SaaSProvider",$6,$7,$8,'INFO'::"Severity",$9::jsonb,'PROCESSED'::"EventProcessingStatus",$10,NOW(),NOW())
+		ON CONFLICT (ingestion_job_id) DO UPDATE SET payload = EXCLUDED.payload, processing_status = 'PROCESSED'::"EventProcessingStatus", processed_at = NOW()
 		RETURNING id
-	`, eventID, item.OrganizationID, item.IntegrationID, item.ID, item.Provider, item.EventType, item.Source, nullableString(item.Actor), item.Payload, item.OccurredAt).Scan(&eventID); err != nil {
-		return fail(err)
+	`, eventID, item.OrganizationID, item.IntegrationID, item.ID, item.Provider, item.EventType, item.Source, nullableString(item.Actor), string(item.Payload), item.OccurredAt).Scan(&eventID); err != nil {
+		return fail(fmt.Errorf("upsert ingested event: %w", err))
 	}
 	for _, finding := range findings {
 		if err := upsertFinding(ctx, tx, payload, finding, eventID); err != nil {
-			return fail(err)
+			return fail(fmt.Errorf("upsert finding: %w", err))
 		}
 		if err := enqueueFindingDelivery(ctx, tx, payload, finding); err != nil {
-			return fail(err)
+			return fail(fmt.Errorf("enqueue SIEM delivery: %w", err))
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `
+		UPDATE integration_connections
+		SET last_sync_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2
+	`, item.IntegrationID, item.OrganizationID); err != nil {
+		return fail(fmt.Errorf("update integration last sync: %w", err))
+	}
+	res, err := tx.ExecContext(ctx, `
 		UPDATE ingestion_jobs
 		SET status = 'SUCCEEDED', attempts = attempts + 1, processed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
 		WHERE id = $1 AND lease_owner = $2
-	`, item.ID, w.leaseOwner); err != nil {
-		return fail(err)
+	`, item.ID, w.leaseOwner)
+	if err != nil {
+		return fail(fmt.Errorf("mark job succeeded: %w", err))
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+		txDone = true
+		_ = tx.Rollback()
+		return errIngestionLeaseLost
 	}
 	if err := tx.Commit(); err != nil {
 		txDone = true
-		return w.fail(ctx, item, err.Error())
+		return w.fail(ctx, item, fmt.Errorf("commit transaction: %w", err).Error())
 	}
 	txDone = true
 	return nil
@@ -272,7 +289,7 @@ func (w *Worker) loadDisabledChecks(ctx context.Context, item job) ([]string, er
 	if err := w.db.QueryRowContext(ctx, `
 		SELECT COALESCE(array_to_json(disabled_checks)::text, '[]')
 		FROM integration_connections
-		WHERE id = $1 AND organization_id = $2 AND provider = $3 AND status = 'CONNECTED'
+		WHERE id = $1 AND organization_id = $2 AND provider = $3::"SaaSProvider" AND status = 'CONNECTED'
 	`, item.IntegrationID, item.OrganizationID, item.Provider).Scan(&raw); err != nil {
 		return nil, err
 	}
@@ -297,18 +314,40 @@ func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding 
 			id, organization_id, integration_id, event_id, dedupe_key, title, description, severity,
 			status, risk_score, remediation_steps, evidence, detected_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'OPEN',$9,$10,$11,$12)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8::"Severity",'OPEN'::"FindingStatus",$9,$10::text[],$11::jsonb,$12)
 		ON CONFLICT (organization_id, dedupe_key) DO UPDATE SET
 			event_id = EXCLUDED.event_id,
 			title = EXCLUDED.title,
 			description = EXCLUDED.description,
 			severity = EXCLUDED.severity,
-			status = CASE WHEN security_findings.status = 'MUTED' THEN 'MUTED' ELSE 'OPEN' END,
+			status = CASE WHEN security_findings.status = 'MUTED'::"FindingStatus" THEN 'MUTED'::"FindingStatus" ELSE 'OPEN'::"FindingStatus" END,
+			resolved_at = CASE WHEN security_findings.status = 'MUTED'::"FindingStatus" THEN security_findings.resolved_at ELSE NULL END,
+			resolved_by_id = CASE WHEN security_findings.status = 'MUTED'::"FindingStatus" THEN security_findings.resolved_by_id ELSE NULL END,
 			risk_score = EXCLUDED.risk_score,
 			remediation_steps = EXCLUDED.remediation_steps,
 			evidence = EXCLUDED.evidence
-	`, "fnd_"+randomID(), payload.OrganizationID, payload.IntegrationID, eventID, dedupe, finding.Title, finding.Description, finding.Severity, finding.RiskScore, finding.RemediationSteps, json.RawMessage(evidenceJSON), payload.OccurredAt)
+	`, "fnd_"+randomID(), payload.OrganizationID, payload.IntegrationID, eventID, dedupe, finding.Title, finding.Description, finding.Severity, finding.RiskScore, postgresTextArray(finding.RemediationSteps), string(evidenceJSON), payload.OccurredAt)
 	return err
+}
+
+func postgresTextArray(values []string) string {
+	var builder strings.Builder
+	builder.WriteByte('{')
+	for index, value := range values {
+		if index > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteByte('"')
+		for _, char := range value {
+			if char == '\\' || char == '"' {
+				builder.WriteByte('\\')
+			}
+			builder.WriteRune(char)
+		}
+		builder.WriteByte('"')
+	}
+	builder.WriteByte('}')
+	return builder.String()
 }
 
 func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding) error {
@@ -320,12 +359,23 @@ func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload,
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	destinationIDs := []string{}
 	for rows.Next() {
 		var destinationID string
 		if err := rows.Scan(&destinationID); err != nil {
+			_ = rows.Close()
 			return err
 		}
+		destinationIDs = append(destinationIDs, destinationID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, destinationID := range destinationIDs {
 		record := map[string]any{
 			"findingId":     DedupeKey(payload, finding),
 			"dedupeKey":     DedupeKey(payload, finding),
@@ -348,36 +398,48 @@ func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload,
 		payloadJSON, _ := json.Marshal(deliveryPayload)
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, created_at, updated_at)
-			VALUES ($1,$2,$3,'FINDINGS',$4,$5,NOW(),NOW())
+			VALUES ($1,$2,$3,'FINDINGS'::"SiemStreamType",$4,$5::jsonb,NOW(),NOW())
 			ON CONFLICT (organization_id, destination_id, stream, dedupe_key) DO NOTHING
-		`, "sdel_"+randomID(), payload.OrganizationID, destinationID, siemdispatcher.StableDeliveryKey(deliveryPayload, destinationID, "FINDINGS"), json.RawMessage(payloadJSON))
+		`, "sdel_"+randomID(), payload.OrganizationID, destinationID, siemdispatcher.StableDeliveryKey(deliveryPayload, destinationID, "FINDINGS"), string(payloadJSON))
 		if err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func (w *Worker) finish(ctx context.Context, item job, ok bool, message string) error {
 	if ok {
-		_, err := w.db.ExecContext(ctx, `
+		res, err := w.db.ExecContext(ctx, `
 			UPDATE ingestion_jobs
 			SET status = 'SUCCEEDED', attempts = attempts + 1, processed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
 			WHERE id = $1 AND lease_owner = $2
 		`, item.ID, w.leaseOwner)
-		return err
+		if err != nil {
+			return err
+		}
+		if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+			return errIngestionLeaseLost
+		}
+		return nil
 	}
 	attempts := item.Attempts + 1
 	status := "FAILED"
 	if attempts >= item.MaxAttempts {
 		status = "DEAD_LETTER"
 	}
-	_, err := w.db.ExecContext(ctx, `
+	res, err := w.db.ExecContext(ctx, `
 		UPDATE ingestion_jobs
 		SET status = $1, attempts = $2, next_attempt_at = $3, lease_owner = NULL, lease_expires_at = NULL, last_error = $4, updated_at = NOW()
 		WHERE id = $5 AND lease_owner = $6
-	`, status, attempts, time.Now().Add(nextRetryDelay(attempts)), truncate(message, 500), item.ID, w.leaseOwner)
-	return err
+	`, status, attempts, time.Now().UTC().Add(nextRetryDelay(attempts)), truncate(message, 500), item.ID, w.leaseOwner)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+		return errIngestionLeaseLost
+	}
+	return nil
 }
 
 func (j job) toPayload() (JobPayload, error) {
