@@ -20,6 +20,7 @@ DEV_CONFIG := scripts/dev-config.mjs
 BUF_VERSION := v1.59.0
 COMPOSE := docker compose -p aperio
 GO_SRC_DIRS := cmd internal
+GO_WORKER_ARGS ?=
 
 BOLD := \033[1m
 DIM := \033[2m
@@ -108,24 +109,24 @@ _run-web: require-env
 	@$(LOAD_ENV) npx next dev apps/web -p $(WEB_PORT)
 
 .PHONY: worker-ingestion
-worker-ingestion: require-env ## Run the ingestion worker
+worker-ingestion: require-env ## Run the TypeScript parity/reference ingestion worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) npx tsx workers/ingestion-worker.ts
 
 .PHONY: worker-ingestion-go
-worker-ingestion-go: require-env ## Run the Go ingestion worker
+worker-ingestion-go: require-env ## Run the explicit Go transition ingestion worker
 	@$(MAKE) --no-print-directory db-up
-	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/ingestion-worker
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/ingestion-worker $(GO_WORKER_ARGS)
 
 .PHONY: worker-siem
-worker-siem: require-env ## Run the SIEM dispatcher worker
+worker-siem: require-env ## Run the TypeScript parity/reference SIEM dispatcher worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) npx tsx workers/siem-dispatcher.ts
 
 .PHONY: worker-siem-go
-worker-siem-go: require-env ## Run the Go SIEM dispatcher worker
+worker-siem-go: require-env ## Run the explicit Go transition SIEM dispatcher worker
 	@$(MAKE) --no-print-directory db-up
-	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/siem-dispatcher
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/siem-dispatcher $(GO_WORKER_ARGS)
 
 .PHONY: mcp
 mcp: require-env ## Run the stdio MCP broker

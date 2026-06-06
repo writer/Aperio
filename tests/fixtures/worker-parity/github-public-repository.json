@@ -1,0 +1,55 @@
+{
+  "positive": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_1",
+      "provider": "GITHUB",
+      "eventType": "repository.publicized",
+      "source": "github-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T00:00:00.000Z",
+      "payload": {
+        "repository": {
+          "full_name": "writer/aperio",
+          "name": "aperio",
+          "private": false,
+          "visibility": "public"
+        }
+      }
+    },
+    "expectedFinding": {
+      "ruleId": "github.public_repository_created",
+      "title": "Public GitHub repository created",
+      "description": "A repository was created or changed to public visibility, which can expose source code, secrets, or customer data.",
+      "severity": "CRITICAL",
+      "riskScore": 95,
+      "target": "writer/aperio",
+      "evidence": {
+        "repository": "writer/aperio",
+        "subject": "writer/aperio",
+        "visibility": "public"
+      },
+      "dedupeKey": "19ee6798462d3e0e56d02df0795cfeff7114cf4f88f6f735abeff8b625b472f7"
+    }
+  },
+  "negative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_1",
+      "provider": "GITHUB",
+      "eventType": "repository.private",
+      "source": "github-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T00:05:00.000Z",
+      "payload": {
+        "repository": {
+          "full_name": "writer/private",
+          "name": "private",
+          "private": true,
+          "visibility": "private"
+        }
+      }
+    }
+  },
+  "disabledCheck": "github.public_repository_created"
+}

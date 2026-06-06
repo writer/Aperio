@@ -75,6 +75,10 @@ type siemDestinationDefinition struct {
 }
 
 func compatConnectorCatalog() []connectorDefinition {
+	return catalogWithExecutableRemediationActions(rawConnectorCatalog())
+}
+
+func rawConnectorCatalog() []connectorDefinition {
 	return []connectorDefinition{
 		{
 			Provider:     "GITHUB",
@@ -314,13 +318,28 @@ func compatSiemCatalog() []siemDestinationDefinition {
 }
 
 func findConnectorDefinition(provider string) *connectorDefinition {
-	catalog := compatConnectorCatalog()
+	catalog := rawConnectorCatalog()
 	for index := range catalog {
 		if catalog[index].Provider == provider {
 			return &catalog[index]
 		}
 	}
 	return nil
+}
+
+func catalogWithExecutableRemediationActions(catalog []connectorDefinition) []connectorDefinition {
+	filtered := make([]connectorDefinition, 0, len(catalog))
+	for _, definition := range catalog {
+		next := definition
+		next.RemediationActions = make([]remediationAction, 0, len(definition.RemediationActions))
+		for _, action := range definition.RemediationActions {
+			if isExecutableRemediationAction(action.Key) {
+				next.RemediationActions = append(next.RemediationActions, action)
+			}
+		}
+		filtered = append(filtered, next)
+	}
+	return filtered
 }
 
 // compatScopesForMode returns the catalog read scopes, plus remediation scopes

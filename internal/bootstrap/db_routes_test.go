@@ -10,9 +10,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"github.com/writer/aperio/internal/config"
 )
 
@@ -50,7 +52,7 @@ func newTestDBApp(t *testing.T) (*App, compatAuth) {
 		_ = db.Close()
 	})
 
-	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, db)
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000", SessionIdleMinutes: 120}, db)
 	auth := compatAuth{OrganizationID: orgID, UserID: compatID("usr"), Email: "admin@example.com", Role: "ADMIN"}
 	return app, auth
 }
@@ -66,6 +68,74 @@ func dataMap(t *testing.T, result any) map[string]any {
 		t.Fatalf("expected data map, got %T", envelope["data"])
 	}
 	return data
+}
+
+func seedSessionHeader(t *testing.T, app *App, auth compatAuth) http.Header {
+	t.Helper()
+	rawToken := randomURL(32)
+	sessionID := compatID("ses")
+	if _, err := app.db.ExecContext(context.Background(), `INSERT INTO user_sessions (id, organization_id, user_id, token_hash, expires_at, last_seen_at, mfa_verified_at, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW() + INTERVAL '1 hour',NOW(),NOW(),NOW(),NOW())`, sessionID, auth.OrganizationID, auth.UserID, hashOpaqueToken(rawToken)); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+sessionID+"."+rawToken)
+	return header
+}
+
+func seedOrgUserWithRole(t *testing.T, app *App, orgID, roleName string) compatAuth {
+	t.Helper()
+	ctx := context.Background()
+	roleID, err := app.ensureCompatRole(ctx, orgID, roleName)
+	if err != nil {
+		t.Fatalf("seed %s role: %v", roleName, err)
+	}
+	userID := compatID("usr")
+	email := strings.ToLower(roleName) + "-" + randomBase36(10) + "@example.com"
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, display_name, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),NOW())`, userID, orgID, roleID, email, roleName+" User"); err != nil {
+		t.Fatalf("seed %s user: %v", roleName, err)
+	}
+	return compatAuth{OrganizationID: orgID, UserID: userID, Email: email, Role: roleName}
+}
+
+func seedRemediationFixture(t *testing.T, app *App, auth compatAuth, provider string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	externalAccountID := remediationExternalAccountID(provider)
+	created, err := app.compatCreateIntegration(ctx, map[string]any{
+		"provider":          provider,
+		"displayName":       provider + " Remediation",
+		"externalAccountId": externalAccountID,
+		"mode":              "REMEDIATION",
+		"credentials":       map[string]any{"accessToken": "local-token-value"},
+	}, auth)
+	if err != nil {
+		t.Fatalf("create remediation integration for %s: %v", provider, err)
+	}
+	integrationID := dataMap(t, created)["id"].(string)
+	findingID := compatID("fnd")
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO security_findings (id, organization_id, integration_id, dedupe_key, title, description, severity, status, risk_score, remediation_steps, evidence, detected_at) VALUES ($1,$2,$3,$4,$5,$6,'HIGH','OPEN',70,ARRAY[]::text[],$7,NOW())`, findingID, auth.OrganizationID, integrationID, "dk-"+findingID, provider+" finding", "seeded for remediation test", json.RawMessage(`{"subject":"user@example.com"}`)); err != nil {
+		t.Fatalf("seed finding: %v", err)
+	}
+	return integrationID, findingID
+}
+
+func remediationExternalAccountID(provider string) string {
+	switch provider {
+	case "GITHUB":
+		return "github-" + randomBase36(10)
+	case "SLACK":
+		return "T" + strings.ToUpper(randomBase36(8))
+	case "GOOGLE_WORKSPACE":
+		return randomBase36(8) + ".example.com"
+	case "OKTA":
+		return randomBase36(8) + ".okta.com"
+	case "MICROSOFT_365":
+		return "00000000-0000-0000-0000-" + randomBase36(12)
+	case "ATLASSIAN":
+		return "org-" + randomBase36(10)
+	default:
+		return randomBase36(12)
+	}
 }
 
 func TestDBIntegrationLifecycle(t *testing.T) {
@@ -345,6 +415,596 @@ func TestDBSlackRemediationRequiresExplicitAppID(t *testing.T) {
 	}
 }
 
+func TestDBSlackRemediationProviderFailureDoesNotResolve(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalls++
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("app_id"); got != "A123" {
+			t.Fatalf("app_id = %q, want A123", got)
+		}
+		if got := r.Form.Get("team_ids"); got != "TFAIL123" {
+			t.Fatalf("team_ids = %q, want TFAIL123", got)
+		}
+		w.Header().Set("X-Slack-Req-Id", "slack-provider-failed")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing_scope"})
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, findingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-provider-failure", "TFAIL123", `{"subject":"EVIDENCE_APP","actor":"EVIDENCE_ACTOR"}`)
+	result := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatRemediateFinding(ctx, findingID, map[string]any{"action": "slack.revoke_app_install", "targetIdentifier": "A123"}, auth)
+	}))
+	if result["success"] != false {
+		t.Fatalf("expected provider failure result, got %v", result)
+	}
+	if result["providerRequestId"] != "slack-provider-failed" {
+		t.Fatalf("providerRequestId = %v", result["providerRequestId"])
+	}
+	if effects, ok := result["effects"].([]string); !ok || len(effects) != 0 {
+		t.Fatalf("expected no provider effects, got %#v", result["effects"])
+	}
+	if !strings.Contains(result["message"].(string), "missing_scope") {
+		t.Fatalf("expected Slack error in message, got %q", result["message"])
+	}
+	if providerCalls != 1 {
+		t.Fatalf("expected one provider call, got %d", providerCalls)
+	}
+	assertFindingState(t, app, findingID, "OPEN", false)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 1)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 1)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+	var failureMetadata string
+	if err := app.db.QueryRowContext(ctx, `SELECT metadata::text FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.failure'`, auth.OrganizationID, findingID).Scan(&failureMetadata); err != nil {
+		t.Fatalf("query failure audit metadata: %v", err)
+	}
+	if !strings.Contains(failureMetadata, "slack-provider-failed") {
+		t.Fatalf("failure metadata missing provider request id: %s", failureMetadata)
+	}
+	if strings.Contains(failureMetadata, "effects") {
+		t.Fatalf("failure metadata exposed success-shaped effects: %s", failureMetadata)
+	}
+}
+
+func TestDBSlackRemediationConfigFailuresDoNotResolve(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	cases := []struct {
+		name     string
+		mode     string
+		mutate   func(integrationID string)
+		wantCode connect.Code
+	}{
+		{
+			name:     "read only connection",
+			mode:     "READ_ONLY",
+			wantCode: connect.CodePermissionDenied,
+		},
+		{
+			name: "undecryptable credential",
+			mode: "REMEDIATION",
+			mutate: func(integrationID string) {
+				if _, err := app.db.ExecContext(ctx, `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, "not-a-valid-ciphertext", integrationID); err != nil {
+					t.Fatalf("corrupt encrypted token: %v", err)
+				}
+			},
+			wantCode: connect.CodeFailedPrecondition,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			beforeCalls := providerCalls
+			integrationID, findingID := seedSlackFinding(t, app, auth, tc.mode, "xoxp-config-failure", "TCFG"+strings.ToUpper(randomBase36(6)), `{"subject":"EVIDENCE_APP"}`)
+			if tc.mutate != nil {
+				tc.mutate(integrationID)
+			}
+			_, err := app.compatRemediateFinding(ctx, findingID, map[string]any{"action": "slack.revoke_app_install", "targetIdentifier": "A123"}, auth)
+			if code := connect.CodeOf(err); code != tc.wantCode {
+				t.Fatalf("error code = %v (%v), want %v", code, err, tc.wantCode)
+			}
+			if providerCalls != beforeCalls {
+				t.Fatalf("expected no provider call, got %d new calls", providerCalls-beforeCalls)
+			}
+			assertFindingState(t, app, findingID, "OPEN", false)
+			assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+			assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+			assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+		})
+	}
+}
+
+func TestDBSlackRemediationTypedAndCallApiSuccessAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+
+	seenAppIDs := []string{}
+	seenTeamIDs := []string{}
+	providerCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalls++
+		if r.URL.Path != "/admin.apps.uninstall" {
+			t.Fatalf("path = %s, want /admin.apps.uninstall", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		seenAppIDs = append(seenAppIDs, r.Form.Get("app_id"))
+		seenTeamIDs = append(seenTeamIDs, r.Form.Get("team_ids"))
+		requestID := "slack-callapi-success"
+		if providerCalls == 2 {
+			requestID = "slack-typed-success"
+		}
+		w.Header().Set("X-Slack-Req-Id", requestID)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, callFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-success-token", "TSUCC111", `{"subject":"EVIDENCE_APP","actor":"EVIDENCE_ACTOR"}`)
+	_, typedFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-success-token", "TSUCC222", `{"subject":"EVIDENCE_APP","actor":"EVIDENCE_ACTOR"}`)
+
+	callData, err := callRemediationViaCallAPI(t, app, ctx, header, callFindingID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123","note":"remove app"}`)
+	if err != nil {
+		t.Fatalf("CallApi Slack remediation: %v", err)
+	}
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        typedFindingID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+		Note:             "remove app",
+	})
+	copyCompatHeaders(typedReq.Header(), header)
+	typedResp, err := app.RemediateFinding(ctx, typedReq)
+	if err != nil {
+		t.Fatalf("typed Slack remediation: %v", err)
+	}
+	typed := typedResp.Msg.Data
+
+	if callData["success"] != true || !typed.Success {
+		t.Fatalf("expected both surfaces to succeed, CallApi=%v typed=%v", callData, typed)
+	}
+	if stringFromAny(callData["action"]) != typed.Action || typed.Action != "slack.revoke_app_install" {
+		t.Fatalf("action mismatch: CallApi=%v typed=%v", callData["action"], typed.Action)
+	}
+	if stringFromAny(callData["providerRequestId"]) == "" || typed.ProviderRequestId == "" {
+		t.Fatalf("missing provider request ids: CallApi=%v typed=%v", callData["providerRequestId"], typed.ProviderRequestId)
+	}
+	if len(stringSlice(callData["effects"])) == 0 || len(typed.Effects) == 0 {
+		t.Fatalf("expected provider effects: CallApi=%#v typed=%#v", callData["effects"], typed.Effects)
+	}
+	if providerCalls != 2 {
+		t.Fatalf("expected two provider calls, got %d", providerCalls)
+	}
+	if len(seenAppIDs) != 2 || seenAppIDs[0] != "A123" || seenAppIDs[1] != "A123" {
+		t.Fatalf("Slack app ids = %v, want explicit A123 for both surfaces", seenAppIDs)
+	}
+	if len(seenTeamIDs) != 2 || seenTeamIDs[0] != "TSUCC111" || seenTeamIDs[1] != "TSUCC222" {
+		t.Fatalf("Slack team ids = %v", seenTeamIDs)
+	}
+	assertFindingState(t, app, callFindingID, "RESOLVED", true)
+	assertFindingState(t, app, typedFindingID, "RESOLVED", true)
+	for _, findingID := range []string{callFindingID, typedFindingID} {
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 1)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 1)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+	}
+}
+
+func TestDBSlackRemediationTypedAndCallApiFailureAndMissingTargetAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+
+	providerCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalls++
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("app_id"); got != "A123" {
+			t.Fatalf("app_id = %q, want A123", got)
+		}
+		requestID := "slack-callapi-failed"
+		if providerCalls == 2 {
+			requestID = "slack-typed-failed"
+		}
+		w.Header().Set("X-Slack-Req-Id", requestID)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing_scope"})
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, callFailureID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-failure-token", "TFAILAPI", `{"subject":"EVIDENCE_APP"}`)
+	_, typedFailureID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-failure-token", "TFAILTYP", `{"subject":"EVIDENCE_APP"}`)
+	callData, err := callRemediationViaCallAPI(t, app, ctx, header, callFailureID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123"}`)
+	if err != nil {
+		t.Fatalf("CallApi Slack provider failure: %v", err)
+	}
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        typedFailureID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+	})
+	copyCompatHeaders(typedReq.Header(), header)
+	typedResp, err := app.RemediateFinding(ctx, typedReq)
+	if err != nil {
+		t.Fatalf("typed Slack provider failure: %v", err)
+	}
+	typed := typedResp.Msg.Data
+	if callData["success"] != false || typed.Success {
+		t.Fatalf("expected both surfaces to fail, CallApi=%v typed=%v", callData, typed)
+	}
+	if stringFromAny(callData["message"]) != typed.Message {
+		t.Fatalf("message mismatch: CallApi=%q typed=%q", callData["message"], typed.Message)
+	}
+	if stringFromAny(callData["providerRequestId"]) == "" || typed.ProviderRequestId == "" {
+		t.Fatalf("missing provider failure request ids: CallApi=%v typed=%v", callData["providerRequestId"], typed.ProviderRequestId)
+	}
+	if len(stringSlice(callData["effects"])) != 0 || len(typed.Effects) != 0 {
+		t.Fatalf("expected no failure effects, CallApi=%#v typed=%#v", callData["effects"], typed.Effects)
+	}
+	assertFindingState(t, app, callFailureID, "OPEN", false)
+	assertFindingState(t, app, typedFailureID, "OPEN", false)
+	for _, findingID := range []string{callFailureID, typedFailureID} {
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 1)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 1)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+	}
+
+	_, callMissingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-missing-target", "TMISSAPI", `{"subject":"EVIDENCE_SHOULD_NOT_BE_USED","actor":"ACTOR_SHOULD_NOT_BE_USED"}`)
+	_, typedMissingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-missing-target", "TMISSTYP", `{"subject":"EVIDENCE_SHOULD_NOT_BE_USED","actor":"ACTOR_SHOULD_NOT_BE_USED"}`)
+	beforeMissingTargetCalls := providerCalls
+	if _, err := callRemediationViaCallAPI(t, app, ctx, header, callMissingID, `{"action":"slack.revoke_app_install"}`); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("CallApi missing target code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+	missingTypedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId: typedMissingID,
+		Action:    "slack.revoke_app_install",
+	})
+	copyCompatHeaders(missingTypedReq.Header(), header)
+	if _, err := app.RemediateFinding(ctx, missingTypedReq); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("typed missing target code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+	if providerCalls != beforeMissingTargetCalls {
+		t.Fatalf("expected no provider calls for missing target, got %d", providerCalls-beforeMissingTargetCalls)
+	}
+	for _, findingID := range []string{callMissingID, typedMissingID} {
+		assertFindingState(t, app, findingID, "OPEN", false)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+	}
+}
+
+func TestDBRemediationTypedAndCallApiRBACDenialAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	admin := seedOrgAdmin(t, app, auth.OrganizationID)
+	analyst := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, analyst)
+	header.Set("X-Forwarded-For", "203.0.113.41")
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, findingID := seedSlackFinding(t, app, admin, "REMEDIATION", "xoxp-rbac-token", "TRBAC123", `{"subject":"EVIDENCE_APP"}`)
+
+	_, callErr := callRemediationViaCallAPI(t, app, ctx, header, findingID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123"}`)
+	if code := connect.CodeOf(callErr); code != connect.CodePermissionDenied {
+		t.Fatalf("CallApi RBAC denial code = %v (%v), want CodePermissionDenied", code, callErr)
+	}
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        findingID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+	})
+	copyCompatHeaders(typedReq.Header(), header)
+	_, typedErr := app.RemediateFinding(ctx, typedReq)
+	if code := connect.CodeOf(typedErr); code != connect.CodePermissionDenied {
+		t.Fatalf("typed RBAC denial code = %v (%v), want CodePermissionDenied", code, typedErr)
+	}
+	if callErr.Error() != typedErr.Error() {
+		t.Fatalf("RBAC denial error mismatch: CallApi=%q typed=%q", callErr.Error(), typedErr.Error())
+	}
+	if providerCalls != 0 {
+		t.Fatalf("RBAC denial must not call Slack, got %d provider calls", providerCalls)
+	}
+	assertFindingState(t, app, findingID, "OPEN", false)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+}
+
+func TestDBRemediationTypedAndCallApiRateLimitExhaustionAgree(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, callFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-rate-call", "TRATECAL", `{"subject":"EVIDENCE_APP"}`)
+	_, typedFindingID := seedSlackFinding(t, app, auth, "REMEDIATION", "xoxp-rate-typed", "TRATETYP", `{"subject":"EVIDENCE_APP"}`)
+
+	callHeader := seedSessionHeader(t, app, auth)
+	callHeader.Set("X-Forwarded-For", "198.51.100.91")
+	callPath := "/api/v1/findings/" + callFindingID + "/remediate"
+	seedExhaustedRateLimitBucket(t, app, callHeader, http.MethodPost, callPath)
+	_, callErr := callRemediationViaCallAPI(t, app, ctx, callHeader, callFindingID, `{"action":"slack.revoke_app_install","targetIdentifier":"A123"}`)
+	if code := connect.CodeOf(callErr); code != connect.CodeResourceExhausted {
+		t.Fatalf("CallApi rate limit code = %v (%v), want CodeResourceExhausted", code, callErr)
+	}
+
+	typedHeader := seedSessionHeader(t, app, auth)
+	typedHeader.Set("X-Forwarded-For", "198.51.100.92")
+	typedPath := "/api/v1/findings/" + typedFindingID + "/remediate"
+	seedExhaustedRateLimitBucket(t, app, typedHeader, http.MethodPost, typedPath)
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        typedFindingID,
+		Action:           "slack.revoke_app_install",
+		TargetIdentifier: "A123",
+	})
+	copyCompatHeaders(typedReq.Header(), typedHeader)
+	_, typedErr := app.RemediateFinding(ctx, typedReq)
+	if code := connect.CodeOf(typedErr); code != connect.CodeResourceExhausted {
+		t.Fatalf("typed rate limit code = %v (%v), want CodeResourceExhausted", code, typedErr)
+	}
+	if callErr.Error() != typedErr.Error() {
+		t.Fatalf("rate limit error mismatch: CallApi=%q typed=%q", callErr.Error(), typedErr.Error())
+	}
+	if providerCalls != 0 {
+		t.Fatalf("rate-limited remediation must not call Slack, got %d provider calls", providerCalls)
+	}
+	for _, findingID := range []string{callFindingID, typedFindingID} {
+		assertFindingState(t, app, findingID, "OPEN", false)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.requested", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.failure", 0)
+		assertAuditActionCount(t, app, auth.OrganizationID, findingID, "finding.remediate.success", 0)
+	}
+}
+
+func TestDBManualFindingStatusActionsRemainLocal(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	_, resolvedFindingID := seedRemediationFixture(t, app, auth, "SLACK")
+	resolveReq := connect.NewRequest(&aperiov1.UpdateFindingStatusRequest{
+		Id:             resolvedFindingID,
+		Status:         "RESOLVED",
+		ResolutionNote: "operator verified the fix",
+	})
+	copyCompatHeaders(resolveReq.Header(), header)
+	resolveResp, err := app.UpdateFindingStatus(ctx, resolveReq)
+	if err != nil {
+		t.Fatalf("typed mark resolved: %v", err)
+	}
+	if resolveResp.Msg.Data.GetStatus() != "RESOLVED" {
+		t.Fatalf("typed status = %s, want RESOLVED", resolveResp.Msg.Data.GetStatus())
+	}
+	assertFindingState(t, app, resolvedFindingID, "RESOLVED", true)
+	assertAuditActionCount(t, app, auth.OrganizationID, resolvedFindingID, "finding.status.update", 1)
+	assertAuditActionCount(t, app, auth.OrganizationID, resolvedFindingID, "finding.remediate.requested", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, resolvedFindingID, "finding.remediate.success", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, resolvedFindingID, "finding.remediate.failure", 0)
+
+	_, mutedFindingID := seedRemediationFixture(t, app, auth, "SLACK")
+	patchReq := connect.NewRequest(&aperiov1.CallApiRequest{
+		Method:   http.MethodPatch,
+		Path:     "/api/v1/findings/" + mutedFindingID,
+		BodyJson: `{"status":"MUTED","resolutionNote":"accepted risk locally"}`,
+	})
+	copyCompatHeaders(patchReq.Header(), header)
+	patchResp, err := app.CallApi(ctx, patchReq)
+	if err != nil {
+		t.Fatalf("CallApi accept risk status update: %v", err)
+	}
+	var patchEnvelope map[string]any
+	if err := json.Unmarshal([]byte(patchResp.Msg.BodyJson), &patchEnvelope); err != nil {
+		t.Fatalf("decode status update response: %v", err)
+	}
+	patchData := dataMap(t, patchEnvelope)
+	if patchData["status"] != "MUTED" {
+		t.Fatalf("CallApi status = %v, want MUTED", patchData["status"])
+	}
+	assertFindingState(t, app, mutedFindingID, "MUTED", true)
+	assertAuditActionCount(t, app, auth.OrganizationID, mutedFindingID, "finding.status.update", 1)
+	assertAuditActionCount(t, app, auth.OrganizationID, mutedFindingID, "finding.remediate.requested", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, mutedFindingID, "finding.remediate.success", 0)
+	assertAuditActionCount(t, app, auth.OrganizationID, mutedFindingID, "finding.remediate.failure", 0)
+	if providerCalls != 0 {
+		t.Fatalf("manual status updates must not call Slack, got %d provider calls", providerCalls)
+	}
+}
+
+func TestDBUnsupportedRemediationsRemainUnresolved(t *testing.T) {
+	t.Setenv("APERIO_ALLOW_PREVIEW_CONNECTORS", "true")
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+
+	for _, definition := range remediationActionDefinitions {
+		if definition.Class != remediationActionUnsupported {
+			continue
+		}
+		t.Run(definition.Action, func(t *testing.T) {
+			_, findingID := seedRemediationFixture(t, app, auth, definition.Provider)
+			result := dataMap(t, mustCall(t, func() (any, error) {
+				return app.compatRemediateFinding(ctx, findingID, map[string]any{"action": definition.Action, "targetIdentifier": "user@example.com"}, auth)
+			}))
+			if result["success"] != false {
+				t.Fatalf("expected unsupported remediation failure, got %v", result)
+			}
+			if result["providerRequestId"] != "" {
+				t.Fatalf("unsupported remediation returned provider request id %q", result["providerRequestId"])
+			}
+			if effects, ok := result["effects"].([]string); !ok || len(effects) != 0 {
+				t.Fatalf("expected no provider effects, got %#v", result["effects"])
+			}
+			if !strings.Contains(strings.ToLower(result["message"].(string)), "unavailable") {
+				t.Fatalf("expected unavailable message, got %q", result["message"])
+			}
+
+			var status string
+			var resolvedAt sql.NullTime
+			if err := app.db.QueryRowContext(ctx, `SELECT status::text, resolved_at FROM security_findings WHERE id = $1`, findingID).Scan(&status, &resolvedAt); err != nil {
+				t.Fatalf("query finding state: %v", err)
+			}
+			if status != "OPEN" || resolvedAt.Valid {
+				t.Fatalf("finding state = (%s,%v), want OPEN with null resolved_at", status, resolvedAt.Valid)
+			}
+			var successAuditRows int
+			if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.success'`, auth.OrganizationID, findingID).Scan(&successAuditRows); err != nil {
+				t.Fatalf("count success audits: %v", err)
+			}
+			if successAuditRows != 0 {
+				t.Fatalf("expected no success audit rows, got %d", successAuditRows)
+			}
+			var failureMetadata string
+			if err := app.db.QueryRowContext(ctx, `SELECT metadata::text FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.failure'`, auth.OrganizationID, findingID).Scan(&failureMetadata); err != nil {
+				t.Fatalf("query failure audit metadata: %v", err)
+			}
+			if strings.Contains(failureMetadata, "providerRequestId") || strings.Contains(failureMetadata, "effects") {
+				t.Fatalf("failure audit metadata exposed provider-looking fields: %s", failureMetadata)
+			}
+		})
+	}
+}
+
+func TestDBUnsupportedRemediationTypedAndCallApiAgree(t *testing.T) {
+	t.Setenv("APERIO_ALLOW_PREVIEW_CONNECTORS", "true")
+	app, auth := newTestDBApp(t)
+	auth = seedOrgAdmin(t, app, auth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+	_, findingID := seedRemediationFixture(t, app, auth, "OKTA")
+
+	callReq := connect.NewRequest(&aperiov1.CallApiRequest{
+		Method:   http.MethodPost,
+		Path:     "/api/v1/findings/" + findingID + "/remediate",
+		BodyJson: `{"action":"okta.suspend_user","targetIdentifier":"user@example.com"}`,
+	})
+	for key, values := range header {
+		for _, value := range values {
+			callReq.Header().Add(key, value)
+		}
+	}
+	callResp, err := app.CallApi(ctx, callReq)
+	if err != nil {
+		t.Fatalf("CallApi remediation: %v", err)
+	}
+	var callEnvelope map[string]any
+	if err := json.Unmarshal([]byte(callResp.Msg.BodyJson), &callEnvelope); err != nil {
+		t.Fatalf("decode CallApi response: %v", err)
+	}
+	callData := dataMap(t, callEnvelope)
+
+	typedReq := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        findingID,
+		Action:           "okta.suspend_user",
+		TargetIdentifier: "user@example.com",
+	})
+	for key, values := range header {
+		for _, value := range values {
+			typedReq.Header().Add(key, value)
+		}
+	}
+	typedResp, err := app.RemediateFinding(ctx, typedReq)
+	if err != nil {
+		t.Fatalf("typed remediation: %v", err)
+	}
+	typed := typedResp.Msg.Data
+	if callData["success"] != false || typed.Success {
+		t.Fatalf("expected both surfaces to fail, CallApi=%v typed=%v", callData, typed)
+	}
+	if callData["message"] != typed.Message {
+		t.Fatalf("message mismatch: CallApi=%q typed=%q", callData["message"], typed.Message)
+	}
+	if callData["providerRequestId"] != "" || typed.ProviderRequestId != "" {
+		t.Fatalf("unexpected provider request ids: CallApi=%q typed=%q", callData["providerRequestId"], typed.ProviderRequestId)
+	}
+	if effects, ok := callData["effects"].([]any); !ok || len(effects) != 0 || len(typed.Effects) != 0 {
+		t.Fatalf("expected no effects, CallApi=%#v typed=%#v", callData["effects"], typed.Effects)
+	}
+
+	var status string
+	if err := app.db.QueryRowContext(ctx, `SELECT status::text FROM security_findings WHERE id = $1`, findingID).Scan(&status); err != nil {
+		t.Fatalf("query finding status: %v", err)
+	}
+	if status != "OPEN" {
+		t.Fatalf("finding status = %s, want OPEN", status)
+	}
+
+	unknownCall := connect.NewRequest(&aperiov1.CallApiRequest{
+		Method:   http.MethodPost,
+		Path:     "/api/v1/findings/" + findingID + "/remediate",
+		BodyJson: `{"action":"okta.unknown_action","targetIdentifier":"user@example.com"}`,
+	})
+	for key, values := range header {
+		for _, value := range values {
+			unknownCall.Header().Add(key, value)
+		}
+	}
+	if _, err := app.CallApi(ctx, unknownCall); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("CallApi unknown action code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+	unknownTyped := connect.NewRequest(&aperiov1.RemediateFindingRequest{
+		FindingId:        findingID,
+		Action:           "okta.unknown_action",
+		TargetIdentifier: "user@example.com",
+	})
+	for key, values := range header {
+		for _, value := range values {
+			unknownTyped.Header().Add(key, value)
+		}
+	}
+	if _, err := app.RemediateFinding(ctx, unknownTyped); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("typed unknown action code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+}
+
 func TestDBGoogleMailboxScanConfig(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()
@@ -485,4 +1145,87 @@ func mustCall(t *testing.T, fn func() (any, error)) any {
 		t.Fatalf("call failed: %v", err)
 	}
 	return result
+}
+
+func seedSlackFinding(t *testing.T, app *App, auth compatAuth, mode, accessToken, externalAccountID, evidence string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := app.compatCreateIntegration(ctx, map[string]any{
+		"provider":          "SLACK",
+		"displayName":       "Slack Remediation " + randomBase36(6),
+		"externalAccountId": externalAccountID,
+		"mode":              mode,
+		"credentials":       map[string]any{"accessToken": accessToken},
+	}, auth)
+	if err != nil {
+		t.Fatalf("create Slack integration: %v", err)
+	}
+	integrationID := dataMap(t, created)["id"].(string)
+	findingID := compatID("fnd")
+	if strings.TrimSpace(evidence) == "" {
+		evidence = `{}`
+	}
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO security_findings (id, organization_id, integration_id, dedupe_key, title, description, severity, status, risk_score, remediation_steps, evidence, detected_at) VALUES ($1,$2,$3,$4,$5,$6,'HIGH','OPEN',70,ARRAY[]::text[],$7,NOW())`, findingID, auth.OrganizationID, integrationID, "dk-"+findingID, "Suspicious Slack app", "seeded for remediation test", json.RawMessage(evidence)); err != nil {
+		t.Fatalf("seed Slack finding: %v", err)
+	}
+	return integrationID, findingID
+}
+
+func callRemediationViaCallAPI(t *testing.T, app *App, ctx context.Context, header http.Header, findingID string, bodyJSON string) (map[string]any, error) {
+	t.Helper()
+	req := connect.NewRequest(&aperiov1.CallApiRequest{
+		Method:   http.MethodPost,
+		Path:     "/api/v1/findings/" + findingID + "/remediate",
+		BodyJson: bodyJSON,
+	})
+	copyCompatHeaders(req.Header(), header)
+	resp, err := app.CallApi(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(resp.Msg.BodyJson), &envelope); err != nil {
+		t.Fatalf("decode CallApi remediation response: %v", err)
+	}
+	return dataMap(t, envelope), nil
+}
+
+func seedExhaustedRateLimitBucket(t *testing.T, app *App, header http.Header, method, path string) {
+	t.Helper()
+	max, window, ok := compatRateLimitPolicy(path)
+	if !ok {
+		t.Fatalf("no rate limit policy for %s %s", method, path)
+	}
+	key := compatRateLimitKey(method, path, compatClientIdentity(header), "")
+	_, err := app.db.ExecContext(context.Background(), `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET count = EXCLUDED.count, reset_at = EXCLUDED.reset_at, updated_at = NOW()
+	`, key, max, time.Now().Add(window))
+	if err != nil {
+		t.Fatalf("seed rate limit bucket: %v", err)
+	}
+}
+
+func assertFindingState(t *testing.T, app *App, findingID, wantStatus string, wantResolvedAt bool) {
+	t.Helper()
+	var status string
+	var resolvedAt sql.NullTime
+	if err := app.db.QueryRowContext(context.Background(), `SELECT status::text, resolved_at FROM security_findings WHERE id = $1`, findingID).Scan(&status, &resolvedAt); err != nil {
+		t.Fatalf("query finding state: %v", err)
+	}
+	if status != wantStatus || resolvedAt.Valid != wantResolvedAt {
+		t.Fatalf("finding state = (%s,resolved_at:%v), want (%s,resolved_at:%v)", status, resolvedAt.Valid, wantStatus, wantResolvedAt)
+	}
+}
+
+func assertAuditActionCount(t *testing.T, app *App, organizationID, targetID, action string, want int) {
+	t.Helper()
+	var got int
+	if err := app.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = $3`, organizationID, targetID, action).Scan(&got); err != nil {
+		t.Fatalf("count audit action %s: %v", action, err)
+	}
+	if got != want {
+		t.Fatalf("audit action %s count = %d, want %d", action, got, want)
+	}
 }

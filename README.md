@@ -114,10 +114,14 @@ npx tsx scripts/seed.ts
 
 Long-running pipelines run as separate processes. The event bus is optional; set `APERIO_EVENT_BUS=nats` to publish protobuf envelopes to the local NATS service started by `npm run dev`.
 
+During the Go worker transition, the unsuffixed worker commands run the TypeScript parity/reference workers. Explicit `:go` commands are available for scoped transition smokes; they load local `.env` settings and derive a pgx-safe Postgres DSN with `scripts/dev-config.mjs go-database-url`, but they are not full replacements until a parity matrix proves cutover.
+
 ```bash
-npm run worker:ingestion            # pulls audit events into the DB
-npm run worker:siem                 # ships findings to enabled SIEM destinations
-npm run mcp:broker                  # stdio MCP server for agent clients
+npm run worker:ingestion                 # TypeScript parity/reference ingestion worker
+npm run worker:siem                      # TypeScript parity/reference SIEM dispatcher
+npm run worker:ingestion:go -- -once -limit 1  # explicit Go transition smoke
+npm run worker:siem:go -- -once -limit 1       # explicit Go transition smoke
+npm run mcp:broker                       # stdio MCP server for agent clients
 ```
 
 ---
@@ -236,8 +240,10 @@ Every workflow below is also wrapped by the Makefile — run `make help` for the
 ```bash
 npm run dev:connect            # Go ConnectRPC API on :4100
 npm run dev:web                # Next.js console on :3000
-npm run worker:ingestion       # ingestion worker
-npm run worker:siem            # SIEM dispatcher worker
+npm run worker:ingestion       # TypeScript parity/reference ingestion worker
+npm run worker:siem            # TypeScript parity/reference SIEM dispatcher worker
+npm run worker:ingestion:go    # explicit Go transition ingestion worker
+npm run worker:siem:go         # explicit Go transition SIEM dispatcher worker
 npm run mcp:broker             # stdio MCP broker
 npm run build:web              # production Next.js build
 npm run proto:lint             # Buf lint for protobuf contracts

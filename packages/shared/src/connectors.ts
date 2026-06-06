@@ -56,7 +56,7 @@ export type ConnectorDefinition = {
   fields: ConnectorField[];
 };
 
-export const connectorCatalog: ConnectorDefinition[] = [
+const rawConnectorCatalog: ConnectorDefinition[] = [
   {
     provider: "GITHUB",
     name: "GitHub",
@@ -662,6 +662,19 @@ export const connectorCatalog: ConnectorDefinition[] = [
     ]
   }
 ];
+
+const executableRemediationActionKeys = new Set<RemediationActionKey>([
+  "slack.revoke_app_install"
+]);
+
+export const connectorCatalog: ConnectorDefinition[] = rawConnectorCatalog.map(
+  (connector) => ({
+    ...connector,
+    remediationActions: connector.remediationActions.filter((action) =>
+      executableRemediationActionKeys.has(action.key)
+    )
+  })
+);
 
 const credentialFieldsSchema = z
   .object({

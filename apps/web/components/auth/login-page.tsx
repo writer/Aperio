@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, setAuthToken } from "../../lib/api";
+import { login } from "../../lib/api";
 import { useAuth } from "./auth-shell";
 import { AuthLayout } from "./auth-layout";
 import { Button } from "../ui/button";
@@ -30,13 +30,12 @@ export function LoginPage() {
     setMessage("");
 
     try {
-      const response = await login({
+      await login({
         organizationSlug: organizationSlug.trim().toLowerCase(),
         email: email.trim().toLowerCase(),
         password,
         totpCode: totpCode.trim() || undefined
       });
-      setAuthToken(response.data.token);
       await refreshSession();
       router.replace("/");
     } catch (error) {

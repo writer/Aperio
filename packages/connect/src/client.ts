@@ -80,7 +80,6 @@ type ConnectProvider = ConnectFinding["integration"]["provider"];
 type ConnectTenantRole = "OWNER" | "ADMIN" | "SECURITY_ANALYST" | "VIEWER";
 
 export type ConnectAuthSession = {
-  token: string;
   user: {
     id: string;
     email: string;
@@ -596,7 +595,6 @@ function parseMetadata(metadataJson: string): Record<string, unknown> | null {
 
 function authSessionFromProto(session: ProtoAuthSession): ConnectAuthSession {
   return {
-    token: session.token,
     user: {
       id: session.user?.id ?? "",
       email: session.user?.email ?? "",
@@ -1115,20 +1113,6 @@ function securityOverviewFromProto(
 }
 
 export const aperioConnectClient = {
-  async callApi<T>(input: {
-    method: string;
-    path: string;
-    body?: unknown;
-  }): Promise<T> {
-    // callApi is the JSON compatibility escape hatch used while older routes are
-    // migrated to first-class protobuf methods.
-    const response = await client.callApi({
-      method: input.method,
-      path: input.path,
-      bodyJson: input.body === undefined ? "" : JSON.stringify(input.body)
-    });
-    return JSON.parse(response.bodyJson || "{}") as T;
-  },
   async signup(payload: {
     organizationName: string;
     organizationSlug: string;

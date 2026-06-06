@@ -1,11 +1,8 @@
 import { aperioConnectClient } from "@aperio/connect/client";
 
-const AUTH_TOKEN_STORAGE_KEY = "aperio.auth.token";
-
 export type TenantRole = "OWNER" | "ADMIN" | "SECURITY_ANALYST" | "VIEWER";
 
 export type AuthSession = {
-  token: string;
   user: {
     id: string;
     email: string;
@@ -19,36 +16,6 @@ export type AuthSession = {
     slug: string;
   };
 };
-
-function authTokenFromStorage() {
-  // Authentication now relies on the HttpOnly aperio_session cookie set by the
-  // Go compatibility API. Keep this shim null to avoid reintroducing bearer
-  // tokens into localStorage.
-  return null;
-}
-
-export function getAuthToken() {
-  return authTokenFromStorage();
-}
-
-export function setAuthToken(token: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  void token;
-  // Older callers still invoke setAuthToken after login; remove any legacy value
-  // while preserving the cookie-backed session created by the server.
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-}
-
-export function clearAuthToken() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-}
 
 export type DashboardMetrics = {
   totalRiskScore: number;

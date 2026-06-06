@@ -52,67 +52,26 @@ func randomBase36(length int) string {
 }
 
 func connectorHasRemediationAction(connector *connectorDefinition, action string) bool {
-	for _, candidate := range connector.RemediationActions {
-		if candidate.Key == action {
-			return true
-		}
-	}
-	return false
+	definition, ok := findRemediationActionDefinition(action)
+	return ok && connector != nil && definition.Provider == connector.Provider
 }
 
 func (a *App) executeRemediation(ctx context.Context, request remediationRequest) remediationResult {
-	switch request.Action {
-	case "okta.suspend_user":
-		return remediationResult{
-			Success:           true,
-			ProviderRequestID: pseudoRequestID("okta"),
-			Message:           "User " + request.TargetIdentifier + " suspended on " + request.ExternalAccountID,
-			Effects: []string{
-				"POST /api/v1/users/" + request.TargetIdentifier + "/lifecycle/suspend",
-				"Active sessions invalidated",
-				"Sign-in blocked across Okta tenant",
-			},
-		}
-	case "okta.reset_mfa_factors":
-		return remediationResult{
-			Success:           true,
-			ProviderRequestID: pseudoRequestID("okta"),
-			Message:           "MFA factors reset for " + request.TargetIdentifier,
-			Effects: []string{
-				"POST /api/v1/users/" + request.TargetIdentifier + "/lifecycle/reset_factors",
-				"User must re-enroll factors on next sign-in",
-			},
-		}
-	case "slack.deactivate_user":
-		return remediationResult{
-			Success:           true,
-			ProviderRequestID: pseudoRequestID("slack"),
-			Message:           "Slack user " + request.TargetIdentifier + " deactivated",
-			Effects: []string{
-				"admin.users.session.invalidate",
-				"admin.users.remove",
-				"DMs preserved, channels left automatically",
-			},
-		}
-	case "slack.revoke_app_install":
-		return a.executeSlackRevokeAppInstall(ctx, request)
-	case "github.revoke_oauth_app",
-		"github.enforce_branch_protection",
-		"google.suspend_user",
-		"google.revoke_oauth_grants",
-		"ms365.revoke_sessions",
-		"ms365.disable_user",
-		"atlassian.revoke_user_access":
+	if definition, ok := findRemediationActionDefinition(request.Action); ok && definition.Class == remediationActionUnsupported {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("noop"),
-			Message:           "Action " + request.Action + " for " + request.Provider + " is not yet implemented in this build",
+			ProviderRequestID: "",
+			Message:           "Action " + request.Action + " is unavailable: provider remediation is not implemented in this build",
 			Effects:           []string{},
 		}
+	}
+	switch request.Action {
+	case "slack.revoke_app_install":
+		return a.executeSlackRevokeAppInstall(ctx, request)
 	default:
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("unknown"),
+			ProviderRequestID: "",
 			Message:           "Unknown remediation action " + request.Action,
 			Effects:           []string{},
 		}
@@ -124,7 +83,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 	if target == "" {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("slack"),
+			ProviderRequestID: "",
 			Message:           "Slack app id is required for slack.revoke_app_install",
 			Effects:           []string{},
 		}
@@ -133,7 +92,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 	if token == "" {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("slack"),
+			ProviderRequestID: "",
 			Message:           "Slack access token is unavailable",
 			Effects:           []string{},
 		}
@@ -153,7 +112,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 	if err != nil {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("slack"),
+			ProviderRequestID: "",
 			Message:           "Slack API endpoint is misconfigured",
 			Effects:           []string{},
 		}
@@ -167,7 +126,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 	if err != nil {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("slack"),
+			ProviderRequestID: "",
 			Message:           "Slack request could not be created",
 			Effects:           []string{},
 		}
@@ -180,7 +139,7 @@ func (a *App) executeSlackRevokeAppInstall(ctx context.Context, request remediat
 	if err != nil {
 		return remediationResult{
 			Success:           false,
-			ProviderRequestID: pseudoRequestID("slack"),
+			ProviderRequestID: "",
 			Message:           "Slack admin.apps.uninstall request failed",
 			Effects:           []string{},
 		}
