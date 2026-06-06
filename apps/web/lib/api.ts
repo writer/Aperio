@@ -21,11 +21,7 @@ export type AuthSession = {
 };
 
 function authTokenFromStorage() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  return null;
 }
 
 export function getAuthToken() {

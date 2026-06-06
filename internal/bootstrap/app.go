@@ -28,6 +28,7 @@ import (
 const sessionCookieName = "aperio_session"
 
 var processStartedAt = time.Now()
+var errInvalidSession = errors.New("invalid session")
 
 // App owns the Go/ConnectRPC HTTP surface. It deliberately keeps only
 // infrastructural dependencies here so endpoint implementations stay easy to
@@ -340,15 +341,11 @@ func (a *App) GetDashboardMetrics(
 			Started:        started,
 		})
 	}()
-	if a.db == nil {
-		status = "unavailable"
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
-	}
 	var err error
-	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
+	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = "unauthenticated"
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+		status = connect.CodeOf(err).String()
+		return nil, err
 	}
 	metrics, err := a.dashboardMetrics(ctx, organizationID)
 	if err != nil {
@@ -394,15 +391,11 @@ func (a *App) ListFindings(
 			},
 		})
 	}()
-	if a.db == nil {
-		status = "unavailable"
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
-	}
 	var err error
-	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
+	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = "unauthenticated"
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+		status = connect.CodeOf(err).String()
+		return nil, err
 	}
 	if err := validateFindingListRequest(req.Msg); err != nil {
 		status = "invalid_argument"
@@ -449,15 +442,11 @@ func (a *App) GetFinding(
 			},
 		})
 	}()
-	if a.db == nil {
-		status = "unavailable"
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
-	}
 	var err error
-	organizationID, err = a.organizationIDFromSession(ctx, req.Header())
+	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = "unauthenticated"
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+		status = connect.CodeOf(err).String()
+		return nil, err
 	}
 	findingID := strings.TrimSpace(req.Msg.Id)
 	if findingID == "" {
@@ -608,7 +597,10 @@ func (a *App) authenticatedOrganization(ctx context.Context, header http.Header)
 	}
 	organizationID, err := a.organizationIDFromSession(ctx, header)
 	if err != nil {
-		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+		if errors.Is(err, errInvalidSession) || errors.Is(err, sql.ErrNoRows) {
+			return "", connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+		}
+		return "", connect.NewError(connect.CodeUnavailable, errors.New("authentication store unavailable"))
 	}
 	return organizationID, nil
 }
@@ -694,20 +686,20 @@ func hostnameOrUnknown() string {
 // unrevoked sessions for active users, respects MFA completion, and enforces the
 // same idle-timeout control before returning the tenant boundary.
 func (a *App) organizationIDFromSession(ctx context.Context, header http.Header) (string, error) {
-	token := sessionCookie(header.Get("Cookie"))
+	token := sessionToken(header)
 	if token == "" {
-		return "", errors.New("missing session")
+		return "", errInvalidSession
 	}
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", errors.New("invalid session")
+		return "", errInvalidSession
 	}
 	tokenHash := hashOpaqueToken(parts[1])
 
 	var organizationID, sessionID string
 	var lastSeenAt time.Time
 	err := a.db.QueryRowContext(ctx, `
-		SELECT us.id, us.organization_id, us.last_seen_at
+		SELECT us.id, u.organization_id, us.last_seen_at
 		FROM user_sessions us
 		JOIN users u ON u.id = us.user_id
 		WHERE us.id = $1
@@ -722,12 +714,22 @@ func (a *App) organizationIDFromSession(ctx context.Context, header http.Header)
 	}
 	if time.Since(lastSeenAt) > time.Duration(a.cfg.SessionIdleMinutes)*time.Minute {
 		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, sessionID)
-		return "", errors.New("session idle timeout")
+		return "", errInvalidSession
 	}
 	if time.Since(lastSeenAt) > time.Minute {
 		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET last_seen_at = NOW() WHERE id = $1`, sessionID)
 	}
 	return organizationID, nil
+}
+
+func sessionToken(header http.Header) string {
+	if authorization := strings.TrimSpace(header.Get("Authorization")); authorization != "" {
+		scheme, value, ok := strings.Cut(authorization, " ")
+		if ok && strings.EqualFold(scheme, "Bearer") && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return sessionCookie(header.Get("Cookie"))
 }
 
 // sessionCookie extracts the opaque session token from the Cookie header without
@@ -737,7 +739,11 @@ func sessionCookie(header string) string {
 	for _, entry := range strings.Split(header, ";") {
 		name, value, ok := strings.Cut(strings.TrimSpace(entry), "=")
 		if ok && name == sessionCookieName {
-			return value
+			decoded, err := url.QueryUnescape(value)
+			if err != nil {
+				return value
+			}
+			return decoded
 		}
 	}
 	return ""
@@ -1893,7 +1899,7 @@ func (a *App) withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Headers", "content-type, connect-protocol-version, x-user-agent")
+			w.Header().Set("Access-Control-Allow-Headers", "authorization, content-type, connect-protocol-version, x-user-agent")
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 			w.WriteHeader(http.StatusNoContent)
 			return

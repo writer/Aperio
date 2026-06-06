@@ -17,7 +17,11 @@ type Config struct {
 	// SessionIdleMinutes mirrors APERIO_SESSION_IDLE_MINUTES from the TypeScript API.
 	SessionIdleMinutes int
 	// WebOrigin is the comma-separated browser origin allow-list used for credentialed RPCs.
-	WebOrigin string
+	WebOrigin              string
+	MaxOpenConns           int
+	MaxIdleConns           int
+	ConnMaxLifetimeMinutes int
+	ConnMaxIdleMinutes     int
 }
 
 // FromEnv reads process configuration with local-development defaults. Required
@@ -29,6 +33,13 @@ func FromEnv() Config {
 		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		SessionIdleMinutes: envInt("APERIO_SESSION_IDLE_MINUTES", 120),
 		WebOrigin:          strings.TrimRight(env("APERIO_WEB_ORIGIN", "http://localhost:3000"), "/"),
+		MaxOpenConns:       envInt("APERIO_CONNECT_DB_MAX_OPEN_CONNS", 10),
+		MaxIdleConns:       envInt("APERIO_CONNECT_DB_MAX_IDLE_CONNS", 5),
+		ConnMaxLifetimeMinutes: envInt(
+			"APERIO_CONNECT_DB_CONN_MAX_LIFETIME_MINUTES",
+			30,
+		),
+		ConnMaxIdleMinutes: envInt("APERIO_CONNECT_DB_CONN_MAX_IDLE_MINUTES", 5),
 	}
 }
 

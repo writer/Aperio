@@ -182,6 +182,7 @@ enum SaasIdentityStatus {
 
 enum AuthTokenPurpose {
   INVITE
+  OAUTH_STATE
   PASSWORD_RESET
 }
 
@@ -247,6 +248,7 @@ model User {
   isActive       Boolean      @default(true) @map("is_active")
   mfaEnabled     Boolean      @default(false) @map("mfa_enabled")
   mfaSecretEncrypted String?  @map("mfa_secret_encrypted") @db.Text
+  mfaLastCounter Int?         @map("mfa_last_counter")
   lastLoginAt    DateTime?    @map("last_login_at")
   isBreakGlass   Boolean      @default(false) @map("is_break_glass")
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -307,6 +309,7 @@ model IngestedEvent {
   id                String                @id @default(cuid())
   organizationId    String                @map("organization_id")
   integrationId     String                @map("integration_id")
+  ingestionJobId    String?               @unique @map("ingestion_job_id")
   provider          SaaSProvider
   eventType         String                @map("event_type") @db.VarChar(180)
   source            String                @db.VarChar(180)
@@ -319,6 +322,7 @@ model IngestedEvent {
   createdAt         DateTime              @default(now()) @map("created_at")
   organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integration       IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  ingestionJob      IngestionJob?         @relation(fields: [ingestionJobId], references: [id], onDelete: SetNull)
   findings          SecurityFinding[]
 
   @@index([organizationId])
@@ -349,6 +353,7 @@ model IngestionJob {
   updatedAt      DateTime              @updatedAt @map("updated_at")
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  ingestedEvent  IngestedEvent?
 
   @@index([organizationId, status, nextAttemptAt])
   @@index([integrationId, status])
@@ -424,6 +429,7 @@ model SecurityAsset {
   @@index([organizationId, exposureLevel])
   @@index([integrationId])
   @@index([ownerUserId])
+  @@index([organizationId, provider, externalId])
   @@map("security_assets")
 }
 
@@ -528,6 +534,7 @@ model SiemDelivery {
   organizationId String             @map("organization_id")
   destinationId  String?            @map("destination_id")
   stream         SiemStreamType
+  dedupeKey      String?            @map("dedupe_key") @db.VarChar(128)
   payload        Json
   status         SiemDeliveryStatus @default(PENDING)
   attempts       Int                @default(0)
@@ -545,7 +552,19 @@ model SiemDelivery {
   @@index([organizationId, status, nextAttemptAt])
   @@index([destinationId, status])
   @@index([status, leaseExpiresAt])
+  @@unique([organizationId, destinationId, stream, dedupeKey])
   @@map("siem_deliveries")
+}
+
+model RateLimitBucket {
+  key       String   @id @db.VarChar(128)
+  count     Int      @default(0)
+  resetAt   DateTime @map("reset_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
 }
 
 model Agent {
@@ -622,6 +641,7 @@ model AgentMessage {
 
   @@index([organizationId, createdAt])
   @@index([taskId, createdAt])
+  @@index([fromAgentId, createdAt])
   @@index([toAgentId, createdAt])
   @@map("agent_messages")
 }
