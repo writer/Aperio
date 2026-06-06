@@ -185,15 +185,15 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 	payload, err := parsePayload(item.Payload)
 	if err != nil {
-		return d.finish(ctx, item, false, true, err.Error())
+		return d.fail(ctx, item, true, err.Error())
 	}
 	if !item.DestinationID.Valid {
-		return d.finish(ctx, item, false, true, "destination not configured")
+		return d.fail(ctx, item, true, "destination not configured")
 	}
 	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String)
 	if err != nil {
 		permanent, message := destinationLoadFailure(err)
-		return d.finish(ctx, item, false, permanent, message)
+		return d.fail(ctx, item, permanent, message)
 	}
 	switch dest.Kind {
 	case "JSON_FILE":
@@ -202,7 +202,7 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 		err = fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
 	}
 	if err != nil {
-		return d.finish(ctx, item, false, false, err.Error())
+		return d.fail(ctx, item, false, err.Error())
 	}
 	if err := d.finish(ctx, item, true, false, ""); err != nil {
 		return err
@@ -213,6 +213,13 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 		WHERE id = $1 AND organization_id = $2
 	`, dest.ID, dest.OrganizationID)
 	return nil
+}
+
+func (d *Dispatcher) fail(ctx context.Context, item delivery, permanent bool, message string) error {
+	if err := d.finish(ctx, item, false, permanent, message); err != nil {
+		return err
+	}
+	return errors.New(message)
 }
 
 func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string) (destination, error) {
