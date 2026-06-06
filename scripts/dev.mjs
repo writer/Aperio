@@ -35,21 +35,44 @@ async function avoidDefaultPortConflicts(defaulted) {
   if (skipDocker) {
     return;
   }
-  if (defaulted.has("DATABASE_URL") && (await canConnect("127.0.0.1", 5432))) {
-    const port = await freePort();
-    process.env.APERIO_POSTGRES_PORT = String(port);
-    process.env.DATABASE_URL = `postgresql://aperio:aperio@127.0.0.1:${port}/aperio?schema=public`;
-    console.warn(`[dev] 127.0.0.1:5432 is in use; starting Aperio Postgres on ${port}`);
+  if (defaulted.has("DATABASE_URL")) {
+    const composePort = await composePublishedHostPort("postgres", 5432);
+    if (composePort) {
+      usePostgresPort(composePort);
+    } else if (await canConnect("127.0.0.1", 5432)) {
+      const port = await freePort();
+      usePostgresPort(port);
+      console.warn(`[dev] 127.0.0.1:5432 is in use; starting Aperio Postgres on ${port}`);
+    }
   }
-  if (defaulted.has("APERIO_NATS_URL") && (await canConnect("127.0.0.1", 4222))) {
-    const port = await freePort();
-    process.env.APERIO_NATS_PORT = String(port);
-    process.env.APERIO_NATS_URL = `nats://127.0.0.1:${port}`;
-    console.warn(`[dev] 127.0.0.1:4222 is in use; starting Aperio NATS on ${port}`);
+  if (defaulted.has("APERIO_NATS_URL")) {
+    const composePort = await composePublishedHostPort("nats", 4222);
+    if (composePort) {
+      useNatsPort(composePort);
+    } else if (await canConnect("127.0.0.1", 4222)) {
+      const port = await freePort();
+      useNatsPort(port);
+      console.warn(`[dev] 127.0.0.1:4222 is in use; starting Aperio NATS on ${port}`);
+    }
   }
-  if (!process.env.APERIO_NATS_MONITOR_PORT && (await canConnect("127.0.0.1", 8222))) {
-    process.env.APERIO_NATS_MONITOR_PORT = String(await freePort());
+  if (!process.env.APERIO_NATS_MONITOR_PORT) {
+    const composePort = await composePublishedHostPort("nats", 8222);
+    if (composePort) {
+      process.env.APERIO_NATS_MONITOR_PORT = String(composePort);
+    } else if (await canConnect("127.0.0.1", 8222)) {
+      process.env.APERIO_NATS_MONITOR_PORT = String(await freePort());
+    }
   }
+}
+
+function usePostgresPort(port) {
+  process.env.APERIO_POSTGRES_PORT = String(port);
+  process.env.DATABASE_URL = `postgresql://aperio:aperio@127.0.0.1:${port}/aperio?schema=public`;
+}
+
+function useNatsPort(port) {
+  process.env.APERIO_NATS_PORT = String(port);
+  process.env.APERIO_NATS_URL = `nats://127.0.0.1:${port}`;
 }
 
 async function setupInfra() {
@@ -99,6 +122,40 @@ async function commandExists(command) {
     const probe = spawn(command, ["--version"], { stdio: "ignore", shell: process.platform === "win32" });
     probe.on("error", () => resolve(false));
     probe.on("exit", (code) => resolve(code === 0));
+  });
+}
+
+async function composePublishedHostPort(service, containerPort) {
+  if (!(await commandExists("docker"))) {
+    return null;
+  }
+  return new Promise((resolve) => {
+    let output = "";
+    const probe = spawn("docker", ["compose", "port", service, String(containerPort)], {
+      cwd: root,
+      env: process.env,
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: process.platform === "win32"
+    });
+    probe.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    probe.on("error", () => resolve(false));
+    probe.on("exit", (code) => {
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+      const port = (
+        output
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => Number(line.slice(line.lastIndexOf(":") + 1)))
+          .find((publishedPort) => Number.isInteger(publishedPort) && publishedPort > 0)
+      );
+      resolve(port ?? null);
+    });
   });
 }
 
@@ -219,6 +276,7 @@ function shutdown(exitCode) {
     return;
   }
   shuttingDown = true;
+  process.exitCode = exitCode;
   for (const child of children) {
     terminate(child, "SIGTERM");
   }
@@ -227,5 +285,5 @@ function shutdown(exitCode) {
       terminate(child, "SIGKILL");
     }
     process.exit(exitCode);
-  }, 750).unref();
+  }, 750);
 }
