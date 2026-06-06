@@ -1762,6 +1762,374 @@ func (x *ShadowItOauthAppGrant) GetLastObservedAt() string {
 	return ""
 }
 
+type ListSecurityAssetsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Type            string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	OwnershipStatus string                 `protobuf:"bytes,2,opt,name=ownership_status,json=ownershipStatus,proto3" json:"ownership_status,omitempty"`
+	IntegrationId   string                 `protobuf:"bytes,3,opt,name=integration_id,json=integrationId,proto3" json:"integration_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListSecurityAssetsRequest) Reset() {
+	*x = ListSecurityAssetsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecurityAssetsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecurityAssetsRequest) ProtoMessage() {}
+
+func (x *ListSecurityAssetsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecurityAssetsRequest.ProtoReflect.Descriptor instead.
+func (*ListSecurityAssetsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListSecurityAssetsRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ListSecurityAssetsRequest) GetOwnershipStatus() string {
+	if x != nil {
+		return x.OwnershipStatus
+	}
+	return ""
+}
+
+func (x *ListSecurityAssetsRequest) GetIntegrationId() string {
+	if x != nil {
+		return x.IntegrationId
+	}
+	return ""
+}
+
+type ListSecurityAssetsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*SecurityAsset       `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSecurityAssetsResponse) Reset() {
+	*x = ListSecurityAssetsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSecurityAssetsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSecurityAssetsResponse) ProtoMessage() {}
+
+func (x *ListSecurityAssetsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSecurityAssetsResponse.ProtoReflect.Descriptor instead.
+func (*ListSecurityAssetsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListSecurityAssetsResponse) GetData() []*SecurityAsset {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type SecurityAsset struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Type                  string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Provider              string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	Name                  string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Summary               string                 `protobuf:"bytes,5,opt,name=summary,proto3" json:"summary,omitempty"`
+	ExternalId            string                 `protobuf:"bytes,6,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	Labels                []string               `protobuf:"bytes,7,rep,name=labels,proto3" json:"labels,omitempty"`
+	Criticality           string                 `protobuf:"bytes,8,opt,name=criticality,proto3" json:"criticality,omitempty"`
+	ExposureLevel         string                 `protobuf:"bytes,9,opt,name=exposure_level,json=exposureLevel,proto3" json:"exposure_level,omitempty"`
+	OwnershipStatus       string                 `protobuf:"bytes,10,opt,name=ownership_status,json=ownershipStatus,proto3" json:"ownership_status,omitempty"`
+	ContainsSensitiveData bool                   `protobuf:"varint,11,opt,name=contains_sensitive_data,json=containsSensitiveData,proto3" json:"contains_sensitive_data,omitempty"`
+	IsPrivileged          bool                   `protobuf:"varint,12,opt,name=is_privileged,json=isPrivileged,proto3" json:"is_privileged,omitempty"`
+	RiskScore             int32                  `protobuf:"varint,13,opt,name=risk_score,json=riskScore,proto3" json:"risk_score,omitempty"`
+	LastObservedAt        string                 `protobuf:"bytes,14,opt,name=last_observed_at,json=lastObservedAt,proto3" json:"last_observed_at,omitempty"`
+	CreatedAt             string                 `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt             string                 `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Integration           *FindingIntegration    `protobuf:"bytes,17,opt,name=integration,proto3" json:"integration,omitempty"`
+	Owner                 *SecurityPrincipal     `protobuf:"bytes,18,opt,name=owner,proto3" json:"owner,omitempty"`
+	BusinessOwner         *SecurityPrincipal     `protobuf:"bytes,19,opt,name=business_owner,json=businessOwner,proto3" json:"business_owner,omitempty"`
+	OpenFindingCount      int32                  `protobuf:"varint,20,opt,name=open_finding_count,json=openFindingCount,proto3" json:"open_finding_count,omitempty"`
+	ActiveExceptionCount  int32                  `protobuf:"varint,21,opt,name=active_exception_count,json=activeExceptionCount,proto3" json:"active_exception_count,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *SecurityAsset) Reset() {
+	*x = SecurityAsset{}
+	mi := &file_aperio_v1_api_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecurityAsset) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecurityAsset) ProtoMessage() {}
+
+func (x *SecurityAsset) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecurityAsset.ProtoReflect.Descriptor instead.
+func (*SecurityAsset) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SecurityAsset) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetLabels() []string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *SecurityAsset) GetCriticality() string {
+	if x != nil {
+		return x.Criticality
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetExposureLevel() string {
+	if x != nil {
+		return x.ExposureLevel
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetOwnershipStatus() string {
+	if x != nil {
+		return x.OwnershipStatus
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetContainsSensitiveData() bool {
+	if x != nil {
+		return x.ContainsSensitiveData
+	}
+	return false
+}
+
+func (x *SecurityAsset) GetIsPrivileged() bool {
+	if x != nil {
+		return x.IsPrivileged
+	}
+	return false
+}
+
+func (x *SecurityAsset) GetRiskScore() int32 {
+	if x != nil {
+		return x.RiskScore
+	}
+	return 0
+}
+
+func (x *SecurityAsset) GetLastObservedAt() string {
+	if x != nil {
+		return x.LastObservedAt
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *SecurityAsset) GetIntegration() *FindingIntegration {
+	if x != nil {
+		return x.Integration
+	}
+	return nil
+}
+
+func (x *SecurityAsset) GetOwner() *SecurityPrincipal {
+	if x != nil {
+		return x.Owner
+	}
+	return nil
+}
+
+func (x *SecurityAsset) GetBusinessOwner() *SecurityPrincipal {
+	if x != nil {
+		return x.BusinessOwner
+	}
+	return nil
+}
+
+func (x *SecurityAsset) GetOpenFindingCount() int32 {
+	if x != nil {
+		return x.OpenFindingCount
+	}
+	return 0
+}
+
+func (x *SecurityAsset) GetActiveExceptionCount() int32 {
+	if x != nil {
+		return x.ActiveExceptionCount
+	}
+	return 0
+}
+
+type SecurityPrincipal struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecurityPrincipal) Reset() {
+	*x = SecurityPrincipal{}
+	mi := &file_aperio_v1_api_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecurityPrincipal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecurityPrincipal) ProtoMessage() {}
+
+func (x *SecurityPrincipal) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecurityPrincipal.ProtoReflect.Descriptor instead.
+func (*SecurityPrincipal) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *SecurityPrincipal) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SecurityPrincipal) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *SecurityPrincipal) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
 var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
@@ -1910,7 +2278,44 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\tanonymous\x18\x06 \x01(\bR\tanonymous\x12\x1d\n" +
 	"\n" +
 	"native_app\x18\a \x01(\bR\tnativeApp\x12(\n" +
-	"\x10last_observed_at\x18\b \x01(\tR\x0elastObservedAt2\x8c\x06\n" +
+	"\x10last_observed_at\x18\b \x01(\tR\x0elastObservedAt\"\x81\x01\n" +
+	"\x19ListSecurityAssetsRequest\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12)\n" +
+	"\x10ownership_status\x18\x02 \x01(\tR\x0fownershipStatus\x12%\n" +
+	"\x0eintegration_id\x18\x03 \x01(\tR\rintegrationId\"J\n" +
+	"\x1aListSecurityAssetsResponse\x12,\n" +
+	"\x04data\x18\x01 \x03(\v2\x18.aperio.v1.SecurityAssetR\x04data\"\xac\x06\n" +
+	"\rSecurityAsset\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1a\n" +
+	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\x18\n" +
+	"\asummary\x18\x05 \x01(\tR\asummary\x12\x1f\n" +
+	"\vexternal_id\x18\x06 \x01(\tR\n" +
+	"externalId\x12\x16\n" +
+	"\x06labels\x18\a \x03(\tR\x06labels\x12 \n" +
+	"\vcriticality\x18\b \x01(\tR\vcriticality\x12%\n" +
+	"\x0eexposure_level\x18\t \x01(\tR\rexposureLevel\x12)\n" +
+	"\x10ownership_status\x18\n" +
+	" \x01(\tR\x0fownershipStatus\x126\n" +
+	"\x17contains_sensitive_data\x18\v \x01(\bR\x15containsSensitiveData\x12#\n" +
+	"\ris_privileged\x18\f \x01(\bR\fisPrivileged\x12\x1d\n" +
+	"\n" +
+	"risk_score\x18\r \x01(\x05R\triskScore\x12(\n" +
+	"\x10last_observed_at\x18\x0e \x01(\tR\x0elastObservedAt\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x0f \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x10 \x01(\tR\tupdatedAt\x12?\n" +
+	"\vintegration\x18\x11 \x01(\v2\x1d.aperio.v1.FindingIntegrationR\vintegration\x122\n" +
+	"\x05owner\x18\x12 \x01(\v2\x1c.aperio.v1.SecurityPrincipalR\x05owner\x12C\n" +
+	"\x0ebusiness_owner\x18\x13 \x01(\v2\x1c.aperio.v1.SecurityPrincipalR\rbusinessOwner\x12,\n" +
+	"\x12open_finding_count\x18\x14 \x01(\x05R\x10openFindingCount\x124\n" +
+	"\x16active_exception_count\x18\x15 \x01(\x05R\x14activeExceptionCount\"\\\n" +
+	"\x11SecurityPrincipal\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName2\xef\x06\n" +
 	"\rAperioService\x12L\n" +
 	"\vCheckHealth\x12\x1d.aperio.v1.CheckHealthRequest\x1a\x1e.aperio.v1.CheckHealthResponse\x12d\n" +
 	"\x13GetDashboardMetrics\x12%.aperio.v1.GetDashboardMetricsRequest\x1a&.aperio.v1.GetDashboardMetricsResponse\x12O\n" +
@@ -1920,7 +2325,8 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x10ListIntegrations\x12\".aperio.v1.ListIntegrationsRequest\x1a#.aperio.v1.ListIntegrationsResponse\x12g\n" +
 	"\x14ListSiemDestinations\x12&.aperio.v1.ListSiemDestinationsRequest\x1a'.aperio.v1.ListSiemDestinationsResponse\x12j\n" +
 	"\x15ListShadowItOauthApps\x12'.aperio.v1.ListShadowItOauthAppsRequest\x1a(.aperio.v1.ListShadowItOauthAppsResponse\x12y\n" +
-	"\x1aListShadowItOauthAppGrants\x12,.aperio.v1.ListShadowItOauthAppGrantsRequest\x1a-.aperio.v1.ListShadowItOauthAppGrantsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
+	"\x1aListShadowItOauthAppGrants\x12,.aperio.v1.ListShadowItOauthAppGrantsRequest\x1a-.aperio.v1.ListShadowItOauthAppGrantsResponse\x12a\n" +
+	"\x12ListSecurityAssets\x12$.aperio.v1.ListSecurityAssetsRequest\x1a%.aperio.v1.ListSecurityAssetsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
 
 var (
 	file_aperio_v1_api_proto_rawDescOnce sync.Once
@@ -1934,7 +2340,7 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_aperio_v1_api_proto_goTypes = []any{
 	(*CheckHealthRequest)(nil),                 // 0: aperio.v1.CheckHealthRequest
 	(*CheckHealthResponse)(nil),                // 1: aperio.v1.CheckHealthResponse
@@ -1963,10 +2369,14 @@ var file_aperio_v1_api_proto_goTypes = []any{
 	(*ShadowItOauthAppDetail)(nil),             // 24: aperio.v1.ShadowItOauthAppDetail
 	(*ShadowItOauthAppRef)(nil),                // 25: aperio.v1.ShadowItOauthAppRef
 	(*ShadowItOauthAppGrant)(nil),              // 26: aperio.v1.ShadowItOauthAppGrant
-	(*timestamppb.Timestamp)(nil),              // 27: google.protobuf.Timestamp
+	(*ListSecurityAssetsRequest)(nil),          // 27: aperio.v1.ListSecurityAssetsRequest
+	(*ListSecurityAssetsResponse)(nil),         // 28: aperio.v1.ListSecurityAssetsResponse
+	(*SecurityAsset)(nil),                      // 29: aperio.v1.SecurityAsset
+	(*SecurityPrincipal)(nil),                  // 30: aperio.v1.SecurityPrincipal
+	(*timestamppb.Timestamp)(nil),              // 31: google.protobuf.Timestamp
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
-	27, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
+	31, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
 	2,  // 1: aperio.v1.CheckHealthResponse.components:type_name -> aperio.v1.HealthComponent
 	5,  // 2: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
 	10, // 3: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
@@ -1980,27 +2390,33 @@ var file_aperio_v1_api_proto_depIdxs = []int32{
 	24, // 11: aperio.v1.ListShadowItOauthAppGrantsResponse.data:type_name -> aperio.v1.ShadowItOauthAppDetail
 	25, // 12: aperio.v1.ShadowItOauthAppDetail.app:type_name -> aperio.v1.ShadowItOauthAppRef
 	26, // 13: aperio.v1.ShadowItOauthAppDetail.grants:type_name -> aperio.v1.ShadowItOauthAppGrant
-	0,  // 14: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	3,  // 15: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	6,  // 16: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
-	8,  // 17: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
-	13, // 18: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
-	16, // 19: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
-	19, // 20: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
-	22, // 21: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
-	1,  // 22: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	4,  // 23: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	7,  // 24: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
-	9,  // 25: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
-	14, // 26: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
-	17, // 27: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
-	20, // 28: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
-	23, // 29: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
-	22, // [22:30] is the sub-list for method output_type
-	14, // [14:22] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	29, // 14: aperio.v1.ListSecurityAssetsResponse.data:type_name -> aperio.v1.SecurityAsset
+	11, // 15: aperio.v1.SecurityAsset.integration:type_name -> aperio.v1.FindingIntegration
+	30, // 16: aperio.v1.SecurityAsset.owner:type_name -> aperio.v1.SecurityPrincipal
+	30, // 17: aperio.v1.SecurityAsset.business_owner:type_name -> aperio.v1.SecurityPrincipal
+	0,  // 18: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	3,  // 19: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	6,  // 20: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	8,  // 21: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	13, // 22: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
+	16, // 23: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
+	19, // 24: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
+	22, // 25: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
+	27, // 26: aperio.v1.AperioService.ListSecurityAssets:input_type -> aperio.v1.ListSecurityAssetsRequest
+	1,  // 27: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	4,  // 28: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	7,  // 29: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	9,  // 30: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	14, // 31: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
+	17, // 32: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
+	20, // 33: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
+	23, // 34: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
+	28, // 35: aperio.v1.AperioService.ListSecurityAssets:output_type -> aperio.v1.ListSecurityAssetsResponse
+	27, // [27:36] is the sub-list for method output_type
+	18, // [18:27] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -2014,7 +2430,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   27,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

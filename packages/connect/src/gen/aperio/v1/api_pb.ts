@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aperio/v1/api.proto.
  */
 export const file_aperio_v1_api: GenFile = /*@__PURE__*/
-  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCTKMBgoNQXBlcmlvU2VydmljZRJMCgtDaGVja0hlYWx0aBIdLmFwZXJpby52MS5DaGVja0hlYWx0aFJlcXVlc3QaHi5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXNwb25zZRJkChNHZXREYXNoYm9hcmRNZXRyaWNzEiUuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXF1ZXN0GiYuYXBlcmlvLnYxLkdldERhc2hib2FyZE1ldHJpY3NSZXNwb25zZRJPCgxMaXN0RmluZGluZ3MSHi5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVxdWVzdBofLmFwZXJpby52MS5MaXN0RmluZGluZ3NSZXNwb25zZRJJCgpHZXRGaW5kaW5nEhwuYXBlcmlvLnYxLkdldEZpbmRpbmdSZXF1ZXN0Gh0uYXBlcmlvLnYxLkdldEZpbmRpbmdSZXNwb25zZRJbChBMaXN0SW50ZWdyYXRpb25zEiIuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXF1ZXN0GiMuYXBlcmlvLnYxLkxpc3RJbnRlZ3JhdGlvbnNSZXNwb25zZRJnChRMaXN0U2llbURlc3RpbmF0aW9ucxImLmFwZXJpby52MS5MaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QaJy5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRJqChVMaXN0U2hhZG93SXRPYXV0aEFwcHMSJy5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVxdWVzdBooLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcHNSZXNwb25zZRJ5ChpMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50cxIsLmFwZXJpby52MS5MaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QaLS5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZUIxWi9naXRodWIuY29tL3dyaXRlci9hcGVyaW8vZ2VuL2FwZXJpby92MTthcGVyaW92MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChNhcGVyaW8vdjEvYXBpLnByb3RvEglhcGVyaW8udjEiFAoSQ2hlY2tIZWFsdGhSZXF1ZXN0IpYBChNDaGVja0hlYWx0aFJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRIPCgdzZXJ2aWNlGAIgASgJEi4KCmNoZWNrZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNvbXBvbmVudHMYBCADKAsyGi5hcGVyaW8udjEuSGVhbHRoQ29tcG9uZW50Ij8KD0hlYWx0aENvbXBvbmVudBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAkiHAoaR2V0RGFzaGJvYXJkTWV0cmljc1JlcXVlc3QiSAobR2V0RGFzaGJvYXJkTWV0cmljc1Jlc3BvbnNlEikKBGRhdGEYASABKAsyGy5hcGVyaW8udjEuRGFzaGJvYXJkTWV0cmljcyKCAQoQRGFzaGJvYXJkTWV0cmljcxIYChB0b3RhbF9yaXNrX3Njb3JlGAEgASgFEh4KFm9wZW5fY3JpdGljYWxfZmluZGluZ3MYAiABKAUSFgoOY29ubmVjdGVkX2FwcHMYAyABKAUSHAoUZXZlbnRfaW5nZXN0aW9uX3JhdGUYBCABKAUigAEKE0xpc3RGaW5kaW5nc1JlcXVlc3QSEAoIc2V2ZXJpdHkYASABKAkSDgoGc3RhdHVzGAIgASgJEhAKCHByb3ZpZGVyGAMgASgJEhYKDmludGVncmF0aW9uX2lkGAQgASgJEg0KBWxpbWl0GAUgASgFEg4KBmN1cnNvchgGIAEoCSJgChRMaXN0RmluZGluZ3NSZXNwb25zZRIgCgRkYXRhGAEgAygLMhIuYXBlcmlvLnYxLkZpbmRpbmcSJgoJcGFnZV9pbmZvGAIgASgLMhMuYXBlcmlvLnYxLlBhZ2VJbmZvIh8KEUdldEZpbmRpbmdSZXF1ZXN0EgoKAmlkGAEgASgJIjYKEkdldEZpbmRpbmdSZXNwb25zZRIgCgRkYXRhGAEgASgLMhIuYXBlcmlvLnYxLkZpbmRpbmcikQIKB0ZpbmRpbmcSCgoCaWQYASABKAkSEAoIYXNzZXRfaWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSEAoIc2V2ZXJpdHkYBSABKAkSDgoGc3RhdHVzGAYgASgJEhIKCnJpc2tfc2NvcmUYByABKAUSGQoRcmVtZWRpYXRpb25fc3RlcHMYCCADKAkSFQoNZXZpZGVuY2VfanNvbhgJIAEoCRITCgtkZXRlY3RlZF9hdBgKIAEoCRITCgtyZXNvbHZlZF9hdBgLIAEoCRIyCgtpbnRlZ3JhdGlvbhgMIAEoCzIdLmFwZXJpby52MS5GaW5kaW5nSW50ZWdyYXRpb24iSAoSRmluZGluZ0ludGVncmF0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCSIuCghQYWdlSW5mbxINCgV0b3RhbBgBIAEoBRITCgtuZXh0X2N1cnNvchgCIAEoCSIZChdMaXN0SW50ZWdyYXRpb25zUmVxdWVzdCJKChhMaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USLgoEZGF0YRgBIAMoCzIgLmFwZXJpby52MS5JbnRlZ3JhdGlvbkNvbm5lY3Rpb24iqAIKFUludGVncmF0aW9uQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGwoTZXh0ZXJuYWxfYWNjb3VudF9pZBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSDAoEbW9kZRgGIAEoCRIOCgZzY29wZXMYByADKAkSFwoPZGlzYWJsZWRfY2hlY2tzGAggAygJEiMKG2dvb2dsZV9tYWlsYm94X3NjYW5fZW5hYmxlZBgJIAEoCBIoCiBnb29nbGVfbWFpbGJveF9zY2FuX2NsaWVudF9lbWFpbBgKIAEoCRIUCgxsYXN0X3N5bmNfYXQYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCSIdChtMaXN0U2llbURlc3RpbmF0aW9uc1JlcXVlc3QiSAocTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXNwb25zZRIoCgRkYXRhGAEgAygLMhouYXBlcmlvLnYxLlNpZW1EZXN0aW5hdGlvbiKEAgoPU2llbURlc3RpbmF0aW9uEgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSDAoEbmFtZRgDIAEoCRIUCgxlbmRwb2ludF91cmwYBCABKAkSEQoJZmlsZV9wYXRoGAUgASgJEg0KBWluZGV4GAYgASgJEg8KB3N0cmVhbXMYByADKAkSDgoGc3RhdHVzGAggASgJEhgKEGxhc3RfZGVsaXZlcnlfYXQYCSABKAkSEgoKbGFzdF9lcnJvchgKIAEoCRIVCg1kZWxpdmVyaWVzX29rGAsgASgFEhcKD2RlbGl2ZXJpZXNfZmFpbBgMIAEoBRISCgpjcmVhdGVkX2F0GA0gASgJIh4KHExpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QiSgodTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USKQoEZGF0YRgBIAMoCzIbLmFwZXJpby52MS5TaGFkb3dJdE9hdXRoQXBwIrACChBTaGFkb3dJdE9hdXRoQXBwEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEgwKBG5hbWUYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtleHRlcm5hbF9pZBgFIAEoCRIOCgZsYWJlbHMYBiADKAkSEwoLY3JpdGljYWxpdHkYByABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCCABKAgSEgoKcmlza19zY29yZRgJIAEoBRIYChBsYXN0X29ic2VydmVkX2F0GAogASgJEhIKCnVzZXJfY291bnQYCyABKAUSDgoGc2NvcGVzGAwgAygJEjIKC2ludGVncmF0aW9uGA0gASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbiI1CiFMaXN0U2hhZG93SXRPYXV0aEFwcEdyYW50c1JlcXVlc3QSEAoIYXNzZXRfaWQYASABKAkiVQoiTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXNwb25zZRIvCgRkYXRhGAEgASgLMiEuYXBlcmlvLnYxLlNoYWRvd0l0T2F1dGhBcHBEZXRhaWwidwoWU2hhZG93SXRPYXV0aEFwcERldGFpbBIrCgNhcHAYASABKAsyHi5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcFJlZhIwCgZncmFudHMYAiADKAsyIC5hcGVyaW8udjEuU2hhZG93SXRPYXV0aEFwcEdyYW50IlYKE1NoYWRvd0l0T2F1dGhBcHBSZWYSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtleHRlcm5hbF9pZBgDIAEoCRIQCghwcm92aWRlchgEIAEoCSK9AQoVU2hhZG93SXRPYXV0aEFwcEdyYW50EgoKAmlkGAEgASgJEhIKCnVzZXJfZW1haWwYAiABKAkSGAoQdXNlcl9leHRlcm5hbF9pZBgDIAEoCRIZChF1c2VyX2Rpc3BsYXlfbmFtZRgEIAEoCRIOCgZzY29wZXMYBSADKAkSEQoJYW5vbnltb3VzGAYgASgIEhIKCm5hdGl2ZV9hcHAYByABKAgSGAoQbGFzdF9vYnNlcnZlZF9hdBgIIAEoCSJbChlMaXN0U2VjdXJpdHlBc3NldHNSZXF1ZXN0EgwKBHR5cGUYASABKAkSGAoQb3duZXJzaGlwX3N0YXR1cxgCIAEoCRIWCg5pbnRlZ3JhdGlvbl9pZBgDIAEoCSJEChpMaXN0U2VjdXJpdHlBc3NldHNSZXNwb25zZRImCgRkYXRhGAEgAygLMhguYXBlcmlvLnYxLlNlY3VyaXR5QXNzZXQipwQKDVNlY3VyaXR5QXNzZXQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3N1bW1hcnkYBSABKAkSEwoLZXh0ZXJuYWxfaWQYBiABKAkSDgoGbGFiZWxzGAcgAygJEhMKC2NyaXRpY2FsaXR5GAggASgJEhYKDmV4cG9zdXJlX2xldmVsGAkgASgJEhgKEG93bmVyc2hpcF9zdGF0dXMYCiABKAkSHwoXY29udGFpbnNfc2Vuc2l0aXZlX2RhdGEYCyABKAgSFQoNaXNfcHJpdmlsZWdlZBgMIAEoCBISCgpyaXNrX3Njb3JlGA0gASgFEhgKEGxhc3Rfb2JzZXJ2ZWRfYXQYDiABKAkSEgoKY3JlYXRlZF9hdBgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJEjIKC2ludGVncmF0aW9uGBEgASgLMh0uYXBlcmlvLnYxLkZpbmRpbmdJbnRlZ3JhdGlvbhIrCgVvd25lchgSIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBI0Cg5idXNpbmVzc19vd25lchgTIAEoCzIcLmFwZXJpby52MS5TZWN1cml0eVByaW5jaXBhbBIaChJvcGVuX2ZpbmRpbmdfY291bnQYFCABKAUSHgoWYWN0aXZlX2V4Y2VwdGlvbl9jb3VudBgVIAEoBSJEChFTZWN1cml0eVByaW5jaXBhbBIKCgJpZBgBIAEoCRINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAky7wYKDUFwZXJpb1NlcnZpY2USTAoLQ2hlY2tIZWFsdGgSHS5hcGVyaW8udjEuQ2hlY2tIZWFsdGhSZXF1ZXN0Gh4uYXBlcmlvLnYxLkNoZWNrSGVhbHRoUmVzcG9uc2USZAoTR2V0RGFzaGJvYXJkTWV0cmljcxIlLmFwZXJpby52MS5HZXREYXNoYm9hcmRNZXRyaWNzUmVxdWVzdBomLmFwZXJpby52MS5HZXREYXNoYm9hcmRNZXRyaWNzUmVzcG9uc2USTwoMTGlzdEZpbmRpbmdzEh4uYXBlcmlvLnYxLkxpc3RGaW5kaW5nc1JlcXVlc3QaHy5hcGVyaW8udjEuTGlzdEZpbmRpbmdzUmVzcG9uc2USSQoKR2V0RmluZGluZxIcLmFwZXJpby52MS5HZXRGaW5kaW5nUmVxdWVzdBodLmFwZXJpby52MS5HZXRGaW5kaW5nUmVzcG9uc2USWwoQTGlzdEludGVncmF0aW9ucxIiLmFwZXJpby52MS5MaXN0SW50ZWdyYXRpb25zUmVxdWVzdBojLmFwZXJpby52MS5MaXN0SW50ZWdyYXRpb25zUmVzcG9uc2USZwoUTGlzdFNpZW1EZXN0aW5hdGlvbnMSJi5hcGVyaW8udjEuTGlzdFNpZW1EZXN0aW5hdGlvbnNSZXF1ZXN0GicuYXBlcmlvLnYxLkxpc3RTaWVtRGVzdGluYXRpb25zUmVzcG9uc2USagoVTGlzdFNoYWRvd0l0T2F1dGhBcHBzEicuYXBlcmlvLnYxLkxpc3RTaGFkb3dJdE9hdXRoQXBwc1JlcXVlc3QaKC5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBzUmVzcG9uc2USeQoaTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHMSLC5hcGVyaW8udjEuTGlzdFNoYWRvd0l0T2F1dGhBcHBHcmFudHNSZXF1ZXN0Gi0uYXBlcmlvLnYxLkxpc3RTaGFkb3dJdE9hdXRoQXBwR3JhbnRzUmVzcG9uc2USYQoSTGlzdFNlY3VyaXR5QXNzZXRzEiQuYXBlcmlvLnYxLkxpc3RTZWN1cml0eUFzc2V0c1JlcXVlc3QaJS5hcGVyaW8udjEuTGlzdFNlY3VyaXR5QXNzZXRzUmVzcG9uc2VCMVovZ2l0aHViLmNvbS93cml0ZXIvYXBlcmlvL2dlbi9hcGVyaW8vdjE7YXBlcmlvdjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message aperio.v1.CheckHealthRequest
@@ -824,6 +824,194 @@ export const ShadowItOauthAppGrantSchema: GenMessage<ShadowItOauthAppGrant> = /*
   messageDesc(file_aperio_v1_api, 26);
 
 /**
+ * @generated from message aperio.v1.ListSecurityAssetsRequest
+ */
+export type ListSecurityAssetsRequest = Message<"aperio.v1.ListSecurityAssetsRequest"> & {
+  /**
+   * @generated from field: string type = 1;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string ownership_status = 2;
+   */
+  ownershipStatus: string;
+
+  /**
+   * @generated from field: string integration_id = 3;
+   */
+  integrationId: string;
+};
+
+/**
+ * Describes the message aperio.v1.ListSecurityAssetsRequest.
+ * Use `create(ListSecurityAssetsRequestSchema)` to create a new message.
+ */
+export const ListSecurityAssetsRequestSchema: GenMessage<ListSecurityAssetsRequest> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 27);
+
+/**
+ * @generated from message aperio.v1.ListSecurityAssetsResponse
+ */
+export type ListSecurityAssetsResponse = Message<"aperio.v1.ListSecurityAssetsResponse"> & {
+  /**
+   * @generated from field: repeated aperio.v1.SecurityAsset data = 1;
+   */
+  data: SecurityAsset[];
+};
+
+/**
+ * Describes the message aperio.v1.ListSecurityAssetsResponse.
+ * Use `create(ListSecurityAssetsResponseSchema)` to create a new message.
+ */
+export const ListSecurityAssetsResponseSchema: GenMessage<ListSecurityAssetsResponse> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 28);
+
+/**
+ * @generated from message aperio.v1.SecurityAsset
+ */
+export type SecurityAsset = Message<"aperio.v1.SecurityAsset"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string provider = 3;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string name = 4;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string summary = 5;
+   */
+  summary: string;
+
+  /**
+   * @generated from field: string external_id = 6;
+   */
+  externalId: string;
+
+  /**
+   * @generated from field: repeated string labels = 7;
+   */
+  labels: string[];
+
+  /**
+   * @generated from field: string criticality = 8;
+   */
+  criticality: string;
+
+  /**
+   * @generated from field: string exposure_level = 9;
+   */
+  exposureLevel: string;
+
+  /**
+   * @generated from field: string ownership_status = 10;
+   */
+  ownershipStatus: string;
+
+  /**
+   * @generated from field: bool contains_sensitive_data = 11;
+   */
+  containsSensitiveData: boolean;
+
+  /**
+   * @generated from field: bool is_privileged = 12;
+   */
+  isPrivileged: boolean;
+
+  /**
+   * @generated from field: int32 risk_score = 13;
+   */
+  riskScore: number;
+
+  /**
+   * @generated from field: string last_observed_at = 14;
+   */
+  lastObservedAt: string;
+
+  /**
+   * @generated from field: string created_at = 15;
+   */
+  createdAt: string;
+
+  /**
+   * @generated from field: string updated_at = 16;
+   */
+  updatedAt: string;
+
+  /**
+   * @generated from field: aperio.v1.FindingIntegration integration = 17;
+   */
+  integration?: FindingIntegration;
+
+  /**
+   * @generated from field: aperio.v1.SecurityPrincipal owner = 18;
+   */
+  owner?: SecurityPrincipal;
+
+  /**
+   * @generated from field: aperio.v1.SecurityPrincipal business_owner = 19;
+   */
+  businessOwner?: SecurityPrincipal;
+
+  /**
+   * @generated from field: int32 open_finding_count = 20;
+   */
+  openFindingCount: number;
+
+  /**
+   * @generated from field: int32 active_exception_count = 21;
+   */
+  activeExceptionCount: number;
+};
+
+/**
+ * Describes the message aperio.v1.SecurityAsset.
+ * Use `create(SecurityAssetSchema)` to create a new message.
+ */
+export const SecurityAssetSchema: GenMessage<SecurityAsset> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 29);
+
+/**
+ * @generated from message aperio.v1.SecurityPrincipal
+ */
+export type SecurityPrincipal = Message<"aperio.v1.SecurityPrincipal"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string email = 2;
+   */
+  email: string;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+};
+
+/**
+ * Describes the message aperio.v1.SecurityPrincipal.
+ * Use `create(SecurityPrincipalSchema)` to create a new message.
+ */
+export const SecurityPrincipalSchema: GenMessage<SecurityPrincipal> = /*@__PURE__*/
+  messageDesc(file_aperio_v1_api, 30);
+
+/**
  * @generated from service aperio.v1.AperioService
  */
 export const AperioService: GenService<{
@@ -890,6 +1078,14 @@ export const AperioService: GenService<{
     methodKind: "unary";
     input: typeof ListShadowItOauthAppGrantsRequestSchema;
     output: typeof ListShadowItOauthAppGrantsResponseSchema;
+  },
+  /**
+   * @generated from rpc aperio.v1.AperioService.ListSecurityAssets
+   */
+  listSecurityAssets: {
+    methodKind: "unary";
+    input: typeof ListSecurityAssetsRequestSchema;
+    output: typeof ListSecurityAssetsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_aperio_v1_api, 0);

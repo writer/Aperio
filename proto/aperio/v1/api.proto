@@ -15,6 +15,7 @@ service AperioService {
   rpc ListSiemDestinations(ListSiemDestinationsRequest) returns (ListSiemDestinationsResponse);
   rpc ListShadowItOauthApps(ListShadowItOauthAppsRequest) returns (ListShadowItOauthAppsResponse);
   rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
+  rpc ListSecurityAssets(ListSecurityAssetsRequest) returns (ListSecurityAssetsResponse);
 }
 
 message CheckHealthRequest {}
@@ -187,4 +188,44 @@ message ShadowItOauthAppGrant {
   bool anonymous = 6;
   bool native_app = 7;
   string last_observed_at = 8;
+}
+
+message ListSecurityAssetsRequest {
+  string type = 1;
+  string ownership_status = 2;
+  string integration_id = 3;
+}
+
+message ListSecurityAssetsResponse {
+  repeated SecurityAsset data = 1;
+}
+
+message SecurityAsset {
+  string id = 1;
+  string type = 2;
+  string provider = 3;
+  string name = 4;
+  string summary = 5;
+  string external_id = 6;
+  repeated string labels = 7;
+  string criticality = 8;
+  string exposure_level = 9;
+  string ownership_status = 10;
+  bool contains_sensitive_data = 11;
+  bool is_privileged = 12;
+  int32 risk_score = 13;
+  string last_observed_at = 14;
+  string created_at = 15;
+  string updated_at = 16;
+  FindingIntegration integration = 17;
+  SecurityPrincipal owner = 18;
+  SecurityPrincipal business_owner = 19;
+  int32 open_finding_count = 20;
+  int32 active_exception_count = 21;
+}
+
+message SecurityPrincipal {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
 }
