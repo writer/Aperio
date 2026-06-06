@@ -45,6 +45,18 @@ const (
 	// AperioServiceGetFindingProcedure is the fully-qualified name of the AperioService's GetFinding
 	// RPC.
 	AperioServiceGetFindingProcedure = "/aperio.v1.AperioService/GetFinding"
+	// AperioServiceListIntegrationsProcedure is the fully-qualified name of the AperioService's
+	// ListIntegrations RPC.
+	AperioServiceListIntegrationsProcedure = "/aperio.v1.AperioService/ListIntegrations"
+	// AperioServiceListSiemDestinationsProcedure is the fully-qualified name of the AperioService's
+	// ListSiemDestinations RPC.
+	AperioServiceListSiemDestinationsProcedure = "/aperio.v1.AperioService/ListSiemDestinations"
+	// AperioServiceListShadowItOauthAppsProcedure is the fully-qualified name of the AperioService's
+	// ListShadowItOauthApps RPC.
+	AperioServiceListShadowItOauthAppsProcedure = "/aperio.v1.AperioService/ListShadowItOauthApps"
+	// AperioServiceListShadowItOauthAppGrantsProcedure is the fully-qualified name of the
+	// AperioService's ListShadowItOauthAppGrants RPC.
+	AperioServiceListShadowItOauthAppGrantsProcedure = "/aperio.v1.AperioService/ListShadowItOauthAppGrants"
 )
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
@@ -53,6 +65,10 @@ type AperioServiceClient interface {
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
 	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
+	ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error)
+	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
+	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
+	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 }
 
 // NewAperioServiceClient constructs a client for the aperio.v1.AperioService service. By default,
@@ -90,15 +106,43 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
 			connect.WithClientOptions(opts...),
 		),
+		listIntegrations: connect.NewClient[v1.ListIntegrationsRequest, v1.ListIntegrationsResponse](
+			httpClient,
+			baseURL+AperioServiceListIntegrationsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListIntegrations")),
+			connect.WithClientOptions(opts...),
+		),
+		listSiemDestinations: connect.NewClient[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse](
+			httpClient,
+			baseURL+AperioServiceListSiemDestinationsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListSiemDestinations")),
+			connect.WithClientOptions(opts...),
+		),
+		listShadowItOauthApps: connect.NewClient[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse](
+			httpClient,
+			baseURL+AperioServiceListShadowItOauthAppsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthApps")),
+			connect.WithClientOptions(opts...),
+		),
+		listShadowItOauthAppGrants: connect.NewClient[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse](
+			httpClient,
+			baseURL+AperioServiceListShadowItOauthAppGrantsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthAppGrants")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // aperioServiceClient implements AperioServiceClient.
 type aperioServiceClient struct {
-	checkHealth         *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
-	getDashboardMetrics *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
-	listFindings        *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
-	getFinding          *connect.Client[v1.GetFindingRequest, v1.GetFindingResponse]
+	checkHealth                *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
+	getDashboardMetrics        *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
+	listFindings               *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
+	getFinding                 *connect.Client[v1.GetFindingRequest, v1.GetFindingResponse]
+	listIntegrations           *connect.Client[v1.ListIntegrationsRequest, v1.ListIntegrationsResponse]
+	listSiemDestinations       *connect.Client[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse]
+	listShadowItOauthApps      *connect.Client[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse]
+	listShadowItOauthAppGrants *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
 }
 
 // CheckHealth calls aperio.v1.AperioService.CheckHealth.
@@ -121,12 +165,36 @@ func (c *aperioServiceClient) GetFinding(ctx context.Context, req *connect.Reque
 	return c.getFinding.CallUnary(ctx, req)
 }
 
+// ListIntegrations calls aperio.v1.AperioService.ListIntegrations.
+func (c *aperioServiceClient) ListIntegrations(ctx context.Context, req *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error) {
+	return c.listIntegrations.CallUnary(ctx, req)
+}
+
+// ListSiemDestinations calls aperio.v1.AperioService.ListSiemDestinations.
+func (c *aperioServiceClient) ListSiemDestinations(ctx context.Context, req *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error) {
+	return c.listSiemDestinations.CallUnary(ctx, req)
+}
+
+// ListShadowItOauthApps calls aperio.v1.AperioService.ListShadowItOauthApps.
+func (c *aperioServiceClient) ListShadowItOauthApps(ctx context.Context, req *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error) {
+	return c.listShadowItOauthApps.CallUnary(ctx, req)
+}
+
+// ListShadowItOauthAppGrants calls aperio.v1.AperioService.ListShadowItOauthAppGrants.
+func (c *aperioServiceClient) ListShadowItOauthAppGrants(ctx context.Context, req *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error) {
+	return c.listShadowItOauthAppGrants.CallUnary(ctx, req)
+}
+
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
 	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
+	ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error)
+	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
+	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
+	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 }
 
 // NewAperioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -160,6 +228,30 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceListIntegrationsHandler := connect.NewUnaryHandler(
+		AperioServiceListIntegrationsProcedure,
+		svc.ListIntegrations,
+		connect.WithSchema(aperioServiceMethods.ByName("ListIntegrations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListSiemDestinationsHandler := connect.NewUnaryHandler(
+		AperioServiceListSiemDestinationsProcedure,
+		svc.ListSiemDestinations,
+		connect.WithSchema(aperioServiceMethods.ByName("ListSiemDestinations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListShadowItOauthAppsHandler := connect.NewUnaryHandler(
+		AperioServiceListShadowItOauthAppsProcedure,
+		svc.ListShadowItOauthApps,
+		connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthApps")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListShadowItOauthAppGrantsHandler := connect.NewUnaryHandler(
+		AperioServiceListShadowItOauthAppGrantsProcedure,
+		svc.ListShadowItOauthAppGrants,
+		connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthAppGrants")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AperioServiceCheckHealthProcedure:
@@ -170,6 +262,14 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceListFindingsHandler.ServeHTTP(w, r)
 		case AperioServiceGetFindingProcedure:
 			aperioServiceGetFindingHandler.ServeHTTP(w, r)
+		case AperioServiceListIntegrationsProcedure:
+			aperioServiceListIntegrationsHandler.ServeHTTP(w, r)
+		case AperioServiceListSiemDestinationsProcedure:
+			aperioServiceListSiemDestinationsHandler.ServeHTTP(w, r)
+		case AperioServiceListShadowItOauthAppsProcedure:
+			aperioServiceListShadowItOauthAppsHandler.ServeHTTP(w, r)
+		case AperioServiceListShadowItOauthAppGrantsProcedure:
+			aperioServiceListShadowItOauthAppGrantsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -193,4 +293,20 @@ func (UnimplementedAperioServiceHandler) ListFindings(context.Context, *connect.
 
 func (UnimplementedAperioServiceHandler) GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetFinding is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListIntegrations is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListSiemDestinations is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListShadowItOauthApps is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListShadowItOauthAppGrants is not implemented"))
 }

@@ -495,6 +495,11 @@ export async function fetchConnectorCatalog() {
 }
 
 export async function fetchIntegrations() {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listIntegrations() as Promise<{
+      data: IntegrationConnection[];
+    }>;
+  }
   return request<{ data: IntegrationConnection[] }>("/api/v1/integrations");
 }
 
@@ -545,6 +550,11 @@ export async function fetchSiemCatalog() {
 }
 
 export async function fetchSiemDestinations() {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listSiemDestinations() as Promise<{
+      data: SiemDestination[];
+    }>;
+  }
   return request<{ data: SiemDestination[] }>("/api/v1/siem");
 }
 
@@ -1063,10 +1073,20 @@ export type ShadowItOauthAppDetail = {
 };
 
 export async function fetchShadowItOauthApps() {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listShadowItOauthApps() as Promise<{
+      data: ShadowItOauthApp[];
+    }>;
+  }
   return request<{ data: ShadowItOauthApp[] }>("/api/v1/shadow-it/oauth-apps");
 }
 
 export async function fetchShadowItOauthAppGrants(assetId: string) {
+  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
+    return aperioConnectClient.listShadowItOauthAppGrants(assetId) as Promise<{
+      data: ShadowItOauthAppDetail;
+    }>;
+  }
   return request<{ data: ShadowItOauthAppDetail }>(
     `/api/v1/shadow-it/oauth-apps/${encodeURIComponent(assetId)}/grants`
   );

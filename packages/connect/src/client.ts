@@ -2,7 +2,9 @@ import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AperioService,
-  type Finding as ProtoFinding
+  type Finding as ProtoFinding,
+  type ShadowItOauthApp as ProtoShadowItOauthApp,
+  type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant
 } from "./gen/aperio/v1/api_pb";
 
 const CONNECT_BASE_URL =
@@ -51,6 +53,80 @@ export type ConnectFindingsFilters = {
   cursor?: string;
 };
 
+type ConnectProvider = ConnectFinding["integration"]["provider"];
+
+export type ConnectIntegrationConnection = {
+  id: string;
+  provider: ConnectProvider;
+  displayName: string;
+  externalAccountId: string;
+  status: "CONNECTED" | "DISABLED" | "ERROR";
+  mode: "READ_ONLY" | "REMEDIATION";
+  scopes: string[];
+  disabledChecks: string[];
+  googleMailboxScanEnabled: boolean;
+  googleMailboxScanClientEmail: string | null;
+  lastSyncAt: string | null;
+  createdAt: string;
+};
+
+export type ConnectSiemDestination = {
+  id: string;
+  kind: string;
+  name: string;
+  endpointUrl: string | null;
+  filePath: string | null;
+  index: string | null;
+  streams: string[];
+  status: "ACTIVE" | "PAUSED" | "ERROR";
+  lastDeliveryAt: string | null;
+  lastError: string | null;
+  deliveriesOk: number;
+  deliveriesFail: number;
+  createdAt: string;
+};
+
+export type ConnectShadowItOauthApp = {
+  id: string;
+  provider: ConnectProvider | "";
+  name: string;
+  summary: string | null;
+  externalId: string | null;
+  labels: string[];
+  criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  containsSensitiveData: boolean;
+  riskScore: number;
+  lastObservedAt: string | null;
+  userCount: number;
+  scopes: string[];
+  integration: {
+    id: string;
+    provider: ConnectProvider | "";
+    displayName: string;
+  } | null;
+};
+
+export type ConnectShadowItOauthAppGrant = {
+  id: string;
+  userEmail: string;
+  userExternalId: string | null;
+  userDisplayName: string | null;
+  scopes: string[];
+  anonymous: boolean;
+  nativeApp: boolean;
+  lastObservedAt: string;
+};
+
+export type ConnectShadowItOauthAppDetail = {
+  app: {
+    id: string;
+    name: string;
+    externalId: string | null;
+    provider: ConnectProvider | "";
+  };
+  grants: ConnectShadowItOauthAppGrant[];
+};
+
 const transport = createConnectTransport({
   baseUrl: CONNECT_BASE_URL,
   fetch(input, init) {
@@ -96,6 +172,47 @@ function findingFromProto(finding: ProtoFinding): ConnectFinding {
   };
 }
 
+function shadowItOauthAppFromProto(
+  app: ProtoShadowItOauthApp
+): ConnectShadowItOauthApp {
+  return {
+    id: app.id,
+    provider: app.provider as ConnectProvider | "",
+    name: app.name,
+    summary: app.summary || null,
+    externalId: app.externalId || null,
+    labels: app.labels,
+    criticality: app.criticality as ConnectShadowItOauthApp["criticality"],
+    containsSensitiveData: app.containsSensitiveData,
+    riskScore: app.riskScore,
+    lastObservedAt: app.lastObservedAt || null,
+    userCount: app.userCount,
+    scopes: app.scopes,
+    integration: app.integration
+      ? {
+          id: app.integration.id,
+          provider: app.integration.provider as ConnectProvider | "",
+          displayName: app.integration.displayName
+        }
+      : null
+  };
+}
+
+function shadowItGrantFromProto(
+  grant: ProtoShadowItOauthAppGrant
+): ConnectShadowItOauthAppGrant {
+  return {
+    id: grant.id,
+    userEmail: grant.userEmail,
+    userExternalId: grant.userExternalId || null,
+    userDisplayName: grant.userDisplayName || null,
+    scopes: grant.scopes,
+    anonymous: grant.anonymous,
+    nativeApp: grant.nativeApp,
+    lastObservedAt: grant.lastObservedAt
+  };
+}
+
 export const aperioConnectClient = {
   checkHealth() {
     return client.checkHealth({});
@@ -137,5 +254,68 @@ export const aperioConnectClient = {
       throw new Error("Finding not found");
     }
     return { data: findingFromProto(response.data) };
+  },
+  async listIntegrations(): Promise<{ data: ConnectIntegrationConnection[] }> {
+    const response = await client.listIntegrations({});
+    return {
+      data: response.data.map((integration) => ({
+        id: integration.id,
+        provider: integration.provider as ConnectProvider,
+        displayName: integration.displayName,
+        externalAccountId: integration.externalAccountId,
+        status: integration.status as ConnectIntegrationConnection["status"],
+        mode: integration.mode as ConnectIntegrationConnection["mode"],
+        scopes: integration.scopes,
+        disabledChecks: integration.disabledChecks,
+        googleMailboxScanEnabled: integration.googleMailboxScanEnabled,
+        googleMailboxScanClientEmail:
+          integration.googleMailboxScanClientEmail || null,
+        lastSyncAt: integration.lastSyncAt || null,
+        createdAt: integration.createdAt
+      }))
+    };
+  },
+  async listSiemDestinations(): Promise<{ data: ConnectSiemDestination[] }> {
+    const response = await client.listSiemDestinations({});
+    return {
+      data: response.data.map((destination) => ({
+        id: destination.id,
+        kind: destination.kind,
+        name: destination.name,
+        endpointUrl: destination.endpointUrl || null,
+        filePath: destination.filePath || null,
+        index: destination.index || null,
+        streams: destination.streams,
+        status: destination.status as ConnectSiemDestination["status"],
+        lastDeliveryAt: destination.lastDeliveryAt || null,
+        lastError: destination.lastError || null,
+        deliveriesOk: destination.deliveriesOk,
+        deliveriesFail: destination.deliveriesFail,
+        createdAt: destination.createdAt
+      }))
+    };
+  },
+  async listShadowItOauthApps(): Promise<{ data: ConnectShadowItOauthApp[] }> {
+    const response = await client.listShadowItOauthApps({});
+    return { data: response.data.map(shadowItOauthAppFromProto) };
+  },
+  async listShadowItOauthAppGrants(
+    assetId: string
+  ): Promise<{ data: ConnectShadowItOauthAppDetail }> {
+    const response = await client.listShadowItOauthAppGrants({ assetId });
+    if (!response.data?.app) {
+      throw new Error("OAuth app not found");
+    }
+    return {
+      data: {
+        app: {
+          id: response.data.app.id,
+          name: response.data.app.name,
+          externalId: response.data.app.externalId || null,
+          provider: response.data.app.provider as ConnectProvider | ""
+        },
+        grants: response.data.grants.map(shadowItGrantFromProto)
+      }
+    };
   }
 };
