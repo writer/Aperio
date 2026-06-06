@@ -25,7 +25,7 @@
     "proto:generate": "go run github.com/bufbuild/buf/cmd/buf@v1.59.0 generate",
     "proto:check": "npm run proto:lint && npm run proto:generate && git add --intent-to-add -- gen packages/connect/src/gen && git diff --exit-code -- gen packages/connect/src/gen",
     "verify:go": "npm run proto:check && npm run test:go",
-    "verify": "npm run db:generate && npm run typecheck && npm run test:api && npm run db:validate && npm run verify:go && npm run audit:prod",
+    "verify": "npm run db:generate && npm run typecheck && npm run guardrails:migration && npm run test:api && npm run db:validate && npm run proto:check && npm run test:go && unset DOCKER_HOST && make test-go-db && make lint && npm run build:web && make smoke-workers-go && npm run smoke:e2e && npm run audit:prod && npm run leak:check",
     "audit:prod": "npm audit --omit=dev",
     "leak:check": "node scripts/leak-check.mjs",
     "db:generate": "node scripts/dev-env.mjs prisma generate --schema packages/db/prisma/schema.prisma",

@@ -275,7 +275,7 @@ audit: ## Audit production dependencies
 	@npm run audit:prod
 
 .PHONY: verify
-verify: db-generate typecheck proto-lint test-go test-api db-validate leak-check audit ## Run the full pre-PR preflight
+verify: db-generate typecheck guardrails-migration generate-check lint test-go test-go-db test-api db-validate build-web smoke-workers-go smoke-e2e audit leak-check ## Run the full pre-PR preflight
 
 ##@ Build
 

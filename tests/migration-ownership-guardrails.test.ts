@@ -73,6 +73,20 @@ function makeTargets() {
   return [...targets].sort();
 }
 
+function makeTargetDependencies(makefile: string, target: string) {
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = makefile.match(new RegExp(`^${escapedTarget}:\\s*([^#\\n]*)`, "m"));
+  assert.ok(match, `expected Makefile target ${target}`);
+  return match[1].trim().split(/\s+/).filter(Boolean);
+}
+
+function makeTargetBlock(makefile: string, target: string) {
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = makefile.match(new RegExp(`^${escapedTarget}:.*(?:\\n\\t.*)*`, "m"));
+  assert.ok(match, `expected Makefile target ${target}`);
+  return match[0];
+}
+
 function compatRoutes() {
   const source = readRepoFile("internal/bootstrap/compat_api.go");
   const block = source.match(/var compatRouteTemplates = map\[string\]struct\{\}\{([\s\S]*?)\n\}/);
@@ -275,6 +289,56 @@ test("shared parity fixtures gate every Go worker parity surface", () => {
     }
     assert.match(readRepoFile(fixture.tsTest), new RegExp(path.basename(fixture.path)));
     assert.match(readRepoFile(fixture.goTest), new RegExp(path.basename(fixture.path)));
+  }
+});
+
+test("aggregate verifier commands cover the VAL-GATE-010 local gates", () => {
+  const scripts = packageScripts();
+  const makefile = readRepoFile("Makefile");
+  const npmVerify = scripts.verify;
+  const makeVerify = makeTargetBlock(makefile, "verify");
+  const makeVerifyDependencies = makeTargetDependencies(makefile, "verify");
+
+  assert.ok(npmVerify, "npm run verify must be defined");
+  assert.doesNotMatch(npmVerify, /\bmake\s+verify\b/, "npm verify must not recurse into make verify");
+  assert.doesNotMatch(makeVerify, /\bnpm run verify\b/, "make verify must not recurse into npm run verify");
+
+  const npmRequiredGates: Array<[string, RegExp]> = [
+    ["TypeScript typecheck", /\bnpm run typecheck\b/],
+    ["API tests", /\bnpm run test:api\b/],
+    ["Prisma validate", /\bnpm run db:validate\b/],
+    ["Go tests", /\bnpm run (?:test:go|verify:go)\b/],
+    ["DB-backed Go tests", /\bmake test-go-db\b/],
+    ["lint", /\bmake lint\b/],
+    ["proto/generated-client drift", /\bnpm run (?:proto:check|verify:go)\b/],
+    ["web build", /\b(?:npm run build:web|make build-web)\b/],
+    ["migration guardrails", /\b(?:npm run guardrails:migration|make guardrails-migration)\b/],
+    ["bounded Go worker smoke", /\b(?:npm run smoke:workers:go|make smoke-workers-go)\b/],
+    ["E2E smoke", /\b(?:npm run smoke:e2e|make smoke-e2e)\b/],
+    ["production audit", /\bnpm run audit:prod\b/],
+    ["leak check", /\bnpm run leak:check\b/]
+  ];
+  for (const [gate, pattern] of npmRequiredGates) {
+    assert.match(npmVerify, pattern, `npm run verify must cover ${gate}`);
+  }
+
+  const requiredMakeTargets = [
+    "typecheck",
+    "test-api",
+    "db-validate",
+    "test-go",
+    "test-go-db",
+    "lint",
+    "generate-check",
+    "build-web",
+    "guardrails-migration",
+    "smoke-workers-go",
+    "smoke-e2e",
+    "audit",
+    "leak-check"
+  ];
+  for (const target of requiredMakeTargets) {
+    assert.ok(makeVerifyDependencies.includes(target), `make verify must include ${target}`);
   }
 });
 
