@@ -791,7 +791,10 @@ func (a *App) CreateSiemDestination(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
 	}
 	id := compatID("siem")
-	encryptedToken := hashedProtoSecret(req.Msg.Token)
+	encryptedToken, err := encryptedOptionalSecret(map[string]any{"token": req.Msg.Token}, "token", auth.OrganizationID+":siem:"+id+":token")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
+	}
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringFromProto(req.Msg.Index), encryptedToken, streams); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -955,16 +958,6 @@ func stringFromAny(value any) string {
 func boolFromAny(value any) bool {
 	typed, _ := value.(bool)
 	return typed
-}
-
-func hashedProtoSecret(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	sum := sha256.Sum256([]byte(value))
-	encoded := hex.EncodeToString(sum[:])
-	return &encoded
 }
 
 func (a *App) ListShadowItOauthApps(
