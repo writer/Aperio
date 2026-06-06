@@ -147,6 +147,10 @@ function nestedString(
   return typeof current === "string" ? current : undefined;
 }
 
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
 function nestedBoolean(
   value: Record<string, unknown>,
   path: string[]
@@ -440,10 +444,201 @@ function scoreFinding(
 }
 
 function normalizeEventType(eventType: string): string {
-  return eventType.toUpperCase().replace(/[\s-]+/g, "_");
+  return eventType
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
-function evaluateSecurityRules(
+function recordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      !!item && typeof item === "object" && !Array.isArray(item)
+  );
+}
+
+function topLevelRecord(value: Record<string, unknown>, key: string) {
+  const candidate = value[key];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as Record<string, unknown>)
+    : undefined;
+}
+
+function oktaEntityLabel(entity: Record<string, unknown> | undefined) {
+  if (!entity) return undefined;
+  return (
+    stringValue(entity.alternateId) ??
+    stringValue(entity.id) ??
+    stringValue(entity.displayName) ??
+    stringValue(entity.login)
+  );
+}
+
+function oktaActor(payload: IngestionPayload) {
+  return (
+    oktaEntityLabel(topLevelRecord(payload.payload, "actor")) ??
+    payload.actor ??
+    "unknown actor"
+  );
+}
+
+function oktaTargets(payload: IngestionPayload) {
+  return recordArray(payload.payload.target);
+}
+
+function oktaTargetByType(
+  payload: IngestionPayload,
+  fragments: string[]
+): Record<string, unknown> | undefined {
+  const normalized = fragments.map((fragment) => fragment.toLowerCase());
+  return oktaTargets(payload).find((target) => {
+    const type = stringValue(target.type)?.toLowerCase() ?? "";
+    return normalized.some((fragment) => type.includes(fragment));
+  });
+}
+
+function oktaUserTarget(payload: IngestionPayload) {
+  return (
+    oktaEntityLabel(oktaTargetByType(payload, ["user"])) ??
+    oktaEntityLabel(oktaTargets(payload)[0]) ??
+    payload.actor ??
+    "unknown user"
+  );
+}
+
+function oktaDebugData(payload: IngestionPayload) {
+  return nestedRecord(payload.payload, ["debugContext", "debugData"]) ?? {};
+}
+
+function oktaRoleName(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  const roleTarget = oktaTargetByType(payload, ["role", "privilege"]);
+  return (
+    nestedString(debugData, ["role"]) ??
+    nestedString(debugData, ["roleName"]) ??
+    nestedString(debugData, ["privilege"]) ??
+    nestedString(debugData, ["privilegeName"]) ??
+    oktaEntityLabel(roleTarget) ??
+    "admin role"
+  );
+}
+
+function isPrivilegedOktaRole(role: string) {
+  const normalized = role.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return (
+    normalized.includes("SUPER_ADMIN") ||
+    normalized.includes("SUPER_ADMINISTRATOR") ||
+    normalized.includes("ORG_ADMIN") ||
+    normalized.includes("ORGANIZATION_ADMINISTRATOR") ||
+    normalized.includes("APP_ADMIN") ||
+    normalized.includes("APPLICATION_ADMINISTRATOR")
+  );
+}
+
+function oktaPasswordPolicyName(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  return (
+    nestedString(debugData, ["policyName"]) ??
+    nestedString(debugData, ["policy"]) ??
+    oktaEntityLabel(oktaTargetByType(payload, ["policy"])) ??
+    "Okta password policy"
+  );
+}
+
+function oktaIsPasswordPolicy(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  const candidates = [
+    nestedString(debugData, ["policyType"]),
+    nestedString(debugData, ["type"]),
+    nestedString(debugData, ["policyName"]),
+    nestedString(debugData, ["policy"]),
+    ...oktaTargets(payload).flatMap((target) => [
+      stringValue(target.type),
+      stringValue(target.displayName),
+      stringValue(target.name)
+    ])
+  ];
+  return candidates.some(
+    (candidate) => typeof candidate === "string" && /password/i.test(candidate)
+  );
+}
+
+function numericValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+  return undefined;
+}
+
+function oktaChangeDetails(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  return [
+    ...recordArray(payload.payload.changeDetails),
+    ...recordArray(debugData.changeDetails)
+  ];
+}
+
+function oktaPasswordPolicyWeakened(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  if (nestedBoolean(debugData, ["policyWeakened"]) === true) return true;
+  return oktaChangeDetails(payload).some((change) => {
+    const field = (
+      stringValue(change.field) ??
+      stringValue(change.name) ??
+      stringValue(change.setting) ??
+      ""
+    ).toLowerCase();
+    const oldValue = change.oldValue ?? change.old ?? change.from;
+    const newValue = change.newValue ?? change.new ?? change.to;
+    const oldNumber = numericValue(oldValue);
+    const newNumber = numericValue(newValue);
+    if (
+      oldNumber !== undefined &&
+      newNumber !== undefined &&
+      ((field.includes("length") && newNumber < oldNumber) ||
+        (field.includes("history") && newNumber < oldNumber) ||
+        (field.includes("min") && newNumber < oldNumber) ||
+        ((field.includes("max") ||
+          field.includes("rotation") ||
+          field.includes("expire")) &&
+          newNumber > oldNumber) ||
+        ((field.includes("attempt") || field.includes("lockout")) &&
+          newNumber > oldNumber))
+    ) {
+      return true;
+    }
+    const oldBool = booleanValue(oldValue);
+    const newBool = booleanValue(newValue);
+    if (
+      oldBool === true &&
+      newBool === false &&
+      (field.includes("complex") ||
+        field.includes("uppercase") ||
+        field.includes("lowercase") ||
+        field.includes("symbol") ||
+        field.includes("number") ||
+        field.includes("dictionary") ||
+        field.includes("history"))
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
+export function evaluateSecurityRules(
   payload: IngestionPayload,
   disabledChecks: string[] = []
 ): RuleFinding[] {
@@ -518,6 +713,170 @@ function evaluateSecurityRules(
         subject: user
       }
     });
+  }
+
+  if (
+    !disabled.has("okta.admin_role_assigned") &&
+    payload.provider === "OKTA" &&
+    (normalizedEvent === "USER_ACCOUNT_PRIVILEGE_GRANT" ||
+      normalizedEvent === "USER_ACCOUNT_PRIVILEGE_GRANTED" ||
+      normalizedEvent === "ADMIN_ROLE_ASSIGNED" ||
+      normalizedEvent === "ROLE_ASSIGNMENT_CREATED")
+  ) {
+    const user = oktaUserTarget(payload);
+    const grantedRole = oktaRoleName(payload);
+
+    if (isPrivilegedOktaRole(grantedRole)) {
+      findings.push({
+        ruleId: "okta.admin_role_assigned",
+        title: "Okta admin role assigned",
+        description:
+          "An Okta account was granted a highly privileged administrator role.",
+        severity: "CRITICAL",
+        riskScore: 93,
+        remediationSteps: [
+          "Validate that the Okta admin role assignment was approved through change control.",
+          "Remove the role if the assignment is not explicitly authorized.",
+          "Review recent sign-ins and admin activity for the affected Okta account."
+        ],
+        target: user,
+        dedupeTarget: `${user}:${grantedRole}`,
+        evidence: compactRecord({
+          user,
+          grantedRole,
+          actor: oktaActor(payload),
+          subject: `${user}:${grantedRole}`
+        })
+      });
+    }
+  }
+
+  if (
+    !disabled.has("okta.mfa_factor_reset") &&
+    payload.provider === "OKTA" &&
+    (normalizedEvent === "USER_MFA_FACTOR_RESET" ||
+      normalizedEvent === "USER_MFA_FACTOR_RESET_ALL" ||
+      normalizedEvent === "MFA_FACTOR_RESET")
+  ) {
+    const user = oktaUserTarget(payload);
+    const actor = oktaActor(payload);
+    const factor =
+      nestedString(oktaDebugData(payload), ["factor"]) ??
+      nestedString(oktaDebugData(payload), ["factorType"]) ??
+      "all factors";
+
+    if (actor.toLowerCase() !== user.toLowerCase()) {
+      findings.push({
+        ruleId: "okta.mfa_factor_reset",
+        title: "Okta MFA factor reset by admin",
+        description:
+          "An administrator reset MFA factors for another Okta user, which can be legitimate helpdesk activity or an account-takeover precursor.",
+        severity: "HIGH",
+        riskScore: 82,
+        remediationSteps: [
+          "Confirm the MFA reset was requested by the affected user.",
+          "Force a password reset and session revocation if the reset was not approved.",
+          "Review recent sign-ins and admin actions by the actor who reset the factor."
+        ],
+        target: user,
+        dedupeTarget: `${user}:${actor}`,
+        evidence: compactRecord({
+          user,
+          actor,
+          factor,
+          subject: `${user}:${actor}`
+        })
+      });
+    }
+  }
+
+  if (
+    !disabled.has("okta.password_policy_weakened") &&
+    payload.provider === "OKTA" &&
+    (normalizedEvent === "POLICY_LIFECYCLE_UPDATE" ||
+      normalizedEvent === "PASSWORD_POLICY_UPDATED") &&
+    oktaIsPasswordPolicy(payload) &&
+    oktaPasswordPolicyWeakened(payload)
+  ) {
+    const policyName = oktaPasswordPolicyName(payload);
+    findings.push({
+      ruleId: "okta.password_policy_weakened",
+      title: "Okta password policy weakened",
+      description:
+        "An Okta password policy was changed to reduce password length, complexity, rotation, history, or lockout protections.",
+      severity: "HIGH",
+      riskScore: 84,
+      remediationSteps: [
+        "Review the policy change and confirm it was approved.",
+        "Restore the previous password policy settings if the change was not authorized.",
+        "Audit affected user sign-ins while the weaker policy was active."
+      ],
+      target: policyName,
+      dedupeTarget: policyName,
+      evidence: compactRecord({
+        policyName,
+        actor: oktaActor(payload),
+        weakenedSettings: oktaChangeDetails(payload).map((change) =>
+          stringValue(change.field) ??
+          stringValue(change.name) ??
+          stringValue(change.setting) ??
+          "unknown"
+        ),
+        subject: policyName
+      })
+    });
+  }
+
+  if (
+    !disabled.has("okta.suspicious_signin") &&
+    payload.provider === "OKTA" &&
+    (normalizedEvent === "SECURITY_THREAT_DETECTED" ||
+      normalizedEvent === "USER_AUTHENTICATION_FAILED" ||
+      normalizedEvent === "USER_SESSION_START")
+  ) {
+    const debugData = oktaDebugData(payload);
+    const securityContext =
+      nestedRecord(payload.payload, ["securityContext"]) ?? {};
+    const outcome = nestedRecord(payload.payload, ["outcome"]) ?? {};
+    const risk =
+      nestedString(securityContext, ["risk"]) ??
+      nestedString(debugData, ["risk"]) ??
+      nestedString(outcome, ["reason"]) ??
+      "";
+    const threatSuspected =
+      nestedBoolean(debugData, ["threatSuspected"]) === true ||
+      nestedBoolean(securityContext, ["isProxy"]) === true ||
+      /threat|risk|proxy|impossible|suspicious/i.test(risk);
+
+    if (threatSuspected) {
+      const user = oktaActor(payload);
+      const ipAddress =
+        nestedString(payload.payload, ["client", "ipAddress"]) ??
+        nestedString(debugData, ["ipAddress"]);
+
+      findings.push({
+        ruleId: "okta.suspicious_signin",
+        title: "Okta suspicious sign-in detected",
+        description:
+          "Okta flagged sign-in activity with threat, proxy, or high-risk indicators.",
+        severity: "MEDIUM",
+        riskScore: 62,
+        remediationSteps: [
+          "Verify the sign-in with the affected user.",
+          "Reset the user's password and MFA factors if the sign-in was not expected.",
+          "Block the source IP or strengthen sign-on policy if the pattern recurs."
+        ],
+        target: user,
+        dedupeTarget: `${user}:${ipAddress ?? risk}`,
+        evidence: compactRecord({
+          user,
+          ipAddress,
+          risk,
+          actor: oktaActor(payload),
+          subject: `${user}:${ipAddress ?? risk}`
+        })
+      });
+    }
   }
 
   if (
