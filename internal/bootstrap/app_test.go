@@ -243,6 +243,36 @@ func TestCookieBackedConnectRequiresAllowedOrigin(t *testing.T) {
 	}
 }
 
+func TestCompatRoleEnforcementRejectsViewerAdminWrites(t *testing.T) {
+	err := requireCompatRole(compatAuth{Role: "VIEWER"}, "OWNER", "ADMIN")
+	if err == nil {
+		t.Fatal("expected viewer to be rejected for admin-only action")
+	}
+}
+
+func TestCompatSiemEndpointRejectsPrivateHosts(t *testing.T) {
+	loopback := "http://127.0.0.1:9000/events"
+	if err := validateCompatSiemEndpoint(&loopback); err == nil {
+		t.Fatal("expected loopback SIEM endpoint to be rejected")
+	}
+	public := "https://siem.example.com/events"
+	if err := validateCompatSiemEndpoint(&public); err != nil {
+		t.Fatalf("expected public SIEM endpoint to pass, got %v", err)
+	}
+}
+
+func TestCompatTOTPVerifiesGeneratedCode(t *testing.T) {
+	secret := "JBSWY3DPEHPK3PXP"
+	counter := uint64(time.Now().Unix() / 30)
+	code := compatHOTP([]byte("Hello!\xde\xad\xbe\xef"), counter)
+	if !compatVerifyTOTP(secret, code) {
+		t.Fatal("expected generated TOTP code to verify")
+	}
+	if compatVerifyTOTP(secret, "000000") && code != "000000" {
+		t.Fatal("expected incorrect TOTP code to fail")
+	}
+}
+
 func nowMinus(t *testing.T, duration time.Duration) time.Time {
 	t.Helper()
 	return time.Now().Add(-duration)
