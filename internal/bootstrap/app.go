@@ -1266,7 +1266,7 @@ func (a *App) organizationIDFromSession(ctx context.Context, header http.Header)
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, us.last_seen_at
 		FROM user_sessions us
-		JOIN users u ON u.id = us.user_id
+		JOIN users u ON u.id = us.user_id AND u.organization_id = us.organization_id
 		WHERE us.id = $1
 		  AND us.token_hash = $2
 		  AND us.revoked_at IS NULL
