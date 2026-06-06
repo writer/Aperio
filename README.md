@@ -55,10 +55,25 @@ The Go API is the single source of truth for connector, finding, admin, auth, an
 ### Prerequisites
 
 - Node.js 20+ (the repo targets the active LTS line).
-- Docker (for local Postgres via `docker-compose.yml`) or any reachable Postgres 15+.
+- Go 1.25+ (for the ConnectRPC API in `cmd/aperio`).
+- Docker (for local Postgres and NATS via `docker-compose.yml`) or any reachable Postgres 15+.
 - npm 10+ (ships with Node 20).
+- GNU Make (preinstalled on macOS and most Linux distros) to use the `make` targets below.
 
 ### First run
+
+The fastest path uses the Makefile; run `make help` to see every target.
+
+```bash
+git clone https://github.com/writer/Aperio.git
+cd Aperio
+make setup                          # .env, deps, Postgres, migrations, and seed data
+make dev                            # Go API on :4100 + Next.js console on :3000
+```
+
+`DATABASE_URL` in `.env` is the single source of truth for the local Postgres port: `make` publishes the docker-compose database on the port embedded there and hands the Go server a pgx-compatible DSN automatically (Prisma's `?schema=public` is stripped and `sslmode=disable` is added for local connections).
+
+Prefer to run each step yourself? The manual flow is equivalent:
 
 ```bash
 git clone https://github.com/writer/Aperio.git
@@ -207,6 +222,8 @@ Each delivery row is durable, retried with exponential backoff, and de-duplicate
 ---
 
 ## Scripts
+
+Every workflow below is also wrapped by the Makefile — run `make help` for the full list (`make dev`, `make verify`, `make test`, `make migrate`, and more). The underlying npm scripts remain available:
 
 ```bash
 npm run dev:connect            # Go ConnectRPC API on :4100

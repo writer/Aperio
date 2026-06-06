@@ -12,6 +12,11 @@ const ignoredDirs = new Set([
   ".turbo"
 ]);
 const ignoredFiles = new Set([".env.example"]);
+// Only the gitignored dotenv files (.env, .env.local, .env.*.local) can never
+// be committed, so skipping them just avoids false positives from a developer's
+// populated .env during `make verify`. Every other .env.* name (.env.production,
+// .env.staging, ...) is committable and must still be scanned for secrets.
+const localEnvFile = /^\.env(\.local|\..+\.local)?$/;
 const ignoredExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf"]);
 const patterns = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "private key block"],
@@ -33,6 +38,7 @@ function walk(directory) {
     if (!stat.isFile()) continue;
     const relativePath = path.slice(root.endsWith("/") ? root.length : root.length + 1);
     if (ignoredFiles.has(relativePath)) continue;
+    if (localEnvFile.test(entry)) continue;
     if (ignoredExtensions.has(path.slice(path.lastIndexOf(".")).toLowerCase())) continue;
     const content = readFileSync(path, "utf8");
     const lines = content.split(/\r?\n/);
