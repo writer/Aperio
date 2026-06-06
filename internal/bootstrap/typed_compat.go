@@ -765,22 +765,22 @@ func securityAssetFromMap(data map[string]any) *aperiov1.SecurityAsset {
 		Provider:              optionalStringFromAny(data["provider"]),
 		Name:                  stringFromAny(data["name"]),
 		Summary:               optionalStringFromAny(data["summary"]),
-		ExternalId:            optionalStringFromAny(data["externalId"]),
+		ExternalId:            optionalStringFromAny(anyKey(data, "externalId", "external_id")),
 		Labels:                stringSlice(data["labels"]),
 		Criticality:           stringFromAny(data["criticality"]),
-		ExposureLevel:         stringFromAny(data["exposureLevel"]),
-		OwnershipStatus:       stringFromAny(data["ownershipStatus"]),
-		ContainsSensitiveData: boolFromAny(data["containsSensitiveData"]),
-		IsPrivileged:          boolFromAny(data["isPrivileged"]),
-		RiskScore:             int32(intValue(data["riskScore"])),
-		LastObservedAt:        optionalStringFromAny(data["lastObservedAt"]),
-		CreatedAt:             stringFromAny(data["createdAt"]),
-		UpdatedAt:             stringFromAny(data["updatedAt"]),
+		ExposureLevel:         stringFromAny(anyKey(data, "exposureLevel", "exposure_level")),
+		OwnershipStatus:       stringFromAny(anyKey(data, "ownershipStatus", "ownership_status")),
+		ContainsSensitiveData: boolFromAny(anyKey(data, "containsSensitiveData", "contains_sensitive_data")),
+		IsPrivileged:          boolFromAny(anyKey(data, "isPrivileged", "is_privileged")),
+		RiskScore:             int32(intValue(anyKey(data, "riskScore", "risk_score"))),
+		LastObservedAt:        optionalStringFromAny(anyKey(data, "lastObservedAt", "last_observed_at")),
+		CreatedAt:             stringFromAny(anyKey(data, "createdAt", "created_at")),
+		UpdatedAt:             stringFromAny(anyKey(data, "updatedAt", "updated_at")),
 		Integration:           findingIntegrationFromMap(asMap(data["integration"])),
 		Owner:                 securityPrincipalFromMap(asMap(data["owner"])),
-		BusinessOwner:         securityPrincipalFromMap(asMap(data["businessOwner"])),
-		OpenFindingCount:      int32(intValue(data["openFindingCount"])),
-		ActiveExceptionCount:  int32(intValue(data["activeExceptionCount"])),
+		BusinessOwner:         securityPrincipalFromMap(asMap(anyKey(data, "businessOwner", "business_owner"))),
+		OpenFindingCount:      int32(intValue(anyKey(data, "openFindingCount", "open_finding_count"))),
+		ActiveExceptionCount:  int32(intValue(anyKey(data, "activeExceptionCount", "active_exception_count"))),
 	}
 }
 
@@ -791,7 +791,7 @@ func findingIntegrationFromMap(data map[string]any) *aperiov1.FindingIntegration
 	return &aperiov1.FindingIntegration{
 		Id:          stringFromAny(data["id"]),
 		Provider:    stringFromAny(data["provider"]),
-		DisplayName: stringFromAny(data["displayName"]),
+		DisplayName: stringFromAny(anyKey(data, "displayName", "display_name")),
 	}
 }
 
@@ -802,7 +802,7 @@ func securityPrincipalFromMap(data map[string]any) *aperiov1.SecurityPrincipal {
 	return &aperiov1.SecurityPrincipal{
 		Id:          stringFromAny(data["id"]),
 		Email:       stringFromAny(data["email"]),
-		DisplayName: optionalStringFromAny(data["displayName"]),
+		DisplayName: optionalStringFromAny(anyKey(data, "displayName", "display_name")),
 	}
 }
 
@@ -820,16 +820,16 @@ func riskExceptionFromMap(data map[string]any) *aperiov1.RiskException {
 		Id:                   stringFromAny(data["id"]),
 		Title:                stringFromAny(data["title"]),
 		Rationale:            stringFromAny(data["rationale"]),
-		CompensatingControls: stringSlice(data["compensatingControls"]),
+		CompensatingControls: stringSlice(anyKey(data, "compensatingControls", "compensating_controls")),
 		Status:               stringFromAny(data["status"]),
-		ExpiresAt:            optionalStringFromAny(data["expiresAt"]),
-		ApprovedAt:           optionalStringFromAny(data["approvedAt"]),
-		CreatedAt:            stringFromAny(data["createdAt"]),
-		UpdatedAt:            stringFromAny(data["updatedAt"]),
+		ExpiresAt:            optionalStringFromAny(anyKey(data, "expiresAt", "expires_at")),
+		ApprovedAt:           optionalStringFromAny(anyKey(data, "approvedAt", "approved_at")),
+		CreatedAt:            stringFromAny(anyKey(data, "createdAt", "created_at")),
+		UpdatedAt:            stringFromAny(anyKey(data, "updatedAt", "updated_at")),
 		Asset:                riskExceptionAssetFromMap(asMap(data["asset"])),
 		Finding:              riskExceptionFindingFromMap(asMap(data["finding"])),
-		CreatedBy:            securityPrincipalFromMap(asMap(data["createdBy"])),
-		ApprovedBy:           securityPrincipalFromMap(asMap(data["approvedBy"])),
+		CreatedBy:            securityPrincipalFromMap(asMap(anyKey(data, "createdBy", "created_by"))),
+		ApprovedBy:           securityPrincipalFromMap(asMap(anyKey(data, "approvedBy", "approved_by"))),
 	}
 }
 
@@ -868,4 +868,13 @@ func anyList(value any) []any {
 		return out
 	}
 	return []any{}
+}
+
+func anyKey(data map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := data[key]; ok {
+			return value
+		}
+	}
+	return nil
 }

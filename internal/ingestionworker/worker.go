@@ -212,9 +212,19 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	findings := Evaluate(payload, nil)
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return w.finish(ctx, item, false, err.Error())
 	}
-	defer tx.Rollback()
+	txDone := false
+	defer func() {
+		if !txDone {
+			_ = tx.Rollback()
+		}
+	}()
+	fail := func(err error) error {
+		txDone = true
+		_ = tx.Rollback()
+		return w.finish(ctx, item, false, err.Error())
+	}
 	eventID := "evt_" + randomID()
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO ingested_events (id, organization_id, integration_id, ingestion_job_id, provider, event_type, source, actor, severity, payload, processing_status, occurred_at, processed_at, created_at)
@@ -222,14 +232,14 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		ON CONFLICT (ingestion_job_id) DO UPDATE SET payload = EXCLUDED.payload, processing_status = 'PROCESSED', processed_at = NOW()
 		RETURNING id
 	`, eventID, item.OrganizationID, item.IntegrationID, item.ID, item.Provider, item.EventType, item.Source, nullableString(item.Actor), item.Payload, item.OccurredAt).Scan(&eventID); err != nil {
-		return err
+		return fail(err)
 	}
 	for _, finding := range findings {
 		if err := upsertFinding(ctx, tx, payload, finding, eventID); err != nil {
-			return err
+			return fail(err)
 		}
 		if err := enqueueFindingDelivery(ctx, tx, payload, finding); err != nil {
-			return err
+			return fail(err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -237,11 +247,13 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		SET status = 'SUCCEEDED', attempts = attempts + 1, processed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
 		WHERE id = $1 AND lease_owner = $2
 	`, item.ID, w.leaseOwner); err != nil {
-		return err
+		return fail(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return err
+		txDone = true
+		return w.finish(ctx, item, false, err.Error())
 	}
+	txDone = true
 	return nil
 }
 
