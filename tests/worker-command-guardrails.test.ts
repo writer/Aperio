@@ -94,15 +94,22 @@ test("README worker copy names TypeScript defaults and explicit Go transition sm
 
 test("TypeScript worker tests still import the reference worker modules", () => {
   const testFiles = readdirSync(path.join(repoRoot, "tests"))
-    .filter((file) => file.endsWith(".test.ts"))
-    .map((file) => readRepoFile(path.join("tests", file)));
+    .filter((file) => file.endsWith(".test.ts") && file !== "worker-command-guardrails.test.ts")
+    .map((file) => ({
+      file,
+      imports: [
+        ...readRepoFile(path.join("tests", file)).matchAll(
+          /^\s*import(?:\s+type)?(?:[\s\S]*?)\s+from\s+["']([^"']+)["'];?/gm
+        )
+      ].map((match) => match[1])
+    }));
 
   assert.ok(
-    testFiles.some((contents) => contents.includes("../workers/ingestion-worker")),
+    testFiles.some(({ imports }) => imports.includes("../workers/ingestion-worker")),
     "expected at least one TypeScript test to import the ingestion worker"
   );
   assert.ok(
-    testFiles.some((contents) => contents.includes("../workers/siem-dispatcher")),
+    testFiles.some(({ imports }) => imports.includes("../workers/siem-dispatcher")),
     "expected at least one TypeScript test to import the SIEM dispatcher"
   );
 });

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,21 @@ func openDBBackedIngestionWorkerDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func readSiemFindingDeliveryReferenceRecord(t *testing.T) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "siem-finding-delivery.json"))
+	if err != nil {
+		t.Fatalf("read SIEM delivery parity fixture: %v", err)
+	}
+	var fixture struct {
+		Payload siemdispatcher.Payload `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode SIEM delivery parity fixture: %v", err)
+	}
+	return fixture.Payload.Record
 }
 
 func testWorkerID(prefix string) string {
@@ -243,11 +259,12 @@ func TestDrainPersistsSupportedGitHubJobSideEffects(t *testing.T) {
 
 	var eventID string
 	var eventStatus string
+	var eventOccurredAt time.Time
 	if err := db.QueryRowContext(context.Background(), `
-		SELECT id, processing_status::text
+		SELECT id, processing_status::text, occurred_at
 		FROM ingested_events
 		WHERE ingestion_job_id = $1 AND organization_id = $2
-	`, jobID, orgID).Scan(&eventID, &eventStatus); err != nil {
+	`, jobID, orgID).Scan(&eventID, &eventStatus, &eventOccurredAt); err != nil {
 		t.Fatalf("query ingested event: %v", err)
 	}
 	if eventStatus != "PROCESSED" {
@@ -297,8 +314,191 @@ func TestDrainPersistsSupportedGitHubJobSideEffects(t *testing.T) {
 	if deliveryStatus != "PENDING" || deliveryStream != "FINDINGS" || deliveryDestination != destinationID {
 		t.Fatalf("delivery routing state = status=%s stream=%s destination=%s", deliveryStatus, deliveryStream, deliveryDestination)
 	}
+	assertFindingDeliveryPayload(t, deliveryPayload, findingDeliveryExpectation{
+		orgID:            orgID,
+		occurredAt:       eventOccurredAt,
+		findingID:        persistedFindingID,
+		dedupeKey:        dedupe,
+		sourceEventID:    eventID,
+		status:           findingStatus,
+		finding:          finding,
+		provider:         "GITHUB",
+		integrationID:    integrationID,
+		source:           "test",
+		eventType:        "PUBLIC_REPOSITORY_CREATED",
+		actor:            "worker@example.com",
+		referenceRecord:  readSiemFindingDeliveryReferenceRecord(t),
+		destinationID:    destinationID,
+		deliveryDedupe:   deliveryDedupe,
+		deliveryDedupeOf: "first observation",
+	})
 	if want := siemdispatcher.StableDeliveryKey(deliveryPayload, destinationID, "FINDINGS"); deliveryDedupe != want {
 		t.Fatalf("delivery dedupe key = %s, want %s", deliveryDedupe, want)
+	}
+
+	secondJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+
+	result, err = worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("second drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		_, _, _, _, jobError := ingestionJobState(t, db, secondJobID)
+		t.Fatalf("unexpected second drain result: %#v lastError=%v", result, jobError)
+	}
+
+	var secondEventID string
+	var secondEventOccurredAt time.Time
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, occurred_at
+		FROM ingested_events
+		WHERE ingestion_job_id = $1 AND organization_id = $2
+	`, secondJobID, orgID).Scan(&secondEventID, &secondEventOccurredAt); err != nil {
+		t.Fatalf("query second ingested event: %v", err)
+	}
+	if secondEventID == eventID {
+		t.Fatalf("expected distinct persisted event ids for repeated observations, got %s", secondEventID)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2 AND stream = 'FINDINGS'::"SiemStreamType"
+	`, orgID, destinationID).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count SIEM deliveries: %v", err)
+	}
+	if deliveryCount != 2 {
+		t.Fatalf("expected repeated observations to enqueue distinct deliveries, got %d", deliveryCount)
+	}
+
+	var secondRawDelivery json.RawMessage
+	var secondDeliveryDedupe string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT dedupe_key, payload
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2 AND payload->'record'->>'sourceEventId' = $3
+	`, orgID, destinationID, secondEventID).Scan(&secondDeliveryDedupe, &secondRawDelivery); err != nil {
+		t.Fatalf("query second SIEM delivery: %v", err)
+	}
+	var secondDeliveryPayload siemdispatcher.Payload
+	if err := json.Unmarshal(secondRawDelivery, &secondDeliveryPayload); err != nil {
+		t.Fatalf("decode second SIEM delivery payload: %v", err)
+	}
+	assertFindingDeliveryPayload(t, secondDeliveryPayload, findingDeliveryExpectation{
+		orgID:            orgID,
+		occurredAt:       secondEventOccurredAt,
+		findingID:        persistedFindingID,
+		dedupeKey:        dedupe,
+		sourceEventID:    secondEventID,
+		status:           "OPEN",
+		finding:          finding,
+		provider:         "GITHUB",
+		integrationID:    integrationID,
+		source:           "test",
+		eventType:        "PUBLIC_REPOSITORY_CREATED",
+		actor:            "worker@example.com",
+		referenceRecord:  readSiemFindingDeliveryReferenceRecord(t),
+		destinationID:    destinationID,
+		deliveryDedupe:   secondDeliveryDedupe,
+		deliveryDedupeOf: "second observation",
+	})
+	if secondDeliveryDedupe == deliveryDedupe {
+		t.Fatal("expected repeated observations with different sourceEventId values to have distinct delivery dedupe keys")
+	}
+}
+
+type findingDeliveryExpectation struct {
+	orgID            string
+	occurredAt       time.Time
+	findingID        string
+	dedupeKey        string
+	sourceEventID    string
+	status           string
+	finding          Finding
+	provider         string
+	integrationID    string
+	source           string
+	eventType        string
+	actor            string
+	referenceRecord  map[string]any
+	destinationID    string
+	deliveryDedupe   string
+	deliveryDedupeOf string
+}
+
+func assertFindingDeliveryPayload(t *testing.T, payload siemdispatcher.Payload, want findingDeliveryExpectation) {
+	t.Helper()
+	if payload.Kind != "finding" || payload.OrganizationID != want.orgID {
+		t.Fatalf("delivery payload routing = kind=%s org=%s", payload.Kind, payload.OrganizationID)
+	}
+	if payload.OccurredAt != want.occurredAt.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("delivery occurredAt = %s, want %s", payload.OccurredAt, want.occurredAt.UTC().Format(time.RFC3339Nano))
+	}
+	for key := range want.referenceRecord {
+		if _, ok := payload.Record[key]; !ok {
+			t.Fatalf("delivery record missing shared fixture field %q in %#v", key, payload.Record)
+		}
+	}
+	requireRecordString(t, payload.Record, "schemaVersion", "aperio.finding.v1")
+	requireRecordString(t, payload.Record, "findingId", want.findingID)
+	requireRecordString(t, payload.Record, "dedupeKey", want.dedupeKey)
+	requireRecordString(t, payload.Record, "sourceEventId", want.sourceEventID)
+	requireRecordString(t, payload.Record, "status", want.status)
+	requireRecordString(t, payload.Record, "ruleId", want.finding.RuleID)
+	requireRecordString(t, payload.Record, "title", want.finding.Title)
+	requireRecordString(t, payload.Record, "description", want.finding.Description)
+	requireRecordString(t, payload.Record, "severity", want.finding.Severity)
+	requireRecordNumber(t, payload.Record, "riskScore", float64(want.finding.RiskScore))
+	requireRecordStringSlice(t, payload.Record, "remediationSteps", want.finding.RemediationSteps)
+	requireRecordString(t, payload.Record, "target", want.finding.Target)
+	requireRecordString(t, payload.Record, "provider", want.provider)
+	requireRecordString(t, payload.Record, "integrationId", want.integrationID)
+	requireRecordString(t, payload.Record, "source", want.source)
+	requireRecordString(t, payload.Record, "eventType", want.eventType)
+	requireRecordString(t, payload.Record, "actor", want.actor)
+	if got, wantKey := want.deliveryDedupe, siemdispatcher.StableDeliveryKey(payload, want.destinationID, "FINDINGS"); got != wantKey {
+		t.Fatalf("%s delivery dedupe key = %s, want %s", want.deliveryDedupeOf, got, wantKey)
+	}
+}
+
+func requireRecordString(t *testing.T, record map[string]any, key string, want string) {
+	t.Helper()
+	got, ok := record[key].(string)
+	if !ok || got != want {
+		t.Fatalf("delivery record[%s] = %#v, want %q", key, record[key], want)
+	}
+}
+
+func requireRecordNumber(t *testing.T, record map[string]any, key string, want float64) {
+	t.Helper()
+	got, ok := record[key].(float64)
+	if !ok || got != want {
+		t.Fatalf("delivery record[%s] = %#v, want %v", key, record[key], want)
+	}
+}
+
+func requireRecordStringSlice(t *testing.T, record map[string]any, key string, want []string) {
+	t.Helper()
+	values, ok := record[key].([]any)
+	if !ok || len(values) != len(want) {
+		t.Fatalf("delivery record[%s] = %#v, want %#v", key, record[key], want)
+	}
+	for index, value := range values {
+		got, ok := value.(string)
+		if !ok || got != want[index] {
+			t.Fatalf("delivery record[%s][%d] = %#v, want %q", key, index, value, want[index])
+		}
 	}
 }
 

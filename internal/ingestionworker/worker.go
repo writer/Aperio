@@ -43,6 +43,11 @@ type Finding struct {
 	Evidence         map[string]any
 }
 
+type persistedFinding struct {
+	ID     string
+	Status string
+}
+
 type Result struct {
 	Processed int
 	Succeeded int
@@ -234,10 +239,11 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		return fail(fmt.Errorf("upsert ingested event: %w", err))
 	}
 	for _, finding := range findings {
-		if err := upsertFinding(ctx, tx, payload, finding, eventID); err != nil {
+		persisted, err := upsertFinding(ctx, tx, payload, finding, eventID)
+		if err != nil {
 			return fail(fmt.Errorf("upsert finding: %w", err))
 		}
-		if err := enqueueFindingDelivery(ctx, tx, payload, finding); err != nil {
+		if err := enqueueFindingDelivery(ctx, tx, payload, finding, eventID, persisted); err != nil {
 			return fail(fmt.Errorf("enqueue SIEM delivery: %w", err))
 		}
 	}
@@ -300,7 +306,7 @@ func (w *Worker) loadDisabledChecks(ctx context.Context, item job) ([]string, er
 	return disabledChecks, nil
 }
 
-func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string) error {
+func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string) (persistedFinding, error) {
 	dedupe := DedupeKey(payload, finding)
 	evidence := map[string]any{}
 	for key, value := range finding.Evidence {
@@ -309,7 +315,8 @@ func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding 
 	evidence["ruleId"] = finding.RuleID
 	evidence["sourceEventId"] = eventID
 	evidenceJSON, _ := json.Marshal(evidence)
-	_, err := tx.ExecContext(ctx, `
+	var persisted persistedFinding
+	err := tx.QueryRowContext(ctx, `
 		INSERT INTO security_findings (
 			id, organization_id, integration_id, event_id, dedupe_key, title, description, severity,
 			status, risk_score, remediation_steps, evidence, detected_at
@@ -326,8 +333,9 @@ func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding 
 			risk_score = EXCLUDED.risk_score,
 			remediation_steps = EXCLUDED.remediation_steps,
 			evidence = EXCLUDED.evidence
-	`, "fnd_"+randomID(), payload.OrganizationID, payload.IntegrationID, eventID, dedupe, finding.Title, finding.Description, finding.Severity, finding.RiskScore, postgresTextArray(finding.RemediationSteps), string(evidenceJSON), payload.OccurredAt)
-	return err
+		RETURNING id, status::text
+	`, "fnd_"+randomID(), payload.OrganizationID, payload.IntegrationID, eventID, dedupe, finding.Title, finding.Description, finding.Severity, finding.RiskScore, postgresTextArray(finding.RemediationSteps), string(evidenceJSON), payload.OccurredAt).Scan(&persisted.ID, &persisted.Status)
+	return persisted, err
 }
 
 func postgresTextArray(values []string) string {
@@ -350,7 +358,7 @@ func postgresTextArray(values []string) string {
 	return builder.String()
 }
 
-func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding) error {
+func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string, persisted persistedFinding) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id
 		FROM siem_destinations
@@ -375,19 +383,34 @@ func enqueueFindingDelivery(ctx context.Context, tx *sql.Tx, payload JobPayload,
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	dedupe := DedupeKey(payload, finding)
+	status := persisted.Status
+	if status == "" {
+		status = "OPEN"
+	}
+	var actor any
+	if payload.Actor != "" {
+		actor = payload.Actor
+	}
 	for _, destinationID := range destinationIDs {
 		record := map[string]any{
-			"findingId":     DedupeKey(payload, finding),
-			"dedupeKey":     DedupeKey(payload, finding),
-			"title":         finding.Title,
-			"description":   finding.Description,
-			"severity":      finding.Severity,
-			"riskScore":     finding.RiskScore,
-			"status":        "OPEN",
-			"ruleId":        finding.RuleID,
-			"target":        finding.Target,
-			"integrationId": payload.IntegrationID,
-			"provider":      payload.Provider,
+			"schemaVersion":    "aperio.finding.v1",
+			"findingId":        persisted.ID,
+			"dedupeKey":        dedupe,
+			"sourceEventId":    eventID,
+			"status":           status,
+			"ruleId":           finding.RuleID,
+			"title":            finding.Title,
+			"description":      finding.Description,
+			"severity":         finding.Severity,
+			"riskScore":        finding.RiskScore,
+			"remediationSteps": finding.RemediationSteps,
+			"target":           finding.Target,
+			"provider":         payload.Provider,
+			"integrationId":    payload.IntegrationID,
+			"source":           payload.Source,
+			"eventType":        payload.EventType,
+			"actor":            actor,
 		}
 		deliveryPayload := siemdispatcher.Payload{
 			Kind:           "finding",
