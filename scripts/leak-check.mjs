@@ -12,10 +12,11 @@ const ignoredDirs = new Set([
   ".turbo"
 ]);
 const ignoredFiles = new Set([".env.example"]);
-// Local dotenv files (.env, .env.local, .env.*.local) are gitignored, so they
-// can never be committed; scanning them only yields false positives when a
-// developer has a populated .env during `make verify`.
-const localEnvFile = /^\.env(\.[^/]+)?$/;
+// Only the gitignored dotenv files (.env, .env.local, .env.*.local) can never
+// be committed, so skipping them just avoids false positives from a developer's
+// populated .env during `make verify`. Every other .env.* name (.env.production,
+// .env.staging, ...) is committable and must still be scanned for secrets.
+const localEnvFile = /^\.env(\.local|\..+\.local)?$/;
 const ignoredExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf"]);
 const patterns = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "private key block"],

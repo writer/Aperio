@@ -87,7 +87,7 @@ doctor: ## Check the local toolchain and infra ports
 .PHONY: dev
 dev: require-env ## Run the API and web console together (Ctrl-C stops both)
 	@$(MAKE) --no-print-directory db-up migrate
-	@printf '$(GREEN)API$(RESET) on %s   $(GREEN)Web$(RESET) on http://localhost:%s   (Ctrl-C to stop)\n' "$(API_ADDR)" "$(WEB_PORT)"
+	@$(LOAD_ENV) printf '$(GREEN)API$(RESET) on %s   $(GREEN)Web$(RESET) on http://localhost:%s   (Ctrl-C to stop)\n' "$${APERIO_CONNECT_ADDR:-$(API_ADDR)}" "$(WEB_PORT)"
 	@$(MAKE) --no-print-directory -j2 _run-api _run-web
 
 .PHONY: api
