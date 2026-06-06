@@ -38,6 +38,8 @@ type aperioEventBus struct {
 }
 
 func (a *App) publishFindingLifecycleEvent(ctx context.Context, findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote string, occurredAt time.Time) {
+	// Lifecycle publication is best-effort: the database mutation remains the
+	// source of truth, and event-bus failures must not block analyst actions.
 	event, err := encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote, occurredAt)
 	if err != nil {
 		return
@@ -48,6 +50,9 @@ func (a *App) publishFindingLifecycleEvent(ctx context.Context, findingID, organ
 func encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previousStatus, nextStatus, actorUserID, resolutionNote string, occurredAt time.Time) (encodedAperioEvent, error) {
 	eventID := compatID("evt")
 	timestamp := timestamppb.New(occurredAt)
+	// The domain payload is marshaled first, then wrapped in Cerebro's generic
+	// event envelope so downstream consumers can route by kind/schema without
+	// understanding every Aperio contract.
 	lifecyclePayload, err := proto.Marshal(&aperiocontractsv1.FindingLifecycleEvent{
 		FindingId:      findingID,
 		OrganizationId: organizationID,
@@ -63,6 +68,8 @@ func encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previ
 		return encodedAperioEvent{}, err
 	}
 	kind := findingResolvedEventKind
+	// Go currently emits user-driven resolution events; worker-side TypeScript
+	// emits the richer opened/reopened/muted lifecycle variants.
 	envelopePayload, err := proto.Marshal(&cerebrov1.EventEnvelope{
 		Id:         eventID,
 		TenantId:   organizationID,
@@ -91,6 +98,8 @@ func encodeFindingLifecycleEvent(findingID, organizationID, integrationID, previ
 }
 
 func (a *App) publishAperioEvent(ctx context.Context, event encodedAperioEvent) error {
+	// Event publishing is opt-in for local/dev parity. In noop mode the Go API
+	// keeps running even when NATS is not configured.
 	if strings.ToLower(strings.TrimSpace(os.Getenv("APERIO_EVENT_BUS"))) != "nats" {
 		return nil
 	}
@@ -111,13 +120,18 @@ func (b *aperioEventBus) publish(ctx context.Context, event encodedAperioEvent) 
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// Connection reuse is guarded by a mutex because JetStream setup and publish
+	// can be reached concurrently from multiple RPC handlers.
 	js, err := b.jetStream(ctx, servers, streamName)
 	if err != nil {
 		return err
 	}
 	if _, err := js.StreamInfo(streamName); err != nil {
+		// Auto-create the stream for local development and ephemeral CI; managed
+		// environments can pre-create the same subjects with stricter retention.
 		_, _ = js.AddStream(&nats.StreamConfig{Name: streamName, Subjects: []string{"events.>"}})
 	}
+	// MsgId gives JetStream idempotency for retries of the same encoded envelope.
 	_, err = js.Publish(event.subject, event.payload, nats.MsgId(event.id), nats.Context(ctx))
 	return err
 }
@@ -127,6 +141,7 @@ func (b *aperioEventBus) jetStream(ctx context.Context, servers string, streamNa
 		return b.js, nil
 	}
 	if b.nc != nil {
+		// Close stale connections when env-driven server/stream settings change.
 		b.nc.Close()
 	}
 	nc, err := nats.Connect(servers, nats.Timeout(aperioEventPublishConnectTimeout))

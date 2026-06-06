@@ -21,6 +21,9 @@ export type AuthSession = {
 };
 
 function authTokenFromStorage() {
+  // Authentication now relies on the HttpOnly aperio_session cookie set by the
+  // Go compatibility API. Keep this shim null to avoid reintroducing bearer
+  // tokens into localStorage.
   return null;
 }
 
@@ -34,6 +37,8 @@ export function setAuthToken(token: string) {
   }
 
   void token;
+  // Older callers still invoke setAuthToken after login; remove any legacy value
+  // while preserving the cookie-backed session created by the server.
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 }
 
@@ -46,6 +51,8 @@ export function clearAuthToken() {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Legacy web helpers still speak REST-shaped paths. The Connect client tunnels
+  // them through CallApi until each endpoint has a first-class protobuf method.
   const body =
     typeof init?.body === "string" && init.body.length > 0
       ? JSON.parse(init.body)

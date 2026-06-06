@@ -37,6 +37,8 @@ async function avoidDefaultPortConflicts(defaulted) {
   }
   const needsNats = usesNatsEventBus();
   if (defaulted.has("DATABASE_URL")) {
+    // Only rewrite defaulted URLs. If a developer supplied DATABASE_URL, assume
+    // they intentionally chose that host/port and leave it untouched.
     const composePort = await composePublishedHostPort("postgres", 5432);
     if (composePort) {
       usePostgresPort(composePort);
@@ -47,6 +49,8 @@ async function avoidDefaultPortConflicts(defaulted) {
     }
   }
   if (needsNats && defaulted.has("APERIO_NATS_URL")) {
+    // NATS is optional and only participates when APERIO_EVENT_BUS=nats, keeping
+    // the default dev loop usable without an event broker.
     const composePort = await composePublishedHostPort("nats", 4222);
     if (composePort) {
       useNatsPort(composePort);
@@ -88,6 +92,8 @@ async function setupInfra() {
   if (!skipDocker && services.length > 0 && (await commandExists("docker"))) {
     await run("docker", ["compose", "up", "-d", ...services]);
   } else if (!skipDocker) {
+    // If Docker is absent but services are already reachable, continue. If a
+    // service is missing, the waitForTcp call below will fail with the target.
     const reason = services.length === 0 ? "Required local services are already reachable" : "docker is not available";
     console.warn(`[dev] ${reason}; skipping docker compose startup`);
   }
@@ -154,6 +160,8 @@ async function composePublishedHostPort(service, containerPort) {
         resolve(null);
         return;
       }
+      // docker compose prints host:port; keep only the published host port so we
+      // can align default env vars with an already-running compose stack.
       const port = (
         output
           .split(/\r?\n/)
@@ -270,6 +278,8 @@ function terminate(child, signal) {
       killer.on("error", () => {});
       child.kill(signal);
     } else {
+      // Children are started detached on POSIX, so killing the negative pid tears
+      // down the whole process group (Next, Go, and their descendants).
       process.kill(-child.pid, signal);
     }
   } catch {
@@ -290,6 +300,8 @@ function shutdown(exitCode) {
   for (const child of children) {
     terminate(child, "SIGTERM");
   }
+  // Give dev servers a short graceful window, then force-kill remaining process
+  // groups so ports are not left occupied for the next run.
   setTimeout(() => {
     for (const child of children) {
       terminate(child, "SIGKILL");
