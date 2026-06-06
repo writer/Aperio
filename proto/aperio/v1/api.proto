@@ -12,8 +12,23 @@ service AperioService {
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
   rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
   rpc GetFinding(GetFindingRequest) returns (GetFindingResponse);
+  rpc UpdateFindingStatus(UpdateFindingStatusRequest) returns (UpdateFindingStatusResponse);
+  rpc RemediateFinding(RemediateFindingRequest) returns (RemediateFindingResponse);
+  rpc ListConnectorCatalog(ListConnectorCatalogRequest) returns (ListConnectorCatalogResponse);
   rpc ListIntegrations(ListIntegrationsRequest) returns (ListIntegrationsResponse);
+  rpc CreateIntegration(CreateIntegrationRequest) returns (CreateIntegrationResponse);
+  rpc DeleteIntegration(DeleteIntegrationRequest) returns (DeleteIntegrationResponse);
+  rpc GetIntegrationChecks(GetIntegrationChecksRequest) returns (GetIntegrationChecksResponse);
+  rpc UpdateIntegrationChecks(UpdateIntegrationChecksRequest) returns (UpdateIntegrationChecksResponse);
+  rpc GetGoogleMailboxScanConfig(GetGoogleMailboxScanConfigRequest) returns (GetGoogleMailboxScanConfigResponse);
+  rpc UpdateGoogleMailboxScanConfig(UpdateGoogleMailboxScanConfigRequest) returns (UpdateGoogleMailboxScanConfigResponse);
+  rpc StartGoogleWorkspaceOAuth(StartGoogleWorkspaceOAuthRequest) returns (StartGoogleWorkspaceOAuthResponse);
+  rpc ForceSyncIntegration(ForceSyncIntegrationRequest) returns (ForceSyncIntegrationResponse);
+  rpc ListSiemCatalog(ListSiemCatalogRequest) returns (ListSiemCatalogResponse);
   rpc ListSiemDestinations(ListSiemDestinationsRequest) returns (ListSiemDestinationsResponse);
+  rpc CreateSiemDestination(CreateSiemDestinationRequest) returns (CreateSiemDestinationResponse);
+  rpc DeleteSiemDestination(DeleteSiemDestinationRequest) returns (DeleteSiemDestinationResponse);
+  rpc TestSiemDestination(TestSiemDestinationRequest) returns (TestSiemDestinationResponse);
   rpc ListShadowItOauthApps(ListShadowItOauthAppsRequest) returns (ListShadowItOauthAppsResponse);
   rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
   rpc ListSecurityAssets(ListSecurityAssetsRequest) returns (ListSecurityAssetsResponse);
@@ -80,6 +95,41 @@ message GetFindingResponse {
   Finding data = 1;
 }
 
+message UpdateFindingStatusRequest {
+  string id = 1;
+  string status = 2;
+  string resolution_note = 3;
+}
+
+message UpdateFindingStatusResponse {
+  FindingStatusUpdate data = 1;
+}
+
+message FindingStatusUpdate {
+  string id = 1;
+  string status = 2;
+}
+
+message RemediateFindingRequest {
+  string finding_id = 1;
+  string action = 2;
+  string target_identifier = 3;
+  string note = 4;
+}
+
+message RemediateFindingResponse {
+  RemediationResult data = 1;
+}
+
+message RemediationResult {
+  string finding_id = 1;
+  string action = 2;
+  bool success = 3;
+  string message = 4;
+  string provider_request_id = 5;
+  repeated string effects = 6;
+}
+
 message Finding {
   string id = 1;
   string asset_id = 2;
@@ -106,6 +156,52 @@ message PageInfo {
   string next_cursor = 2;
 }
 
+message ListConnectorCatalogRequest {}
+
+message ListConnectorCatalogResponse {
+  repeated ConnectorDefinition data = 1;
+}
+
+message ConnectorDefinition {
+  string provider = 1;
+  string name = 2;
+  string category = 3;
+  string availability = 4;
+  string readiness_note = 5;
+  string description = 6;
+  repeated string read_scopes = 7;
+  repeated string remediation_scopes = 8;
+  repeated RemediationAction remediation_actions = 9;
+  repeated FindingCheck finding_checks = 10;
+  string docs_url = 11;
+  repeated ConnectorField fields = 12;
+}
+
+message ConnectorField {
+  string key = 1;
+  string label = 2;
+  string placeholder = 3;
+  string helper = 4;
+  string type = 5;
+  bool required = 6;
+  bool secret = 7;
+}
+
+message RemediationAction {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+  string severity_hint = 4;
+}
+
+message FindingCheck {
+  string key = 1;
+  string title = 2;
+  string description = 3;
+  string severity_hint = 4;
+  bool default_enabled = 5;
+}
+
 message ListIntegrationsRequest {}
 
 message ListIntegrationsResponse {
@@ -125,6 +221,147 @@ message IntegrationConnection {
   string google_mailbox_scan_client_email = 10;
   string last_sync_at = 11;
   string created_at = 12;
+}
+
+message CreateIntegrationRequest {
+  string provider = 1;
+  string display_name = 2;
+  string external_account_id = 3;
+  string mode = 4;
+  IntegrationCredentials credentials = 5;
+}
+
+message IntegrationCredentials {
+  string access_token = 1;
+  string refresh_token = 2;
+  string webhook_secret = 3;
+}
+
+message CreateIntegrationResponse {
+  IntegrationConnection data = 1;
+}
+
+message DeleteIntegrationRequest {
+  string id = 1;
+}
+
+message DeleteIntegrationResponse {
+  DeleteResult data = 1;
+}
+
+message DeleteResult {
+  bool ok = 1;
+}
+
+message GetIntegrationChecksRequest {
+  string integration_id = 1;
+}
+
+message GetIntegrationChecksResponse {
+  IntegrationCheckState data = 1;
+}
+
+message UpdateIntegrationChecksRequest {
+  string integration_id = 1;
+  repeated string disabled_checks = 2;
+}
+
+message UpdateIntegrationChecksResponse {
+  IntegrationCheckState data = 1;
+}
+
+message IntegrationCheckState {
+  string integration_id = 1;
+  repeated string disabled_checks = 2;
+  repeated FindingCheckStatus checks = 3;
+}
+
+message FindingCheckStatus {
+  string key = 1;
+  string title = 2;
+  string description = 3;
+  string severity_hint = 4;
+  bool default_enabled = 5;
+  bool enabled = 6;
+}
+
+message GetGoogleMailboxScanConfigRequest {
+  string integration_id = 1;
+}
+
+message GetGoogleMailboxScanConfigResponse {
+  GoogleMailboxScanConfig data = 1;
+}
+
+message UpdateGoogleMailboxScanConfigRequest {
+  string integration_id = 1;
+  bool enabled = 2;
+  string service_account_client_email = 3;
+  string private_key = 4;
+}
+
+message UpdateGoogleMailboxScanConfigResponse {
+  GoogleMailboxScanConfig data = 1;
+}
+
+message GoogleMailboxScanConfig {
+  bool enabled = 1;
+  string service_account_client_email = 2;
+}
+
+message StartGoogleWorkspaceOAuthRequest {
+  string mode = 1;
+}
+
+message StartGoogleWorkspaceOAuthResponse {
+  OAuthStart data = 1;
+}
+
+message OAuthStart {
+  string url = 1;
+}
+
+message ForceSyncIntegrationRequest {
+  string integration_id = 1;
+}
+
+message ForceSyncIntegrationResponse {
+  IntegrationConnection data = 1;
+  SyncSummary sync = 2;
+}
+
+message SyncSummary {
+  int32 sample_count = 1;
+  int32 events_ingested = 2;
+  int32 findings_opened = 3;
+  repeated string sources = 4;
+}
+
+message ListSiemCatalogRequest {}
+
+message ListSiemCatalogResponse {
+  repeated SiemDestinationDefinition data = 1;
+}
+
+message SiemDestinationDefinition {
+  string kind = 1;
+  string name = 2;
+  string vendor = 3;
+  string description = 4;
+  string category = 5;
+  string docs_url = 6;
+  repeated string default_streams = 7;
+  repeated SiemField fields = 8;
+}
+
+message SiemField {
+  string key = 1;
+  string label = 2;
+  string placeholder = 3;
+  string helper = 4;
+  string type = 5;
+  bool required = 6;
+  bool secret = 7;
 }
 
 message ListSiemDestinationsRequest {}
@@ -147,6 +384,42 @@ message SiemDestination {
   int32 deliveries_ok = 11;
   int32 deliveries_fail = 12;
   string created_at = 13;
+}
+
+message CreateSiemDestinationRequest {
+  string kind = 1;
+  string name = 2;
+  string endpoint_url = 3;
+  string file_path = 4;
+  string index = 5;
+  string token = 6;
+  repeated string streams = 7;
+}
+
+message CreateSiemDestinationResponse {
+  SiemDestination data = 1;
+}
+
+message DeleteSiemDestinationRequest {
+  string id = 1;
+}
+
+message DeleteSiemDestinationResponse {
+  DeleteResult data = 1;
+}
+
+message TestSiemDestinationRequest {
+  string id = 1;
+}
+
+message TestSiemDestinationResponse {
+  SiemTestResult data = 1;
+}
+
+message SiemTestResult {
+  string destination_id = 1;
+  bool ok = 2;
+  string message = 3;
 }
 
 message ListShadowItOauthAppsRequest {}

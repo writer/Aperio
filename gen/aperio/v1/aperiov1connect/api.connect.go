@@ -47,12 +47,57 @@ const (
 	// AperioServiceGetFindingProcedure is the fully-qualified name of the AperioService's GetFinding
 	// RPC.
 	AperioServiceGetFindingProcedure = "/aperio.v1.AperioService/GetFinding"
+	// AperioServiceUpdateFindingStatusProcedure is the fully-qualified name of the AperioService's
+	// UpdateFindingStatus RPC.
+	AperioServiceUpdateFindingStatusProcedure = "/aperio.v1.AperioService/UpdateFindingStatus"
+	// AperioServiceRemediateFindingProcedure is the fully-qualified name of the AperioService's
+	// RemediateFinding RPC.
+	AperioServiceRemediateFindingProcedure = "/aperio.v1.AperioService/RemediateFinding"
+	// AperioServiceListConnectorCatalogProcedure is the fully-qualified name of the AperioService's
+	// ListConnectorCatalog RPC.
+	AperioServiceListConnectorCatalogProcedure = "/aperio.v1.AperioService/ListConnectorCatalog"
 	// AperioServiceListIntegrationsProcedure is the fully-qualified name of the AperioService's
 	// ListIntegrations RPC.
 	AperioServiceListIntegrationsProcedure = "/aperio.v1.AperioService/ListIntegrations"
+	// AperioServiceCreateIntegrationProcedure is the fully-qualified name of the AperioService's
+	// CreateIntegration RPC.
+	AperioServiceCreateIntegrationProcedure = "/aperio.v1.AperioService/CreateIntegration"
+	// AperioServiceDeleteIntegrationProcedure is the fully-qualified name of the AperioService's
+	// DeleteIntegration RPC.
+	AperioServiceDeleteIntegrationProcedure = "/aperio.v1.AperioService/DeleteIntegration"
+	// AperioServiceGetIntegrationChecksProcedure is the fully-qualified name of the AperioService's
+	// GetIntegrationChecks RPC.
+	AperioServiceGetIntegrationChecksProcedure = "/aperio.v1.AperioService/GetIntegrationChecks"
+	// AperioServiceUpdateIntegrationChecksProcedure is the fully-qualified name of the AperioService's
+	// UpdateIntegrationChecks RPC.
+	AperioServiceUpdateIntegrationChecksProcedure = "/aperio.v1.AperioService/UpdateIntegrationChecks"
+	// AperioServiceGetGoogleMailboxScanConfigProcedure is the fully-qualified name of the
+	// AperioService's GetGoogleMailboxScanConfig RPC.
+	AperioServiceGetGoogleMailboxScanConfigProcedure = "/aperio.v1.AperioService/GetGoogleMailboxScanConfig"
+	// AperioServiceUpdateGoogleMailboxScanConfigProcedure is the fully-qualified name of the
+	// AperioService's UpdateGoogleMailboxScanConfig RPC.
+	AperioServiceUpdateGoogleMailboxScanConfigProcedure = "/aperio.v1.AperioService/UpdateGoogleMailboxScanConfig"
+	// AperioServiceStartGoogleWorkspaceOAuthProcedure is the fully-qualified name of the
+	// AperioService's StartGoogleWorkspaceOAuth RPC.
+	AperioServiceStartGoogleWorkspaceOAuthProcedure = "/aperio.v1.AperioService/StartGoogleWorkspaceOAuth"
+	// AperioServiceForceSyncIntegrationProcedure is the fully-qualified name of the AperioService's
+	// ForceSyncIntegration RPC.
+	AperioServiceForceSyncIntegrationProcedure = "/aperio.v1.AperioService/ForceSyncIntegration"
+	// AperioServiceListSiemCatalogProcedure is the fully-qualified name of the AperioService's
+	// ListSiemCatalog RPC.
+	AperioServiceListSiemCatalogProcedure = "/aperio.v1.AperioService/ListSiemCatalog"
 	// AperioServiceListSiemDestinationsProcedure is the fully-qualified name of the AperioService's
 	// ListSiemDestinations RPC.
 	AperioServiceListSiemDestinationsProcedure = "/aperio.v1.AperioService/ListSiemDestinations"
+	// AperioServiceCreateSiemDestinationProcedure is the fully-qualified name of the AperioService's
+	// CreateSiemDestination RPC.
+	AperioServiceCreateSiemDestinationProcedure = "/aperio.v1.AperioService/CreateSiemDestination"
+	// AperioServiceDeleteSiemDestinationProcedure is the fully-qualified name of the AperioService's
+	// DeleteSiemDestination RPC.
+	AperioServiceDeleteSiemDestinationProcedure = "/aperio.v1.AperioService/DeleteSiemDestination"
+	// AperioServiceTestSiemDestinationProcedure is the fully-qualified name of the AperioService's
+	// TestSiemDestination RPC.
+	AperioServiceTestSiemDestinationProcedure = "/aperio.v1.AperioService/TestSiemDestination"
 	// AperioServiceListShadowItOauthAppsProcedure is the fully-qualified name of the AperioService's
 	// ListShadowItOauthApps RPC.
 	AperioServiceListShadowItOauthAppsProcedure = "/aperio.v1.AperioService/ListShadowItOauthApps"
@@ -74,8 +119,23 @@ type AperioServiceClient interface {
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
 	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
+	UpdateFindingStatus(context.Context, *connect.Request[v1.UpdateFindingStatusRequest]) (*connect.Response[v1.UpdateFindingStatusResponse], error)
+	RemediateFinding(context.Context, *connect.Request[v1.RemediateFindingRequest]) (*connect.Response[v1.RemediateFindingResponse], error)
+	ListConnectorCatalog(context.Context, *connect.Request[v1.ListConnectorCatalogRequest]) (*connect.Response[v1.ListConnectorCatalogResponse], error)
 	ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error)
+	CreateIntegration(context.Context, *connect.Request[v1.CreateIntegrationRequest]) (*connect.Response[v1.CreateIntegrationResponse], error)
+	DeleteIntegration(context.Context, *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error)
+	GetIntegrationChecks(context.Context, *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error)
+	UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error)
+	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
+	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
+	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
+	ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error)
+	ListSiemCatalog(context.Context, *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error)
 	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
+	CreateSiemDestination(context.Context, *connect.Request[v1.CreateSiemDestinationRequest]) (*connect.Response[v1.CreateSiemDestinationResponse], error)
+	DeleteSiemDestination(context.Context, *connect.Request[v1.DeleteSiemDestinationRequest]) (*connect.Response[v1.DeleteSiemDestinationResponse], error)
+	TestSiemDestination(context.Context, *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error)
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
@@ -123,16 +183,106 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
 			connect.WithClientOptions(opts...),
 		),
+		updateFindingStatus: connect.NewClient[v1.UpdateFindingStatusRequest, v1.UpdateFindingStatusResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateFindingStatusProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateFindingStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		remediateFinding: connect.NewClient[v1.RemediateFindingRequest, v1.RemediateFindingResponse](
+			httpClient,
+			baseURL+AperioServiceRemediateFindingProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("RemediateFinding")),
+			connect.WithClientOptions(opts...),
+		),
+		listConnectorCatalog: connect.NewClient[v1.ListConnectorCatalogRequest, v1.ListConnectorCatalogResponse](
+			httpClient,
+			baseURL+AperioServiceListConnectorCatalogProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListConnectorCatalog")),
+			connect.WithClientOptions(opts...),
+		),
 		listIntegrations: connect.NewClient[v1.ListIntegrationsRequest, v1.ListIntegrationsResponse](
 			httpClient,
 			baseURL+AperioServiceListIntegrationsProcedure,
 			connect.WithSchema(aperioServiceMethods.ByName("ListIntegrations")),
 			connect.WithClientOptions(opts...),
 		),
+		createIntegration: connect.NewClient[v1.CreateIntegrationRequest, v1.CreateIntegrationResponse](
+			httpClient,
+			baseURL+AperioServiceCreateIntegrationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateIntegration")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteIntegration: connect.NewClient[v1.DeleteIntegrationRequest, v1.DeleteIntegrationResponse](
+			httpClient,
+			baseURL+AperioServiceDeleteIntegrationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("DeleteIntegration")),
+			connect.WithClientOptions(opts...),
+		),
+		getIntegrationChecks: connect.NewClient[v1.GetIntegrationChecksRequest, v1.GetIntegrationChecksResponse](
+			httpClient,
+			baseURL+AperioServiceGetIntegrationChecksProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetIntegrationChecks")),
+			connect.WithClientOptions(opts...),
+		),
+		updateIntegrationChecks: connect.NewClient[v1.UpdateIntegrationChecksRequest, v1.UpdateIntegrationChecksResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateIntegrationChecksProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateIntegrationChecks")),
+			connect.WithClientOptions(opts...),
+		),
+		getGoogleMailboxScanConfig: connect.NewClient[v1.GetGoogleMailboxScanConfigRequest, v1.GetGoogleMailboxScanConfigResponse](
+			httpClient,
+			baseURL+AperioServiceGetGoogleMailboxScanConfigProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetGoogleMailboxScanConfig")),
+			connect.WithClientOptions(opts...),
+		),
+		updateGoogleMailboxScanConfig: connect.NewClient[v1.UpdateGoogleMailboxScanConfigRequest, v1.UpdateGoogleMailboxScanConfigResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateGoogleMailboxScanConfigProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateGoogleMailboxScanConfig")),
+			connect.WithClientOptions(opts...),
+		),
+		startGoogleWorkspaceOAuth: connect.NewClient[v1.StartGoogleWorkspaceOAuthRequest, v1.StartGoogleWorkspaceOAuthResponse](
+			httpClient,
+			baseURL+AperioServiceStartGoogleWorkspaceOAuthProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("StartGoogleWorkspaceOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		forceSyncIntegration: connect.NewClient[v1.ForceSyncIntegrationRequest, v1.ForceSyncIntegrationResponse](
+			httpClient,
+			baseURL+AperioServiceForceSyncIntegrationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ForceSyncIntegration")),
+			connect.WithClientOptions(opts...),
+		),
+		listSiemCatalog: connect.NewClient[v1.ListSiemCatalogRequest, v1.ListSiemCatalogResponse](
+			httpClient,
+			baseURL+AperioServiceListSiemCatalogProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListSiemCatalog")),
+			connect.WithClientOptions(opts...),
+		),
 		listSiemDestinations: connect.NewClient[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse](
 			httpClient,
 			baseURL+AperioServiceListSiemDestinationsProcedure,
 			connect.WithSchema(aperioServiceMethods.ByName("ListSiemDestinations")),
+			connect.WithClientOptions(opts...),
+		),
+		createSiemDestination: connect.NewClient[v1.CreateSiemDestinationRequest, v1.CreateSiemDestinationResponse](
+			httpClient,
+			baseURL+AperioServiceCreateSiemDestinationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateSiemDestination")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSiemDestination: connect.NewClient[v1.DeleteSiemDestinationRequest, v1.DeleteSiemDestinationResponse](
+			httpClient,
+			baseURL+AperioServiceDeleteSiemDestinationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("DeleteSiemDestination")),
+			connect.WithClientOptions(opts...),
+		),
+		testSiemDestination: connect.NewClient[v1.TestSiemDestinationRequest, v1.TestSiemDestinationResponse](
+			httpClient,
+			baseURL+AperioServiceTestSiemDestinationProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("TestSiemDestination")),
 			connect.WithClientOptions(opts...),
 		),
 		listShadowItOauthApps: connect.NewClient[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse](
@@ -164,17 +314,32 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // aperioServiceClient implements AperioServiceClient.
 type aperioServiceClient struct {
-	callApi                    *connect.Client[v1.CallApiRequest, v1.CallApiResponse]
-	checkHealth                *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
-	getDashboardMetrics        *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
-	listFindings               *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
-	getFinding                 *connect.Client[v1.GetFindingRequest, v1.GetFindingResponse]
-	listIntegrations           *connect.Client[v1.ListIntegrationsRequest, v1.ListIntegrationsResponse]
-	listSiemDestinations       *connect.Client[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse]
-	listShadowItOauthApps      *connect.Client[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse]
-	listShadowItOauthAppGrants *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
-	listSecurityAssets         *connect.Client[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse]
-	listRiskExceptions         *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
+	callApi                       *connect.Client[v1.CallApiRequest, v1.CallApiResponse]
+	checkHealth                   *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
+	getDashboardMetrics           *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
+	listFindings                  *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
+	getFinding                    *connect.Client[v1.GetFindingRequest, v1.GetFindingResponse]
+	updateFindingStatus           *connect.Client[v1.UpdateFindingStatusRequest, v1.UpdateFindingStatusResponse]
+	remediateFinding              *connect.Client[v1.RemediateFindingRequest, v1.RemediateFindingResponse]
+	listConnectorCatalog          *connect.Client[v1.ListConnectorCatalogRequest, v1.ListConnectorCatalogResponse]
+	listIntegrations              *connect.Client[v1.ListIntegrationsRequest, v1.ListIntegrationsResponse]
+	createIntegration             *connect.Client[v1.CreateIntegrationRequest, v1.CreateIntegrationResponse]
+	deleteIntegration             *connect.Client[v1.DeleteIntegrationRequest, v1.DeleteIntegrationResponse]
+	getIntegrationChecks          *connect.Client[v1.GetIntegrationChecksRequest, v1.GetIntegrationChecksResponse]
+	updateIntegrationChecks       *connect.Client[v1.UpdateIntegrationChecksRequest, v1.UpdateIntegrationChecksResponse]
+	getGoogleMailboxScanConfig    *connect.Client[v1.GetGoogleMailboxScanConfigRequest, v1.GetGoogleMailboxScanConfigResponse]
+	updateGoogleMailboxScanConfig *connect.Client[v1.UpdateGoogleMailboxScanConfigRequest, v1.UpdateGoogleMailboxScanConfigResponse]
+	startGoogleWorkspaceOAuth     *connect.Client[v1.StartGoogleWorkspaceOAuthRequest, v1.StartGoogleWorkspaceOAuthResponse]
+	forceSyncIntegration          *connect.Client[v1.ForceSyncIntegrationRequest, v1.ForceSyncIntegrationResponse]
+	listSiemCatalog               *connect.Client[v1.ListSiemCatalogRequest, v1.ListSiemCatalogResponse]
+	listSiemDestinations          *connect.Client[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse]
+	createSiemDestination         *connect.Client[v1.CreateSiemDestinationRequest, v1.CreateSiemDestinationResponse]
+	deleteSiemDestination         *connect.Client[v1.DeleteSiemDestinationRequest, v1.DeleteSiemDestinationResponse]
+	testSiemDestination           *connect.Client[v1.TestSiemDestinationRequest, v1.TestSiemDestinationResponse]
+	listShadowItOauthApps         *connect.Client[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse]
+	listShadowItOauthAppGrants    *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
+	listSecurityAssets            *connect.Client[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse]
+	listRiskExceptions            *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
 }
 
 // CallApi calls aperio.v1.AperioService.CallApi.
@@ -202,14 +367,89 @@ func (c *aperioServiceClient) GetFinding(ctx context.Context, req *connect.Reque
 	return c.getFinding.CallUnary(ctx, req)
 }
 
+// UpdateFindingStatus calls aperio.v1.AperioService.UpdateFindingStatus.
+func (c *aperioServiceClient) UpdateFindingStatus(ctx context.Context, req *connect.Request[v1.UpdateFindingStatusRequest]) (*connect.Response[v1.UpdateFindingStatusResponse], error) {
+	return c.updateFindingStatus.CallUnary(ctx, req)
+}
+
+// RemediateFinding calls aperio.v1.AperioService.RemediateFinding.
+func (c *aperioServiceClient) RemediateFinding(ctx context.Context, req *connect.Request[v1.RemediateFindingRequest]) (*connect.Response[v1.RemediateFindingResponse], error) {
+	return c.remediateFinding.CallUnary(ctx, req)
+}
+
+// ListConnectorCatalog calls aperio.v1.AperioService.ListConnectorCatalog.
+func (c *aperioServiceClient) ListConnectorCatalog(ctx context.Context, req *connect.Request[v1.ListConnectorCatalogRequest]) (*connect.Response[v1.ListConnectorCatalogResponse], error) {
+	return c.listConnectorCatalog.CallUnary(ctx, req)
+}
+
 // ListIntegrations calls aperio.v1.AperioService.ListIntegrations.
 func (c *aperioServiceClient) ListIntegrations(ctx context.Context, req *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error) {
 	return c.listIntegrations.CallUnary(ctx, req)
 }
 
+// CreateIntegration calls aperio.v1.AperioService.CreateIntegration.
+func (c *aperioServiceClient) CreateIntegration(ctx context.Context, req *connect.Request[v1.CreateIntegrationRequest]) (*connect.Response[v1.CreateIntegrationResponse], error) {
+	return c.createIntegration.CallUnary(ctx, req)
+}
+
+// DeleteIntegration calls aperio.v1.AperioService.DeleteIntegration.
+func (c *aperioServiceClient) DeleteIntegration(ctx context.Context, req *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error) {
+	return c.deleteIntegration.CallUnary(ctx, req)
+}
+
+// GetIntegrationChecks calls aperio.v1.AperioService.GetIntegrationChecks.
+func (c *aperioServiceClient) GetIntegrationChecks(ctx context.Context, req *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error) {
+	return c.getIntegrationChecks.CallUnary(ctx, req)
+}
+
+// UpdateIntegrationChecks calls aperio.v1.AperioService.UpdateIntegrationChecks.
+func (c *aperioServiceClient) UpdateIntegrationChecks(ctx context.Context, req *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error) {
+	return c.updateIntegrationChecks.CallUnary(ctx, req)
+}
+
+// GetGoogleMailboxScanConfig calls aperio.v1.AperioService.GetGoogleMailboxScanConfig.
+func (c *aperioServiceClient) GetGoogleMailboxScanConfig(ctx context.Context, req *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error) {
+	return c.getGoogleMailboxScanConfig.CallUnary(ctx, req)
+}
+
+// UpdateGoogleMailboxScanConfig calls aperio.v1.AperioService.UpdateGoogleMailboxScanConfig.
+func (c *aperioServiceClient) UpdateGoogleMailboxScanConfig(ctx context.Context, req *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error) {
+	return c.updateGoogleMailboxScanConfig.CallUnary(ctx, req)
+}
+
+// StartGoogleWorkspaceOAuth calls aperio.v1.AperioService.StartGoogleWorkspaceOAuth.
+func (c *aperioServiceClient) StartGoogleWorkspaceOAuth(ctx context.Context, req *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error) {
+	return c.startGoogleWorkspaceOAuth.CallUnary(ctx, req)
+}
+
+// ForceSyncIntegration calls aperio.v1.AperioService.ForceSyncIntegration.
+func (c *aperioServiceClient) ForceSyncIntegration(ctx context.Context, req *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error) {
+	return c.forceSyncIntegration.CallUnary(ctx, req)
+}
+
+// ListSiemCatalog calls aperio.v1.AperioService.ListSiemCatalog.
+func (c *aperioServiceClient) ListSiemCatalog(ctx context.Context, req *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error) {
+	return c.listSiemCatalog.CallUnary(ctx, req)
+}
+
 // ListSiemDestinations calls aperio.v1.AperioService.ListSiemDestinations.
 func (c *aperioServiceClient) ListSiemDestinations(ctx context.Context, req *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error) {
 	return c.listSiemDestinations.CallUnary(ctx, req)
+}
+
+// CreateSiemDestination calls aperio.v1.AperioService.CreateSiemDestination.
+func (c *aperioServiceClient) CreateSiemDestination(ctx context.Context, req *connect.Request[v1.CreateSiemDestinationRequest]) (*connect.Response[v1.CreateSiemDestinationResponse], error) {
+	return c.createSiemDestination.CallUnary(ctx, req)
+}
+
+// DeleteSiemDestination calls aperio.v1.AperioService.DeleteSiemDestination.
+func (c *aperioServiceClient) DeleteSiemDestination(ctx context.Context, req *connect.Request[v1.DeleteSiemDestinationRequest]) (*connect.Response[v1.DeleteSiemDestinationResponse], error) {
+	return c.deleteSiemDestination.CallUnary(ctx, req)
+}
+
+// TestSiemDestination calls aperio.v1.AperioService.TestSiemDestination.
+func (c *aperioServiceClient) TestSiemDestination(ctx context.Context, req *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error) {
+	return c.testSiemDestination.CallUnary(ctx, req)
 }
 
 // ListShadowItOauthApps calls aperio.v1.AperioService.ListShadowItOauthApps.
@@ -239,8 +479,23 @@ type AperioServiceHandler interface {
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
 	GetFinding(context.Context, *connect.Request[v1.GetFindingRequest]) (*connect.Response[v1.GetFindingResponse], error)
+	UpdateFindingStatus(context.Context, *connect.Request[v1.UpdateFindingStatusRequest]) (*connect.Response[v1.UpdateFindingStatusResponse], error)
+	RemediateFinding(context.Context, *connect.Request[v1.RemediateFindingRequest]) (*connect.Response[v1.RemediateFindingResponse], error)
+	ListConnectorCatalog(context.Context, *connect.Request[v1.ListConnectorCatalogRequest]) (*connect.Response[v1.ListConnectorCatalogResponse], error)
 	ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error)
+	CreateIntegration(context.Context, *connect.Request[v1.CreateIntegrationRequest]) (*connect.Response[v1.CreateIntegrationResponse], error)
+	DeleteIntegration(context.Context, *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error)
+	GetIntegrationChecks(context.Context, *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error)
+	UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error)
+	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
+	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
+	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
+	ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error)
+	ListSiemCatalog(context.Context, *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error)
 	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
+	CreateSiemDestination(context.Context, *connect.Request[v1.CreateSiemDestinationRequest]) (*connect.Response[v1.CreateSiemDestinationResponse], error)
+	DeleteSiemDestination(context.Context, *connect.Request[v1.DeleteSiemDestinationRequest]) (*connect.Response[v1.DeleteSiemDestinationResponse], error)
+	TestSiemDestination(context.Context, *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error)
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
@@ -284,16 +539,106 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("GetFinding")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceUpdateFindingStatusHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateFindingStatusProcedure,
+		svc.UpdateFindingStatus,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateFindingStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceRemediateFindingHandler := connect.NewUnaryHandler(
+		AperioServiceRemediateFindingProcedure,
+		svc.RemediateFinding,
+		connect.WithSchema(aperioServiceMethods.ByName("RemediateFinding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListConnectorCatalogHandler := connect.NewUnaryHandler(
+		AperioServiceListConnectorCatalogProcedure,
+		svc.ListConnectorCatalog,
+		connect.WithSchema(aperioServiceMethods.ByName("ListConnectorCatalog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	aperioServiceListIntegrationsHandler := connect.NewUnaryHandler(
 		AperioServiceListIntegrationsProcedure,
 		svc.ListIntegrations,
 		connect.WithSchema(aperioServiceMethods.ByName("ListIntegrations")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceCreateIntegrationHandler := connect.NewUnaryHandler(
+		AperioServiceCreateIntegrationProcedure,
+		svc.CreateIntegration,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateIntegration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceDeleteIntegrationHandler := connect.NewUnaryHandler(
+		AperioServiceDeleteIntegrationProcedure,
+		svc.DeleteIntegration,
+		connect.WithSchema(aperioServiceMethods.ByName("DeleteIntegration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetIntegrationChecksHandler := connect.NewUnaryHandler(
+		AperioServiceGetIntegrationChecksProcedure,
+		svc.GetIntegrationChecks,
+		connect.WithSchema(aperioServiceMethods.ByName("GetIntegrationChecks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateIntegrationChecksHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateIntegrationChecksProcedure,
+		svc.UpdateIntegrationChecks,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateIntegrationChecks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetGoogleMailboxScanConfigHandler := connect.NewUnaryHandler(
+		AperioServiceGetGoogleMailboxScanConfigProcedure,
+		svc.GetGoogleMailboxScanConfig,
+		connect.WithSchema(aperioServiceMethods.ByName("GetGoogleMailboxScanConfig")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateGoogleMailboxScanConfigHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateGoogleMailboxScanConfigProcedure,
+		svc.UpdateGoogleMailboxScanConfig,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateGoogleMailboxScanConfig")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceStartGoogleWorkspaceOAuthHandler := connect.NewUnaryHandler(
+		AperioServiceStartGoogleWorkspaceOAuthProcedure,
+		svc.StartGoogleWorkspaceOAuth,
+		connect.WithSchema(aperioServiceMethods.ByName("StartGoogleWorkspaceOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceForceSyncIntegrationHandler := connect.NewUnaryHandler(
+		AperioServiceForceSyncIntegrationProcedure,
+		svc.ForceSyncIntegration,
+		connect.WithSchema(aperioServiceMethods.ByName("ForceSyncIntegration")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListSiemCatalogHandler := connect.NewUnaryHandler(
+		AperioServiceListSiemCatalogProcedure,
+		svc.ListSiemCatalog,
+		connect.WithSchema(aperioServiceMethods.ByName("ListSiemCatalog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	aperioServiceListSiemDestinationsHandler := connect.NewUnaryHandler(
 		AperioServiceListSiemDestinationsProcedure,
 		svc.ListSiemDestinations,
 		connect.WithSchema(aperioServiceMethods.ByName("ListSiemDestinations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateSiemDestinationHandler := connect.NewUnaryHandler(
+		AperioServiceCreateSiemDestinationProcedure,
+		svc.CreateSiemDestination,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateSiemDestination")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceDeleteSiemDestinationHandler := connect.NewUnaryHandler(
+		AperioServiceDeleteSiemDestinationProcedure,
+		svc.DeleteSiemDestination,
+		connect.WithSchema(aperioServiceMethods.ByName("DeleteSiemDestination")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceTestSiemDestinationHandler := connect.NewUnaryHandler(
+		AperioServiceTestSiemDestinationProcedure,
+		svc.TestSiemDestination,
+		connect.WithSchema(aperioServiceMethods.ByName("TestSiemDestination")),
 		connect.WithHandlerOptions(opts...),
 	)
 	aperioServiceListShadowItOauthAppsHandler := connect.NewUnaryHandler(
@@ -332,10 +677,40 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceListFindingsHandler.ServeHTTP(w, r)
 		case AperioServiceGetFindingProcedure:
 			aperioServiceGetFindingHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateFindingStatusProcedure:
+			aperioServiceUpdateFindingStatusHandler.ServeHTTP(w, r)
+		case AperioServiceRemediateFindingProcedure:
+			aperioServiceRemediateFindingHandler.ServeHTTP(w, r)
+		case AperioServiceListConnectorCatalogProcedure:
+			aperioServiceListConnectorCatalogHandler.ServeHTTP(w, r)
 		case AperioServiceListIntegrationsProcedure:
 			aperioServiceListIntegrationsHandler.ServeHTTP(w, r)
+		case AperioServiceCreateIntegrationProcedure:
+			aperioServiceCreateIntegrationHandler.ServeHTTP(w, r)
+		case AperioServiceDeleteIntegrationProcedure:
+			aperioServiceDeleteIntegrationHandler.ServeHTTP(w, r)
+		case AperioServiceGetIntegrationChecksProcedure:
+			aperioServiceGetIntegrationChecksHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateIntegrationChecksProcedure:
+			aperioServiceUpdateIntegrationChecksHandler.ServeHTTP(w, r)
+		case AperioServiceGetGoogleMailboxScanConfigProcedure:
+			aperioServiceGetGoogleMailboxScanConfigHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateGoogleMailboxScanConfigProcedure:
+			aperioServiceUpdateGoogleMailboxScanConfigHandler.ServeHTTP(w, r)
+		case AperioServiceStartGoogleWorkspaceOAuthProcedure:
+			aperioServiceStartGoogleWorkspaceOAuthHandler.ServeHTTP(w, r)
+		case AperioServiceForceSyncIntegrationProcedure:
+			aperioServiceForceSyncIntegrationHandler.ServeHTTP(w, r)
+		case AperioServiceListSiemCatalogProcedure:
+			aperioServiceListSiemCatalogHandler.ServeHTTP(w, r)
 		case AperioServiceListSiemDestinationsProcedure:
 			aperioServiceListSiemDestinationsHandler.ServeHTTP(w, r)
+		case AperioServiceCreateSiemDestinationProcedure:
+			aperioServiceCreateSiemDestinationHandler.ServeHTTP(w, r)
+		case AperioServiceDeleteSiemDestinationProcedure:
+			aperioServiceDeleteSiemDestinationHandler.ServeHTTP(w, r)
+		case AperioServiceTestSiemDestinationProcedure:
+			aperioServiceTestSiemDestinationHandler.ServeHTTP(w, r)
 		case AperioServiceListShadowItOauthAppsProcedure:
 			aperioServiceListShadowItOauthAppsHandler.ServeHTTP(w, r)
 		case AperioServiceListShadowItOauthAppGrantsProcedure:
@@ -373,12 +748,72 @@ func (UnimplementedAperioServiceHandler) GetFinding(context.Context, *connect.Re
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetFinding is not implemented"))
 }
 
+func (UnimplementedAperioServiceHandler) UpdateFindingStatus(context.Context, *connect.Request[v1.UpdateFindingStatusRequest]) (*connect.Response[v1.UpdateFindingStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateFindingStatus is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) RemediateFinding(context.Context, *connect.Request[v1.RemediateFindingRequest]) (*connect.Response[v1.RemediateFindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.RemediateFinding is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListConnectorCatalog(context.Context, *connect.Request[v1.ListConnectorCatalogRequest]) (*connect.Response[v1.ListConnectorCatalogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListConnectorCatalog is not implemented"))
+}
+
 func (UnimplementedAperioServiceHandler) ListIntegrations(context.Context, *connect.Request[v1.ListIntegrationsRequest]) (*connect.Response[v1.ListIntegrationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListIntegrations is not implemented"))
 }
 
+func (UnimplementedAperioServiceHandler) CreateIntegration(context.Context, *connect.Request[v1.CreateIntegrationRequest]) (*connect.Response[v1.CreateIntegrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateIntegration is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) DeleteIntegration(context.Context, *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.DeleteIntegration is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetIntegrationChecks(context.Context, *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetIntegrationChecks is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateIntegrationChecks is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetGoogleMailboxScanConfig is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateGoogleMailboxScanConfig is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.StartGoogleWorkspaceOAuth is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ForceSyncIntegration is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListSiemCatalog(context.Context, *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListSiemCatalog is not implemented"))
+}
+
 func (UnimplementedAperioServiceHandler) ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListSiemDestinations is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateSiemDestination(context.Context, *connect.Request[v1.CreateSiemDestinationRequest]) (*connect.Response[v1.CreateSiemDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateSiemDestination is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) DeleteSiemDestination(context.Context, *connect.Request[v1.DeleteSiemDestinationRequest]) (*connect.Response[v1.DeleteSiemDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.DeleteSiemDestination is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) TestSiemDestination(context.Context, *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.TestSiemDestination is not implemented"))
 }
 
 func (UnimplementedAperioServiceHandler) ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error) {

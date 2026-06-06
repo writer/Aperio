@@ -107,7 +107,7 @@ func TestDBIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("checks integrationId = %v", checks["integrationId"])
 	}
 
-	const disabledCheck = "slack.legacy_token_present"
+	const disabledCheck = "slack.mfa_disabled"
 	updated := dataMap(t, mustCall(t, func() (any, error) {
 		return app.compatUpdateIntegrationChecks(ctx, integrationID, map[string]any{"disabledChecks": []any{disabledCheck}}, auth)
 	}))
@@ -127,15 +127,8 @@ func TestDBIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("persisted disabled checks = %v", persistedDisabled)
 	}
 
-	if _, err := app.compatForceSync(ctx, integrationID, auth); err != nil {
-		t.Fatalf("force sync: %v", err)
-	}
-	var jobCount int
-	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE integration_id = $1 AND status = 'QUEUED'`, integrationID).Scan(&jobCount); err != nil {
-		t.Fatalf("query ingestion jobs: %v", err)
-	}
-	if jobCount != 1 {
-		t.Fatalf("expected 1 queued ingestion job, got %d", jobCount)
+	if _, err := app.compatForceSync(ctx, integrationID, auth); err == nil {
+		t.Fatal("expected Slack force sync to be unsupported")
 	}
 
 	if _, err := app.compatDeleteIntegration(ctx, integrationID, auth); err != nil {
@@ -158,7 +151,7 @@ func TestDBSiemLifecycle(t *testing.T) {
 	created, err := app.compatCreateSiem(ctx, map[string]any{
 		"kind":        "SPLUNK_HEC",
 		"name":        "Splunk",
-		"endpointUrl": "https://splunk.example.com/services/collector",
+		"endpointUrl": "https://8.8.8.8/services/collector",
 		"streams":     []any{"FINDINGS"},
 		"token":       plaintextToken,
 	}, auth)
@@ -202,6 +195,95 @@ func TestDBSiemLifecycle(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Fatal("expected siem destination to be deleted")
+	}
+}
+
+func TestDBGoogleMailboxScanConfig(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+
+	created, err := app.compatCreateIntegration(ctx, map[string]any{
+		"provider":          "GOOGLE_WORKSPACE",
+		"displayName":       "Google Workspace",
+		"externalAccountId": "example.com",
+		"mode":              "READ_ONLY",
+		"credentials":       map[string]any{"accessToken": "google-example-access-token-1234567890"},
+	}, auth)
+	if err != nil {
+		t.Fatalf("create google integration: %v", err)
+	}
+	integrationID := dataMap(t, created)["id"].(string)
+
+	auditAuth := auth
+	auditAuth.UserID = ""
+	const clientEmail = "mailbox-scanner@example.com"
+	const privateKey = "example-google-mailbox-private-key-value-1234567890"
+	enabled := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+			"enabled":                   true,
+			"serviceAccountClientEmail": clientEmail,
+			"privateKey":                privateKey,
+		}, auditAuth)
+	}))
+	if enabled["enabled"] != true || enabled["serviceAccountClientEmail"] != clientEmail {
+		t.Fatalf("unexpected enabled config: %v", enabled)
+	}
+
+	var encryptedKey string
+	if err := app.db.QueryRowContext(ctx, `SELECT encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1`, integrationID).Scan(&encryptedKey); err != nil {
+		t.Fatalf("query mailbox key: %v", err)
+	}
+	plaintext, err := compatDecryptString(encryptedKey, compatIntegrationSecretAAD(auth.OrganizationID, "GOOGLE_WORKSPACE", "example.com", "gmail_scan_private_key"))
+	if err != nil {
+		t.Fatalf("decrypt mailbox key with canonical AAD: %v", err)
+	}
+	if plaintext != privateKey {
+		t.Fatalf("decrypted mailbox key mismatch")
+	}
+	if _, err := compatDecryptString(encryptedKey, auth.OrganizationID+":"+integrationID+":google_mailbox_private_key"); err == nil {
+		t.Fatal("expected legacy ad-hoc AAD to fail")
+	}
+
+	legacyEncryptedKey, err := compatEncryptString(privateKey, compatLegacyIntegrationSecretAAD(auth.OrganizationID, integrationID, "google_mailbox_private_key"))
+	if err != nil {
+		t.Fatalf("encrypt legacy mailbox key: %v", err)
+	}
+	if _, err := app.db.ExecContext(ctx, `UPDATE integration_connections SET encrypted_google_mailbox_scan_private_key = $1 WHERE id = $2`, legacyEncryptedKey, integrationID); err != nil {
+		t.Fatalf("seed legacy mailbox key: %v", err)
+	}
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": clientEmail,
+	}, auditAuth); err != nil {
+		t.Fatalf("reuse legacy mailbox key: %v", err)
+	}
+
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": clientEmail,
+	}, auditAuth); err != nil {
+		t.Fatalf("reuse existing mailbox key: %v", err)
+	}
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": "other-scanner@example.com",
+	}, auditAuth); err == nil {
+		t.Fatal("expected changing client email without a new key to fail")
+	}
+
+	disabled := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{"enabled": false}, auditAuth)
+	}))
+	if disabled["enabled"] != false || disabled["serviceAccountClientEmail"] != nil {
+		t.Fatalf("unexpected disabled config: %v", disabled)
+	}
+
+	var auditRows int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action IN ('integration.google_mailbox_scan.enable','integration.google_mailbox_scan.disable')`, auth.OrganizationID, integrationID).Scan(&auditRows); err != nil {
+		t.Fatalf("query audit rows: %v", err)
+	}
+	if auditRows != 4 {
+		t.Fatalf("expected 4 mailbox audit rows, got %d", auditRows)
 	}
 }
 

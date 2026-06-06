@@ -409,13 +409,7 @@ export async function updateFindingStatus(
     resolutionNote?: string;
   }
 ) {
-  return request<{ data: { id: string; status: "RESOLVED" | "MUTED" } }>(
-    `/api/v1/findings/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.updateFindingStatus(id, payload);
 }
 
 export async function resolveFinding(id: string, resolutionNote?: string) {
@@ -435,9 +429,9 @@ export async function acceptFindingRisk(id: string, resolutionNote?: string) {
 }
 
 export async function fetchConnectorCatalog() {
-  return request<{ data: ConnectorDefinition[] }>(
-    "/api/v1/integrations/catalog"
-  );
+  return aperioConnectClient.listConnectorCatalog() as Promise<{
+    data: ConnectorDefinition[];
+  }>;
 }
 
 export async function fetchIntegrations() {
@@ -447,16 +441,15 @@ export async function fetchIntegrations() {
 }
 
 export async function fetchGoogleMailboxScanConfig(integrationId: string) {
-  return request<{ data: GoogleMailboxScanConfig }>(
-    `/api/v1/integrations/${encodeURIComponent(integrationId)}/google-mailbox-scan`
-  );
+  return aperioConnectClient.getGoogleMailboxScanConfig(
+    integrationId
+  ) as Promise<{ data: GoogleMailboxScanConfig }>;
 }
 
 export async function connectIntegration(payload: ConnectIntegrationPayload) {
-  return request<{ data: IntegrationConnection }>("/api/v1/integrations", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.createIntegration(payload) as Promise<{
+    data: IntegrationConnection;
+  }>;
 }
 
 export async function updateGoogleMailboxScanConfig(
@@ -467,29 +460,20 @@ export async function updateGoogleMailboxScanConfig(
     privateKey?: string;
   }
 ) {
-  return request<{ data: GoogleMailboxScanConfig }>(
-    `/api/v1/integrations/${encodeURIComponent(integrationId)}/google-mailbox-scan`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.updateGoogleMailboxScanConfig(
+    integrationId,
+    payload
+  ) as Promise<{ data: GoogleMailboxScanConfig }>;
 }
 
 export async function startGoogleWorkspaceOAuth(mode: IntegrationMode) {
-  return request<{ data: { url: string } }>(
-    "/api/v1/integrations/google-workspace/oauth/start",
-    {
-      method: "POST",
-      body: JSON.stringify({ mode })
-    }
-  );
+  return aperioConnectClient.startGoogleWorkspaceOAuth(mode);
 }
 
 export async function fetchSiemCatalog() {
-  return request<{ data: SiemDestinationDefinition[] }>(
-    "/api/v1/siem/catalog"
-  );
+  return aperioConnectClient.listSiemCatalog() as Promise<{
+    data: SiemDestinationDefinition[];
+  }>;
 }
 
 export async function fetchSiemDestinations() {
@@ -499,47 +483,39 @@ export async function fetchSiemDestinations() {
 }
 
 export async function createSiemDestination(payload: CreateSiemPayload) {
-  return request<{ data: SiemDestination }>("/api/v1/siem", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+  return aperioConnectClient.createSiemDestination(payload) as Promise<{
+    data: SiemDestination;
+  }>;
 }
 
 export async function testSiemDestination(id: string) {
-  return request<{ data: SiemTestResult }>(
-    `/api/v1/siem/${encodeURIComponent(id)}/test`,
-    { method: "POST" }
-  );
+  return aperioConnectClient.testSiemDestination(id) as Promise<{
+    data: SiemTestResult;
+  }>;
 }
 
 export async function deleteSiemDestination(id: string) {
-  await request<{ data?: { ok: boolean } }>(
-    `/api/v1/siem/${encodeURIComponent(id)}`,
-    { method: "DELETE" }
-  );
+  await aperioConnectClient.deleteSiemDestination(id);
 }
 
 export async function fetchIntegrationChecks(integrationId: string) {
-  return request<{ data: IntegrationCheckState }>(
-    `/api/v1/integrations/${encodeURIComponent(integrationId)}/checks`
-  );
+  return aperioConnectClient.getIntegrationChecks(integrationId) as Promise<{
+    data: IntegrationCheckState;
+  }>;
 }
 
 export async function updateIntegrationChecks(
   integrationId: string,
   disabledChecks: string[]
 ) {
-  return request<{ data: IntegrationCheckState }>(
-    `/api/v1/integrations/${encodeURIComponent(integrationId)}/checks`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ disabledChecks })
-    }
-  );
+  return aperioConnectClient.updateIntegrationChecks(
+    integrationId,
+    disabledChecks
+  ) as Promise<{ data: IntegrationCheckState }>;
 }
 
 export async function forceSyncIntegration(integrationId: string) {
-  return request<{
+  return aperioConnectClient.forceSyncIntegration(integrationId) as Promise<{
     data: IntegrationConnection;
     sync: {
       sampleCount: number;
@@ -547,30 +523,20 @@ export async function forceSyncIntegration(integrationId: string) {
       findingsOpened: number;
       sources: string[];
     };
-  }>(`/api/v1/integrations/${encodeURIComponent(integrationId)}/force-sync`, {
-    method: "POST",
-    body: JSON.stringify({})
-  });
+  }>;
 }
 
 export async function remediateFinding(
   findingId: string,
   payload: { action: string; targetIdentifier?: string; note?: string }
 ) {
-  return request<{ data: RemediationResult }>(
-    `/api/v1/findings/${encodeURIComponent(findingId)}/remediate`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
+  return aperioConnectClient.remediateFinding(findingId, payload) as Promise<{
+    data: RemediationResult;
+  }>;
 }
 
 export async function disconnectIntegration(id: string) {
-  await request<{ data?: { ok: boolean } }>(
-    `/api/v1/integrations/${encodeURIComponent(id)}`,
-    { method: "DELETE" }
-  );
+  await aperioConnectClient.deleteIntegration(id);
 }
 
 export type TenantSettings = {

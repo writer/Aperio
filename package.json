@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:app": "node scripts/dev.mjs",
+    "dev:setup": "node scripts/dev.mjs --setup-only",
     "dev:web": "next dev apps/web -p 3000",
     "worker:ingestion": "tsx workers/ingestion-worker.ts",
     "worker:siem": "tsx workers/siem-dispatcher.ts",
@@ -14,11 +17,14 @@
     "test:api": "tsx --test tests/*.test.ts",
     "test:go": "go test ./...",
     "proto:lint": "go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint",
-    "verify": "npm run typecheck && npm run test:api && npm run db:validate && npm run audit:prod",
+    "proto:generate": "go run github.com/bufbuild/buf/cmd/buf@v1.59.0 generate",
+    "proto:check": "npm run proto:lint && npm run proto:generate && git add --intent-to-add -- gen packages/connect/src/gen && git diff --exit-code -- gen packages/connect/src/gen",
+    "verify:go": "npm run proto:check && npm run test:go",
+    "verify": "npm run db:generate && npm run typecheck && npm run test:api && npm run db:validate && npm run verify:go && npm run audit:prod",
     "audit:prod": "npm audit --omit=dev",
     "leak:check": "node scripts/leak-check.mjs",
-    "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
-    "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma",
+    "db:generate": "node scripts/dev-env.mjs prisma generate --schema packages/db/prisma/schema.prisma",
+    "db:validate": "node scripts/dev-env.mjs prisma validate --schema packages/db/prisma/schema.prisma",
     "backup:check": "tsx scripts/check-backup-readiness.ts"
   },
   "dependencies": {

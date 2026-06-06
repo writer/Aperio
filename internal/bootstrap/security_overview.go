@@ -195,9 +195,7 @@ func computeSecurityOverview(
 	for _, asset := range sortedAssets {
 		assetMap[asset.ID] = asset
 		if asset.Type == "APPLICATION" && asset.IntegrationID != "" {
-			if _, exists := applicationByIntegration[asset.IntegrationID]; !exists {
-				applicationByIntegration[asset.IntegrationID] = asset
-			}
+			applicationByIntegration[asset.IntegrationID] = asset
 		}
 	}
 
