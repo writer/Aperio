@@ -314,6 +314,8 @@ func (a *App) healthStatus(ctx context.Context) healthReport {
 		database.Detail = "not_configured"
 		report.Status = "degraded"
 	} else {
+		// Keep readiness probes short-lived so a wedged database does not tie up
+		// HTTP workers or make orchestrator health checks cascade.
 		pingCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
 		if err := a.db.PingContext(pingCtx); err != nil {
@@ -404,6 +406,8 @@ func (a *App) ListFindings(
 		status = "invalid_argument"
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// Filtering and pagination stay inside the SQL helper so the telemetry above
+	// records request shape while the read path keeps tenant scoping centralized.
 	findings, total, err := a.listFindings(ctx, organizationID, req.Msg)
 	if err != nil {
 		status = "internal"
@@ -419,6 +423,8 @@ func (a *App) ListFindings(
 	}
 	limit := normalizedLimit(req.Msg.Limit)
 	if len(findings) == limit {
+		// The cursor is the final row id from a deterministic detected_at/id sort;
+		// the next page rehydrates its timestamp before applying tuple pagination.
 		response.PageInfo.NextCursor = findings[len(findings)-1].ID
 	}
 	for _, finding := range findings {
@@ -1343,6 +1349,8 @@ func (a *App) listFindings(
 	req *aperiov1.ListFindingsRequest,
 ) ([]findingRow, int, error) {
 	where, args := findingFilterWhere(organizationID, req)
+	// Count and list use the same WHERE fragments so the UI total matches the
+	// paginated rows exactly, including provider and integration filters.
 	countQuery := `SELECT COUNT(*)::int FROM security_findings sf JOIN integration_connections ic ON ic.id = sf.integration_id WHERE ` + strings.Join(where, " AND ")
 	var total int
 	if err := a.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
@@ -1353,6 +1361,8 @@ func (a *App) listFindings(
 	listArgs := append([]any{}, args...)
 	if cursor := strings.TrimSpace(req.Cursor); cursor != "" {
 		var cursorDetectedAt time.Time
+		// Cursor ids are tenant-scoped before their timestamp is used, preventing a
+		// user from probing another organization's finding ids through pagination.
 		err := a.db.QueryRowContext(ctx, `
 			SELECT detected_at
 			FROM security_findings
@@ -1483,6 +1493,9 @@ func scanFindingRow(scanner findingScanner) (findingRow, error) {
 		return finding, err
 	}
 	_ = json.Unmarshal([]byte(remediationJSON), &finding.RemediationSteps)
+	// JSON parse failures are tolerated here because malformed evidence should
+	// not break list rendering; the raw evidence JSON remains available for detail
+	// views and future repair tooling.
 	_ = json.Unmarshal([]byte(finding.EvidenceJSON), &finding.Evidence)
 	return finding, nil
 }
@@ -2208,6 +2221,8 @@ func aggregateRiskScore(findings []riskFinding) int {
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(scores)))
 	highest := scores[0]
+	// The highest active finding dominates posture, while the weighted residual
+	// captures breadth without allowing many small findings to exceed critical.
 	residual := 0.0
 	weights := []float64{0.2, 0.12, 0.08, 0.05}
 	for index, score := range scores[1:] {
@@ -2230,6 +2245,8 @@ func calculateFindingRiskScore(finding riskFinding) int {
 	score := maxInt(clampInt(finding.RiskScore, 0, 100), severityFloor(finding.Severity))
 	bonus := 0
 
+	// Keep this Go scorer aligned with packages/shared/src/risk-scoring.ts so
+	// dashboard aggregates match worker/UI risk semantics.
 	grantedRole := strings.ToLower(stringEvidence(finding.Evidence, "grantedRole", "role"))
 	if strings.Contains(grantedRole, "super admin") {
 		bonus += 10
@@ -2465,6 +2482,9 @@ func (a *App) withCORS(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// Unsafe cookie-authenticated requests must come from the configured web
+		// origin. Bearer/Connect clients without the session cookie are handled by
+		// per-RPC authentication instead.
 		if isUnsafeMethod(r.Method) && sessionCookie(r.Header.Get("Cookie")) != "" && !a.hasAllowedRequestOrigin(r) {
 			writeError(w, http.StatusForbidden, "invalid request origin")
 			return

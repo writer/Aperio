@@ -45,6 +45,8 @@ export function ConnectorsPage() {
   const [catalogQuery, setCatalogQuery] = useState("");
 
   const filteredIntegrations = useMemo(() => {
+    // Active integrations are searched by both display labels and provider-owned
+    // tenant ids because operators often know only one of those identifiers.
     const q = query.trim().toLowerCase();
     return integrations.filter((i) => {
       if (statusFilter !== "ALL" && i.status !== statusFilter) return false;
@@ -58,6 +60,8 @@ export function ConnectorsPage() {
   const filteredCatalog = useMemo(() => {
     const q = catalogQuery.trim().toLowerCase();
     if (!q) return catalog;
+    // Catalog search intentionally excludes credential field metadata so secret
+    // labels/placeholders do not affect connector discovery results.
     return catalog.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
@@ -363,6 +367,8 @@ function ConnectDialog({
 
   useEffect(() => {
     if (connector) {
+      // Reset form state whenever a new connector is selected so credential
+      // values from one provider cannot bleed into another provider's dialog.
       setDisplayName(`${connector.name} workspace`);
       setExternalAccount("");
       setMode("READ_ONLY");
@@ -382,6 +388,8 @@ function ConnectDialog({
     if (!connector) return;
 
     if (isGoogleWorkspace) {
+      // Google Workspace captures the workspace domain and refresh token through
+      // OAuth callback state, so manual credential fields are deliberately hidden.
       setSaving(true);
       setError("");
       try {
@@ -399,6 +407,8 @@ function ConnectDialog({
     }
 
     const credentials = {
+      // Connector catalog entries may name the primary secret accessToken or
+      // token. Normalize both field names into the API payload.
       accessToken: fieldValues.accessToken ?? fieldValues.token ?? "",
       refreshToken: fieldValues.refreshToken,
       webhookSecret: fieldValues.webhookSecret
@@ -414,6 +424,8 @@ function ConnectDialog({
         mode,
         credentials
       };
+      // Manual connectors post only after local normalization; server-side
+      // validation/encryption remains authoritative.
       await connectIntegration(payload);
       await onConnected();
     } catch (err) {

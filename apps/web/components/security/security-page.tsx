@@ -288,6 +288,8 @@ function AttackPathsCard({ paths }: { paths: AttackPath[] }) {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const filtered = useMemo(() => {
+    // Attack paths are already pre-ranked by the API. Client-side filtering keeps
+    // the table exploratory without changing the backend's top-path selection.
     const q = query.trim().toLowerCase();
     let rows = paths;
     if (q) {
@@ -301,6 +303,8 @@ function AttackPathsCard({ paths }: { paths: AttackPath[] }) {
     }
     if (highOnly) rows = rows.filter((p) => p.score >= 75);
     const dir = sortDir === "asc" ? 1 : -1;
+    // Always sort a copy so the memo never mutates the overview payload shared
+    // with other cards.
     return [...rows].sort((a, b) => {
       switch (sortKey) {
         case "title":
@@ -319,6 +323,8 @@ function AttackPathsCard({ paths }: { paths: AttackPath[] }) {
       setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(next);
+      // Scores default high-to-low for triage; text columns default A-to-Z for
+      // scanning owners and path names.
       setSortDir(next === "score" ? "desc" : "asc");
     }
   }
@@ -458,6 +464,8 @@ function AssetListCard({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return assets;
+    // These cards receive already-curated asset groups from the overview API, so
+    // search only narrows by analyst-readable name/summary instead of re-scoring.
     return assets.filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
@@ -498,6 +506,8 @@ function AssetListCard({
           </p>
         ) : (
           <ul role="list" className="divide-y divide-border">
+            {/* Cap compact cards so lower-priority assets do not crowd out the
+                attack-path table above; the count still reflects all matches. */}
             {filtered.slice(0, 12).map((asset) => (
               <li
                 key={asset.id}
