@@ -218,13 +218,7 @@ func (a *App) compatRateLimit(
 	if !ok {
 		return nil
 	}
-	client := strings.TrimSpace(strings.Split(header.Get("X-Forwarded-For"), ",")[0])
-	if client == "" {
-		client = strings.TrimSpace(header.Get("X-Real-IP"))
-	}
-	if client == "" {
-		client = "unknown"
-	}
+	client := compatClientIdentity(header)
 	subject := compatRateLimitSubject([]string{
 		requiredString(body, "organizationSlug"),
 		requiredString(body, "workspaceSlug"),
@@ -309,6 +303,19 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 		}
 		return 0, 0, false
 	}
+}
+
+func compatClientIdentity(header http.Header) string {
+	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		if client := strings.TrimSpace(forwarded[index]); client != "" {
+			return client
+		}
+	}
+	if client := strings.TrimSpace(header.Get("X-Real-IP")); client != "" {
+		return client
+	}
+	return "unknown"
 }
 
 func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (compatAuth, error) {

@@ -288,6 +288,15 @@ func TestCompatRateLimitUsesSeparateIPAndSubjectBuckets(t *testing.T) {
 	}
 }
 
+func TestCompatClientIdentityUsesRightmostForwardedFor(t *testing.T) {
+	header := http.Header{}
+	header.Set("X-Forwarded-For", "198.51.100.10, 203.0.113.20")
+	header.Set("X-Real-IP", "192.0.2.30")
+	if got := compatClientIdentity(header); got != "203.0.113.20" {
+		t.Fatalf("expected rightmost forwarded address, got %q", got)
+	}
+}
+
 func TestCompatPasswordHashEmitsAndVerifiesS2(t *testing.T) {
 	hash := compatHashPassword("correct horse battery staple")
 	if !strings.HasPrefix(hash, "s2$16384$8$1$") {
