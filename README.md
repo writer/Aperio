@@ -21,7 +21,7 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
 - **Remediation** — real handlers for Okta (suspend, reset MFA) and Slack (revoke OAuth app); the rest are stubbed and pluggable.
 - **Operator console** — Next.js app with dashboard, findings, apps, shadow IT, security graph, connectors, SIEM destinations, and admin pages. Full-text command palette, role-aware navigation, MFA enrollment.
 - **Agents and MCP** — tenant-scoped agent runtime that creates `AgentProposal` rows requiring human approval before any provider-side write executes. An stdio MCP broker mirrors core task and SIEM actions over JSON-RPC for MCP-native clients.
-- **Multi-tenant by default** — every entity is scoped to an `Organization`. Tenant isolation is enforced at the route, repository, and integration layer, with test coverage in `tests/tenant-isolation.test.ts`.
+- **Multi-tenant by default** — every entity is scoped to an `Organization`. Tenant isolation is enforced at the route, repository, and integration layer, with cross-tenant test coverage in `internal/bootstrap/tenant_isolation_test.go`.
 
 ---
 

@@ -542,7 +542,7 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, u.id, u.email, r.name::text, us.last_seen_at
 		FROM user_sessions us
-		JOIN users u ON u.id = us.user_id
+		JOIN users u ON u.id = us.user_id AND u.organization_id = us.organization_id
 		JOIN roles r ON r.id = u.role_id
 		WHERE us.id = $1
 		  AND us.token_hash = $2
@@ -769,7 +769,7 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	var displayName sql.NullString
 	err := a.db.QueryRowContext(ctx, `
 		SELECT o.id, o.name, o.slug, u.id, u.email, u.display_name, r.name::text
-		FROM auth_tokens at JOIN users u ON u.id = at.user_id JOIN organizations o ON o.id = at.organization_id JOIN roles r ON r.id = u.role_id
+		FROM auth_tokens at JOIN users u ON u.id = at.user_id AND u.organization_id = at.organization_id JOIN organizations o ON o.id = at.organization_id JOIN roles r ON r.id = u.role_id
 		WHERE at.token_hash = $1 AND at.purpose = $2 AND at.consumed_at IS NULL AND at.expires_at > NOW()
 	`, hashOpaqueToken(token), purpose).Scan(&orgID, &orgName, &orgSlug, &userID, &email, &displayName, &role)
 	if err != nil {
@@ -777,7 +777,7 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	}
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2`, compatHashPassword(password), userID)
+	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID)
 	_, _ = tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token))
 	_, _ = tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
@@ -1367,6 +1367,13 @@ func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth 
 func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND organization_id = $2)`, userID, auth.OrganizationID).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("member not found"))
 	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
