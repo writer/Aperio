@@ -65,6 +65,105 @@ type compatSessionOrg struct {
 	Slug string `json:"slug"`
 }
 
+// normalizeCompatRoute turns a tunneled REST path into a low-cardinality route
+// template by collapsing opaque identifiers (cuids, UUIDs, and seed-style
+// prefixed IDs) into ":id". This keeps the wide event's http.tunnel.route
+// dimension bounded so observability tooling groups by route, not by resource.
+func normalizeCompatRoute(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if index := strings.IndexAny(trimmed, "?#"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	if trimmed == "" {
+		return "unknown"
+	}
+	prefix := ""
+	if strings.HasPrefix(trimmed, "/") {
+		prefix = "/"
+	}
+	segments := strings.Split(strings.Trim(trimmed, "/"), "/")
+	for index, segment := range segments {
+		if looksLikeCompatID(segment) {
+			segments[index] = ":id"
+		}
+	}
+	return prefix + strings.Join(segments, "/")
+}
+
+// looksLikeCompatID reports whether a path segment is an opaque identifier
+// rather than a static route component.
+func looksLikeCompatID(segment string) bool {
+	if isCompatUUID(segment) {
+		return true
+	}
+	if len(segment) >= 20 && isCompatAlphanumeric(segment) {
+		return true
+	}
+	if underscore := strings.IndexByte(segment, '_'); underscore > 0 && underscore < len(segment)-1 {
+		prefix := segment[:underscore]
+		body := segment[underscore+1:]
+		if len(prefix) <= 12 && isCompatLowerAlpha(prefix) && len(body) >= 4 && isCompatIDBody(body) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCompatAlphanumeric(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatLowerAlpha(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatIDBody(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, r := range value {
+		switch index {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (a *App) handleCompatAPI(
 	ctx context.Context,
 	req *connect.Request[aperiov1.CallApiRequest],
