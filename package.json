@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:api": "tsx apps/api/src/server.ts",
     "dev:web": "next dev apps/web -p 3000",
     "worker:ingestion": "tsx workers/ingestion-worker.ts",
     "worker:siem": "tsx workers/siem-dispatcher.ts",
