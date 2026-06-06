@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math"
 	"sort"
 	"time"
@@ -93,7 +94,7 @@ func (a *App) loadOverviewIdentities(ctx context.Context, organizationID string)
 	rows, err := a.db.QueryContext(ctx, `
 		SELECT si.id, COALESCE(si.integration_id, ''), si.provider::text, si.external_id,
 		       COALESCE(si.email, ''), COALESCE(si.display_name, ''), si.kind::text, si.status::text,
-		       COALESCE(si.role, ''), si.linked_asset_ids, si.mfa_enabled, si.is_privileged,
+		       COALESCE(si.role, ''), array_to_json(si.linked_asset_ids)::text, si.mfa_enabled, si.is_privileged,
 		       si.is_external, si.last_observed_at, si.risk_score,
 		       COALESCE(ic.provider::text, ''), COALESCE(ic.display_name, '')
 		FROM saas_identities si
@@ -108,15 +109,17 @@ func (a *App) loadOverviewIdentities(ctx context.Context, organizationID string)
 	identities := []overviewIdentity{}
 	for rows.Next() {
 		var row overviewIdentity
+		var linkedAssetIDsJSON string
 		if err := rows.Scan(
 			&row.ID, &row.IntegrationID, &row.Provider, &row.ExternalID,
 			&row.Email, &row.DisplayName, &row.Kind, &row.Status,
-			&row.Role, &row.LinkedAssetIDs, &row.MfaEnabled, &row.IsPrivileged,
+			&row.Role, &linkedAssetIDsJSON, &row.MfaEnabled, &row.IsPrivileged,
 			&row.IsExternal, &row.LastObservedAt, &row.RiskScore,
 			&row.IntegrationProvider, &row.IntegrationName,
 		); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(linkedAssetIDsJSON), &row.LinkedAssetIDs)
 		identities = append(identities, row)
 	}
 	return identities, rows.Err()
