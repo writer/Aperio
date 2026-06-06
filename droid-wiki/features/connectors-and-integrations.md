@@ -1,55 +1,29 @@
 # Connectors and integrations
 
-Active contributors: unavailable in this checkout because git history is missing.
+Connectors let a tenant attach SaaS providers, store encrypted credentials, configure checks, and enqueue ingestion work.
 
-This feature owns the provider catalog, credential collection, integration records, and per-connector detection toggles. It is the first thing most operators touch because every finding starts with a connected SaaS app.
-
-## Directory layout
-
-```text
-packages/shared/src/connectors.ts
-apps/api/src/routes/integrations.ts
-apps/web/components/connectors/
-├── connectors-page.tsx
-└── provider-icon.tsx
-workers/ingestion-worker.ts
-```
-
-## Key abstractions
+## Main files
 
 | File | Purpose |
 | --- | --- |
-| `packages/shared/src/connectors.ts` | Provider catalog, credential fields, scopes, remediation actions, finding checks |
-| `apps/api/src/routes/integrations.ts` | Catalog endpoint, connect/disconnect, check state endpoints |
-| `apps/web/components/connectors/connectors-page.tsx` | Connector catalog UI and modal flow |
-| `workers/ingestion-worker.ts` | Consumes integration settings, especially disabled checks |
+| `internal/bootstrap/compat_api.go` | Connector catalog, create/update, OAuth, checks, force-sync compatibility handlers |
+| `packages/shared/src/connectors.ts` | TypeScript connector catalog and UI-facing metadata |
+| `apps/web/components/connectors/connectors-page.tsx` | Connector UI |
+| `workers/ingestion-worker.ts` | Provider event processing and finding generation |
+| `packages/db/prisma/schema.prisma` | `IntegrationConnection`, `IngestionJob`, `IngestedEvent`, findings/assets |
 
-## How it works
-
-A connector definition from `packages/shared/src/connectors.ts` drives both the UI form and the backend behavior. The route in `apps/api/src/routes/integrations.ts` encrypts the credentials, stores the effective scopes for the selected mode, and initializes `disabledChecks` from the catalog defaults.
+## Flow
 
 ```mermaid
 flowchart LR
-  Catalog[Connector catalog] --> UI[Connector modal]
-  UI --> API[/api/v1/integrations]
-  API --> DB[IntegrationConnection]
-  DB --> Worker[ingestion-worker]
-  Worker --> Findings[SecurityFinding]
+  UI[Connectors page] --> API[Go CallApi compatibility]
+  API --> DB[(IntegrationConnection / IngestionJob)]
+  Worker[ingestion-worker] --> DB
+  Worker --> Findings[SecurityFinding / SecurityAsset]
 ```
 
-## Providers in the catalog
+A connector definition drives UI labels, required fields, scopes, and check defaults. Go compatibility handlers persist tenant-scoped connections and queue work; the ingestion worker consumes queued events and writes normalized findings.
 
-The current catalog includes GitHub, Slack, Google Workspace, 1Password, Okta, Microsoft 365, and Atlassian. Detection logic in `workers/ingestion-worker.ts` is only implemented for GitHub, Slack, and Google Workspace in this checkout, so catalog breadth is wider than rule breadth.
+## Current migration note
 
-## Integration points
-
-- Depends on the provider enum in `packages/shared/src/types.ts`
-- Stores encrypted credentials through `packages/security/src/crypto.ts`
-- Feeds findings into `workers/ingestion-worker.ts`
-- Exposes state in the dashboard, apps page, and per-app drilldown views
-
-## Entry points for modification
-
-Add a provider in `packages/shared/src/connectors.ts` first. Then update any worker rule logic, route behavior, and UI rendering that depends on the new provider. If the provider also needs remediation or SIEM behavior, follow the links into those feature pages.
-
-Go next to [Findings and remediation](findings-and-remediation.md) and [Shared](../packages/shared.md).
+The API runtime is Go, but the richest connector catalog and provider processing still live in TypeScript packages/workers. Keep catalog semantics, encryption envelopes, and queue contracts aligned across the Go API and TypeScript workers.

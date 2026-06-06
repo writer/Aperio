@@ -1,50 +1,32 @@
-# Aperio overview
+# Overview
 
-Aperio is a small multi-tenant SaaS security posture management prototype. It combines a tenant-scoped Express API, a Next.js console, Prisma-backed storage, background workers, and a stdio MCP broker for agent workflows. The code is organized to ingest SaaS audit events, turn them into security findings, let admins manage connectors and SIEM destinations, and expose agent-oriented task APIs.
+Aperio is a multi-tenant SaaS security posture management prototype. It combines a Go/ConnectRPC API, a Next.js console, Prisma-backed Postgres storage, TypeScript background workers, and a stdio MCP broker for agent workflows.
 
-## What this repo contains
+Key runtime pieces:
 
-- `apps/api/src/server.ts` starts the REST API that serves dashboard, findings, integrations, SIEM, admin, and agent routes.
-- `apps/web/app/page.tsx` and related pages render the operator console for the dashboard, connectors, apps, and admin views.
-- `apps/mcp/src/server.ts` exposes the same agent and SIEM workflow model over JSON-RPC for MCP clients.
-- `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts` handle event-to-finding processing and durable SIEM fanout.
-- `packages/db/prisma/schema.prisma`, `packages/shared/src/connectors.ts`, `packages/shared/src/siem.ts`, and `packages/shared/src/a2a.ts` define the shared contracts that tie the repo together.
-
-## Repo map
+- `cmd/aperio/main.go` starts the Go API on `APERIO_CONNECT_ADDR`.
+- `internal/bootstrap` owns API wiring, auth/session handling, CORS, readiness, typed RPCs, and the `/api/v1/*` compatibility dispatch used by the web console.
+- `apps/web` contains the Next.js operator console.
+- `workers/ingestion-worker.ts` evaluates queued SaaS events and writes findings/assets.
+- `workers/siem-dispatcher.ts` drains SIEM delivery rows.
+- `apps/mcp/src/server.ts` exposes agent and SIEM workflows over stdio JSON-RPC.
 
 ```text
 aperio/
-├── apps/
-│   ├── api/          Express API
-│   ├── mcp/          stdio MCP broker
-│   └── web/          Next.js operator console
-├── packages/
-│   ├── db/           Prisma schema and client
-│   ├── security/     AES-256-GCM helpers
-│   └── shared/       Zod schemas and catalogs
-├── workers/          Ingestion and SIEM background logic
-├── scripts/seed.ts   Demo tenant seed data
-├── docker-compose.yml
-└── package.json
+├── cmd/aperio/       Go API entrypoint
+├── internal/         Go API bootstrap, config, telemetry
+├── apps/web/         Next.js console
+├── apps/mcp/         stdio MCP broker
+├── workers/          ingestion and SIEM workers
+├── packages/         Prisma, shared schemas, security, Connect client
+├── proto/            protobuf contracts
+└── gen/              generated Go and TypeScript contract code
 ```
 
-## Main workflows
+Typical data flow:
 
-1. A tenant connects a SaaS app through `apps/api/src/routes/integrations.ts` and the UI in `apps/web/components/connectors/connectors-page.tsx`.
-2. Events arrive at `apps/api/src/routes/ingestion.ts`, then `workers/ingestion-worker.ts` stores them and creates `SecurityFinding` records.
-3. Findings appear in `apps/web/components/dashboard/dashboard-page.tsx` and `apps/web/components/apps/app-findings-page.tsx`, where operators can inspect or remediate them.
-4. If SIEM destinations exist, `workers/siem-dispatcher.ts` drains the durable outbox and forwards canonical payloads to Splunk, Panther, Panopticon, Elastic, Datadog, webhooks, or JSONL files.
-5. Agent clients can use `apps/api/src/routes/agents.ts` or `apps/mcp/src/server.ts` to register agents, create tasks, exchange messages, and propose remediations.
-
-## Guardrails in this checkout
-
-The repository now has a root `README.md`, `.env.example`, a GitHub Actions workflow, and focused `node:test` coverage under `tests/`. The wiki still leans on source files and runtime scripts for volatile implementation details.
-
-## Quick links
-
-- [Architecture](architecture.md)
-- [Getting started](getting-started.md)
-- [Glossary](glossary.md)
-- [Apps](../apps/index.md)
-- [Features](../features/index.md)
-- [Packages](../packages/index.md)
+1. A tenant connects a SaaS app through the web console and Go API compatibility endpoints.
+2. Provider events are queued in Postgres for `workers/ingestion-worker.ts`.
+3. The worker evaluates detections, creates findings/assets, and enqueues SIEM deliveries.
+4. `workers/siem-dispatcher.ts` ships canonical envelopes to configured SIEM destinations.
+5. Agent clients use `apps/mcp/src/server.ts` for task/proposal workflows against the same Prisma-backed data model.

@@ -38,7 +38,7 @@ The package avoids handwritten interface duplication by exporting Zod schemas an
 
 ## Integration points
 
-- Used in `apps/api/src/routes/*.ts` for request validation
+- Used by TypeScript workers, MCP tools, and web-facing compatibility schemas
 - Reflected into `apps/web/lib/api.ts` and UI components
 - Used by `apps/mcp/src/server.ts` for tool input validation
 - Referenced by `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts`

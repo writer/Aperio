@@ -16,7 +16,7 @@ An integration is a stored connection in `packages/db/prisma/schema.prisma` as `
 
 ## Read-only mode
 
-`READ_ONLY` is the default `IntegrationMode` for connectors. The UI still ingests findings, but the remediation endpoints in `apps/api/src/routes/remediations.ts` refuse write actions.
+`READ_ONLY` is the default `IntegrationMode` for connectors. The UI still ingests findings, but Go API remediation compatibility handlers refuse write actions unless explicitly enabled.
 
 ## Remediation mode
 
@@ -36,7 +36,7 @@ Each integration stores `disabledChecks`. The ingestion worker skips rule evalua
 
 ## SIEM destination
 
-A SIEM destination is a configured outbound sink in `SiemDestination`. The catalog lives in `packages/shared/src/siem.ts`, and the API lives in `apps/api/src/routes/siem.ts`.
+A SIEM destination is a configured outbound sink in `SiemDestination`. The catalog lives in `packages/shared/src/siem.ts`, and the API lives in Go compatibility handlers in `internal/bootstrap/compat_api.go`.
 
 ## SIEM delivery
 
@@ -48,7 +48,7 @@ The canonical envelope is the payload shape built in `workers/siem-dispatcher.ts
 
 ## Agent
 
-An agent is a registered actor in the A2A model. `packages/shared/src/a2a.ts` defines the schemas, `packages/db/prisma/schema.prisma` stores the data, and `apps/api/src/routes/agents.ts` plus `apps/mcp/src/server.ts` expose it.
+An agent is a registered actor in the A2A model. `packages/shared/src/a2a.ts` defines the schemas, `packages/db/prisma/schema.prisma` stores the data, and `internal/bootstrap/compat_api.go` plus `apps/mcp/src/server.ts` expose it.
 
 ## Agent task
 
@@ -56,7 +56,7 @@ An `AgentTask` is a unit of work for a registered agent. Tasks can be queued, as
 
 ## Agent proposal
 
-An `AgentProposal` is a proposed action, often tied to a finding or task. The proposal can be approved or rejected through `apps/api/src/routes/agents.ts`.
+An `AgentProposal` is a proposed action, often tied to a finding or task. The proposal can be approved or rejected through Go API compatibility handlers.
 
 ## AAD
 

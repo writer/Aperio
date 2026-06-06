@@ -2,7 +2,7 @@
 
 **SaaS security posture management for the SIEM-native era.**
 
-Aperio is an open-source SSPM that connects to your SaaS estate, surfaces posture risks and OAuth grants, and pushes normalized findings into the SIEM you already operate. The current `main` branch ships an Express + Prisma API, a Next.js operator console, an stdio MCP broker, a Prisma-backed Postgres schema, an ingestion worker, and a durable SIEM dispatcher with adapters for Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhooks, and JSON Lines files.
+Aperio is an open-source SSPM that connects to your SaaS estate, surfaces posture risks and OAuth grants, and pushes normalized findings into the SIEM you already operate. The current `main` branch ships a Go/ConnectRPC API backed by Prisma/Postgres data, a Next.js operator console, an stdio MCP broker, an ingestion worker, and a durable SIEM dispatcher with adapters for Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhooks, and JSON Lines files.
 
 In practical terms, Aperio ingests connector events, evaluates detection rules, tracks user-granted OAuth apps (shadow IT) and domain-wide delegations, opens and dedupes findings, and fans canonical `aperio.finding.v1` envelopes out to your SIEM destinations.
 
@@ -30,8 +30,8 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
             Operator console (Next.js)        MCP clients (stdio)
                        |                              |
                        v                              v
-              Express API + Prisma                MCP broker
-            (apps/api, packages/db)            (apps/mcp)
+              Go/ConnectRPC API                 MCP broker
+             (cmd/aperio, internal)            (apps/mcp)
                        |
         +-----------------------------+
         |              |              |
@@ -46,7 +46,7 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
    Atlassian)  (state)
 ```
 
-The Express API is the single source of truth for connectors, findings, and remediation. The ingestion worker pulls audit-log events into the same Postgres state store. The SIEM dispatcher reads the `SiemDelivery` outbox and ships each finding to every enabled destination with retry/backoff. Credentials are encrypted at rest with AES-256-GCM via `packages/security`.
+The Go API is the single source of truth for connector, finding, admin, auth, and SIEM workflows. The ingestion worker pulls audit-log events into the same Postgres state store. The SIEM dispatcher reads the `SiemDelivery` outbox and ships each finding to every enabled destination with retry/backoff. Credentials are encrypted at rest with AES-256-GCM via `packages/security`.
 
 ---
 
@@ -76,11 +76,11 @@ DATABASE_URL="postgresql://aperio:aperio@localhost:5432/aperio?schema=public"
 APERIO_ENCRYPTION_KEY="base64:$(openssl rand -base64 32)"
 APERIO_AUTH_SECRET="$(openssl rand -hex 32)"
 APERIO_WEB_ORIGIN="http://localhost:3000"
-NEXT_PUBLIC_API_BASE_URL="http://localhost:4000"
+NEXT_PUBLIC_CONNECT_API_BASE_URL="http://localhost:4100"
 EOF
 
 # start the API and the web console in two shells
-npm run dev:api                     # http://localhost:4000
+npm run dev:connect                 # http://localhost:4100
 npm run dev:web                     # http://localhost:3000
 ```
 
@@ -106,14 +106,14 @@ npm run mcp:broker                  # stdio MCP server for agent clients
 
 | Goal | Start here | Notes |
 | --- | --- | --- |
-| Run the API only | `npm run dev:api` | Express server on `:4000`; serves the REST surface and OAuth callbacks. |
-| Run the operator console | `npm run dev:web` | Next.js dev server on `:3000`; expects the API at `NEXT_PUBLIC_API_BASE_URL`. |
+| Run the API only | `npm run dev:connect` | Go/ConnectRPC server on `:4100`; serves native RPCs, compatibility calls, and OAuth callbacks. |
+| Run the operator console | `npm run dev:web` | Next.js dev server on `:3000`; expects the API at `NEXT_PUBLIC_CONNECT_API_BASE_URL`. |
 | Seed demo data | `npx tsx scripts/seed.ts` | Idempotent; creates Aperio Demo Security org + owner/admin/analyst users. |
 | Connect Google Workspace | `/connectors` → Google Workspace | Uses OAuth; needs `GOOGLE_WORKSPACE_*` env vars. |
 | Connect other providers | `/connectors` → pick provider | GitHub, Slack, Okta, 1Password, M365, Atlassian use scoped tokens or service accounts. |
 | Wire up a SIEM | `/connectors` → SIEM destinations | Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhook, JSONL sink. |
 | Audit shadow IT | `/shadow-it` | Lists every third-party OAuth app users have granted, with per-user drilldown. |
-| Author detection rules | `apps/api/src/routes/integrations.ts` | Rules are TypeScript functions that produce `IngestEvent`s consumed by `workers/ingestion-worker.ts`. |
+| Author detection rules | `workers/ingestion-worker.ts` | Rules are TypeScript functions that produce findings and SIEM deliveries from queued ingestion events. |
 | Inspect the schema | `packages/db/prisma/schema.prisma` | Single Prisma schema for all entities. |
 | Run all checks | `npm run typecheck && npm run test:api && npm run db:validate` | The same set CI is expected to run. |
 
@@ -131,7 +131,7 @@ Aperio reads runtime configuration from environment variables. Create a `.env` f
 | `APERIO_ENCRYPTION_KEY` | base64-encoded 32-byte key used for AES-256-GCM credential encryption | required |
 | `APERIO_AUTH_SECRET` | HMAC secret for session cookies and email tokens | required |
 | `APERIO_WEB_ORIGIN` | canonical origin for the Next.js console; used for CORS and OAuth redirects | `http://localhost:3000` |
-| `NEXT_PUBLIC_API_BASE_URL` | base URL the web app uses to call the API | `http://localhost:4000` |
+| `NEXT_PUBLIC_CONNECT_API_BASE_URL` | base URL the web app uses to call the Go/ConnectRPC API | `http://localhost:4100` |
 | `APERIO_SESSION_TTL_HOURS` | absolute session lifetime | `12` |
 | `APERIO_SESSION_IDLE_MINUTES` | idle session timeout | `120` |
 | `APERIO_MFA_ISSUER` | TOTP issuer label shown in authenticator apps | `Aperio` |
@@ -209,7 +209,6 @@ Each delivery row is durable, retried with exponential backoff, and de-duplicate
 ## Scripts
 
 ```bash
-npm run dev:api                # Express API on :4000
 npm run dev:connect            # Go ConnectRPC API on :4100
 npm run dev:web                # Next.js console on :3000
 npm run worker:ingestion       # ingestion worker
@@ -239,24 +238,24 @@ Production deployments should pair Aperio's process-local route limits with edge
 
 ## Go / ConnectRPC backend
 
-Aperio now includes a Go backend foundation alongside the existing Express API. It is intentionally incremental: the TypeScript API remains the primary mutation surface, while Go/ConnectRPC starts with liveness and dashboard metrics so read paths can move over safely.
+Aperio's API runtime is Go/ConnectRPC. Native RPCs serve first-class read paths, and the `CallApi` compatibility RPC preserves the existing `/api/v1/*` web contract while remaining REST-shaped workflows are promoted into typed RPCs.
 
 | Surface | Purpose |
 | --- | --- |
 | `cmd/aperio/main.go` | Go process entrypoint, listening on `APERIO_CONNECT_ADDR` (`:4100` locally) |
-| `internal/bootstrap` | ConnectRPC handler wiring, CORS, cookie-session auth, dashboard metrics query |
+| `internal/bootstrap` | ConnectRPC handler wiring, CORS, cookie-session auth, compatibility dispatch, dashboard metrics query |
 | `proto/aperio/v1/api.proto` | Stable service contract for `AperioService` |
 | `gen/aperio/v1` | Generated Go protobuf and ConnectRPC handlers |
 | `packages/connect/src` | Generated TypeScript contracts plus browser Connect client |
 
-The web app can opt into the Go path by setting `NEXT_PUBLIC_CONNECT_API_BASE_URL`, for example:
+The web app talks to the Go API through `NEXT_PUBLIC_CONNECT_API_BASE_URL`, for example:
 
 ```bash
 DATABASE_URL=postgresql://aperio:aperio@localhost:5432/aperio npm run dev:connect
 NEXT_PUBLIC_CONNECT_API_BASE_URL=http://localhost:4100 npm run dev:web
 ```
 
-Authentication is shared with the Express app through the `aperio_session` HttpOnly cookie and the `user_sessions` table. The Go service validates the cookie token hash directly in Postgres and only reflects the configured `APERIO_WEB_ORIGIN` for credentialed browser calls.
+Authentication uses the `aperio_session` HttpOnly cookie and the `user_sessions` table. The Go service validates the cookie token hash directly in Postgres and only reflects the configured `APERIO_WEB_ORIGIN` for credentialed browser calls.
 
 Protobuf contracts follow Cerebro-style Buf conventions:
 
@@ -269,7 +268,7 @@ npm run test:go
 
 ## HTTP API surface
 
-The legacy REST surface is JSON over HTTPS and lives under `/api/v1`. New Go-backed RPCs live under ConnectRPC procedure paths such as `/aperio.v1.AperioService/GetDashboardMetrics`. Key REST groups:
+Native Go-backed RPCs live under ConnectRPC procedure paths such as `/aperio.v1.AperioService/GetDashboardMetrics`. The web console still uses REST-shaped `/api/v1/*` compatibility paths through the `CallApi` RPC while those workflows move to typed RPCs. Key compatibility groups:
 
 | Prefix | Purpose |
 | --- | --- |
@@ -293,7 +292,6 @@ The MCP broker (`apps/mcp/src/server.ts`) exposes a JSON-RPC superset of the tas
 ```
 aperio/
 ├── apps/
-│   ├── api/                # Express + Prisma server
 │   ├── mcp/                # stdio MCP broker
 │   └── web/                # Next.js operator console
 ├── cmd/aperio/             # Go ConnectRPC server entrypoint
@@ -340,7 +338,7 @@ The `droid-wiki/` directory contains generated documentation. Useful entry point
 | --- | --- |
 | Language | TypeScript 5.7, Go 1.24 |
 | Runtime | Node.js 20+, Go `net/http` |
-| API server | Express 4, ConnectRPC |
+| API server | Go `net/http` + ConnectRPC |
 | Web console | Next.js 16 + React 18 + Tailwind |
 | ORM | Prisma 5 |
 | Database | PostgreSQL 15+ |

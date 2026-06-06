@@ -20,6 +20,6 @@ The working tree has 46 source files and 0 test files. The repo relies on `npm r
 
 ## The API client exports a lot
 
-`apps/web/lib/api.ts` has the highest export count in the repo. It is effectively the typed boundary between the web console and the Express API.
+`apps/web/lib/api.ts` has the highest export count in the repo. It is effectively the typed boundary between the web console and the Go/ConnectRPC API.
 
 For a fuller statistical snapshot, go to [By the numbers](by-the-numbers.md). For the biggest surfaces in context, go to [Web](apps/web.md).
