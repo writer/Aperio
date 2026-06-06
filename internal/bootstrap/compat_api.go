@@ -66,6 +66,179 @@ type compatSessionOrg struct {
 	Slug string `json:"slug"`
 }
 
+// normalizeCompatRoute turns a tunneled REST path into a low-cardinality route
+// template by collapsing opaque identifiers (cuids, UUIDs, and seed-style
+// prefixed IDs) into ":id". This keeps the wide event's http.tunnel.route
+// dimension bounded so observability tooling groups by route, not by resource.
+func normalizeCompatRoute(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if index := strings.IndexAny(trimmed, "?#"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	if trimmed == "" {
+		return "unknown"
+	}
+	prefix := ""
+	if strings.HasPrefix(trimmed, "/") {
+		prefix = "/"
+	}
+	segments := strings.Split(strings.Trim(trimmed, "/"), "/")
+	for index, segment := range segments {
+		if looksLikeCompatID(segment) {
+			segments[index] = ":id"
+		}
+	}
+	return prefix + strings.Join(segments, "/")
+}
+
+// compatRouteTemplates is the closed set of normalized routes the compat tunnel
+// actually dispatches (see handleCompatAPI). It bounds the cardinality of the
+// http.tunnel.route telemetry dimension: anything not in this set is reported as
+// "unmatched" so unauthenticated callers cannot inject arbitrary route strings.
+// New routes added to the dispatcher should be added here too; until then they
+// degrade safely to "unmatched" rather than leaking unbounded values.
+var compatRouteTemplates = map[string]struct{}{
+	"/api/v1/auth/signup":                               {},
+	"/api/v1/auth/login":                                {},
+	"/api/v1/auth/me":                                   {},
+	"/api/v1/auth/logout":                               {},
+	"/api/v1/auth/workspaces":                           {},
+	"/api/v1/auth/workspaces/switch":                    {},
+	"/api/v1/auth/forgot-password":                      {},
+	"/api/v1/auth/reset-password":                       {},
+	"/api/v1/auth/invitations/accept":                   {},
+	"/api/v1/auth/mfa/setup":                            {},
+	"/api/v1/auth/mfa/enable":                           {},
+	"/api/v1/auth/mfa/disable":                          {},
+	"/api/v1/findings/:id":                              {},
+	"/api/v1/findings/:id/remediate":                    {},
+	"/api/v1/integrations":                              {},
+	"/api/v1/integrations/catalog":                      {},
+	"/api/v1/integrations/:id":                          {},
+	"/api/v1/integrations/:id/checks":                   {},
+	"/api/v1/integrations/google-workspace/oauth/start": {},
+	"/api/v1/integrations/:id/google-mailbox-scan":      {},
+	"/api/v1/integrations/:id/force-sync":               {},
+	"/api/v1/siem":                                      {},
+	"/api/v1/siem/catalog":                              {},
+	"/api/v1/siem/:id":                                  {},
+	"/api/v1/siem/:id/test":                             {},
+	"/api/v1/admin/settings":                            {},
+	"/api/v1/admin/members":                             {},
+	"/api/v1/admin/members/:id/reset-link":              {},
+	"/api/v1/admin/members/:id/role":                    {},
+	"/api/v1/admin/audit-logs":                          {},
+	"/api/v1/security/overview":                         {},
+	"/api/v1/security/assets":                           {},
+	"/api/v1/security/assets/:id":                       {},
+	"/api/v1/security/exceptions":                       {},
+	"/api/v1/security/exceptions/:id":                   {},
+}
+
+// compatRouteLabel returns the bounded http.tunnel.route value for a tunneled
+// path: a known normalized template, or "unmatched" for anything else.
+func compatRouteLabel(path string) string {
+	template := normalizeCompatRoute(path)
+	if _, ok := compatRouteTemplates[template]; ok {
+		return template
+	}
+	return "unmatched"
+}
+
+// compatMethodLabel returns the bounded http.tunnel.method value: a standard
+// HTTP verb (matching how handleCompatAPI defaults a blank method to GET), or
+// "other" for anything outside the known set.
+func compatMethodLabel(raw string) string {
+	method := strings.ToUpper(strings.TrimSpace(raw))
+	if method == "" {
+		method = http.MethodGet
+	}
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodOptions:
+		return method
+	default:
+		return "other"
+	}
+}
+
+// looksLikeCompatID reports whether a path segment is an opaque identifier
+// rather than a static route component.
+func looksLikeCompatID(segment string) bool {
+	if isCompatUUID(segment) {
+		return true
+	}
+	if len(segment) >= 20 && isCompatAlphanumeric(segment) {
+		return true
+	}
+	if underscore := strings.IndexByte(segment, '_'); underscore > 0 && underscore < len(segment)-1 {
+		prefix := segment[:underscore]
+		body := segment[underscore+1:]
+		if len(prefix) <= 12 && isCompatLowerAlpha(prefix) && len(body) >= 4 && isCompatIDBody(body) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCompatAlphanumeric(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatLowerAlpha(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatIDBody(value string) bool {
+	if value == "" {
+		return false
+	}
+	// compatID suffixes are base64.RawURLEncoding tokens, whose alphabet is
+	// [A-Za-z0-9-_]; "-" must be accepted or ~1/3 of generated IDs would escape
+	// normalization and leak into the route dimension.
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCompatUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, r := range value {
+		switch index {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (a *App) handleCompatAPI(
 	ctx context.Context,
 	req *connect.Request[aperiov1.CallApiRequest],

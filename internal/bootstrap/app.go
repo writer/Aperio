@@ -218,7 +218,10 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/healthz", a.handleHealthz)
 	a.mux.HandleFunc("/readyz", a.handleReadyz)
 	a.mux.HandleFunc("/api/v1/integrations/google-workspace/oauth/callback", a.handleGoogleOAuthCallback)
-	path, handler := aperiov1connect.NewAperioServiceHandler(a)
+	path, handler := aperiov1connect.NewAperioServiceHandler(
+		a,
+		connect.WithInterceptors(a.wideEventInterceptor()),
+	)
 	a.mux.Handle(path, handler)
 }
 
@@ -252,6 +255,10 @@ func (a *App) CallApi(
 	ctx context.Context,
 	req *connect.Request[aperiov1.CallApiRequest],
 ) (*connect.Response[aperiov1.CallApiResponse], error) {
+	if collector, ok := telemetry.CollectorFrom(ctx); ok {
+		collector.Dimension("http.tunnel.method", compatMethodLabel(req.Msg.Method))
+		collector.Dimension("http.tunnel.route", compatRouteLabel(req.Msg.Path))
+	}
 	bodyJSON, headers, err := a.handleCompatAPI(ctx, req)
 	if err != nil {
 		return nil, err
@@ -333,26 +340,12 @@ func (a *App) GetDashboardMetrics(
 	ctx context.Context,
 	req *connect.Request[aperiov1.GetDashboardMetricsRequest],
 ) (*connect.Response[aperiov1.GetDashboardMetricsResponse], error) {
-	started := time.Now()
-	organizationID := ""
-	status := "success"
-	defer func() {
-		a.emitRPCWideEvent(rpcWideEvent{
-			Method:         "GetDashboardMetrics",
-			OrganizationID: organizationID,
-			Status:         status,
-			Started:        started,
-		})
-	}()
-	var err error
-	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = connect.CodeOf(err).String()
 		return nil, err
 	}
 	metrics, err := a.dashboardMetrics(ctx, organizationID)
 	if err != nil {
-		status = "internal"
 		return nil, connect.NewError(connect.CodeInternal, errors.New("dashboard metrics unavailable"))
 	}
 	return connect.NewResponse(&aperiov1.GetDashboardMetricsResponse{
@@ -369,48 +362,29 @@ func (a *App) ListFindings(
 	ctx context.Context,
 	req *connect.Request[aperiov1.ListFindingsRequest],
 ) (*connect.Response[aperiov1.ListFindingsResponse], error) {
-	started := time.Now()
-	organizationID := ""
-	status := "success"
-	resultCount := 0
-	resultTotal := 0
-	defer func() {
-		a.emitRPCWideEvent(rpcWideEvent{
-			Method:         "ListFindings",
-			OrganizationID: organizationID,
-			Status:         status,
-			Started:        started,
-			Dimensions: map[string]string{
-				"http.route.query.severity":       req.Msg.Severity,
-				"http.route.query.status":         req.Msg.Status,
-				"http.route.query.provider":       req.Msg.Provider,
-				"http.route.query.integration_id": req.Msg.IntegrationId,
-				"http.route.query.cursor.present": strconv.FormatBool(req.Msg.Cursor != ""),
-			},
-			Measurements: map[string]int64{
-				"http.route.query.limit": int64(normalizedLimit(req.Msg.Limit)),
-				"result.count":           int64(resultCount),
-				"result.total":           int64(resultTotal),
-			},
-		})
-	}()
-	var err error
-	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
+	if collector, ok := telemetry.CollectorFrom(ctx); ok {
+		collector.Dimension("http.route.query.severity", req.Msg.Severity)
+		collector.Dimension("http.route.query.status", req.Msg.Status)
+		collector.Dimension("http.route.query.provider", req.Msg.Provider)
+		collector.Dimension("http.route.query.integration_id", req.Msg.IntegrationId)
+		collector.Dimension("http.route.query.cursor.present", strconv.FormatBool(req.Msg.Cursor != ""))
+		collector.Measurement("http.route.query.limit", int64(normalizedLimit(req.Msg.Limit)))
+	}
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = connect.CodeOf(err).String()
 		return nil, err
 	}
 	if err := validateFindingListRequest(req.Msg); err != nil {
-		status = "invalid_argument"
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	findings, total, err := a.listFindings(ctx, organizationID, req.Msg)
 	if err != nil {
-		status = "internal"
 		return nil, connect.NewError(connect.CodeInternal, errors.New("findings unavailable"))
 	}
-	resultCount = len(findings)
-	resultTotal = total
+	if collector, ok := telemetry.CollectorFrom(ctx); ok {
+		collector.Measurement("result.count", int64(len(findings)))
+		collector.Measurement("result.total", int64(total))
+	}
 	response := &aperiov1.ListFindingsResponse{
 		Data: make([]*aperiov1.Finding, 0, len(findings)),
 		PageInfo: &aperiov1.PageInfo{
@@ -431,38 +405,22 @@ func (a *App) GetFinding(
 	ctx context.Context,
 	req *connect.Request[aperiov1.GetFindingRequest],
 ) (*connect.Response[aperiov1.GetFindingResponse], error) {
-	started := time.Now()
-	organizationID := ""
-	status := "success"
-	defer func() {
-		a.emitRPCWideEvent(rpcWideEvent{
-			Method:         "GetFinding",
-			OrganizationID: organizationID,
-			Status:         status,
-			Started:        started,
-			Dimensions: map[string]string{
-				"http.route.param.finding_id.present": strconv.FormatBool(strings.TrimSpace(req.Msg.Id) != ""),
-			},
-		})
-	}()
-	var err error
-	organizationID, err = a.authenticatedOrganization(ctx, req.Header())
+	if collector, ok := telemetry.CollectorFrom(ctx); ok {
+		collector.Dimension("http.route.param.finding_id.present", strconv.FormatBool(strings.TrimSpace(req.Msg.Id) != ""))
+	}
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
 	if err != nil {
-		status = connect.CodeOf(err).String()
 		return nil, err
 	}
 	findingID := strings.TrimSpace(req.Msg.Id)
 	if findingID == "" {
-		status = "invalid_argument"
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("finding id is required"))
 	}
 	finding, err := a.getFinding(ctx, organizationID, findingID)
 	if errors.Is(err, sql.ErrNoRows) {
-		status = "not_found"
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
 	}
 	if err != nil {
-		status = "internal"
 		return nil, connect.NewError(connect.CodeInternal, errors.New("finding unavailable"))
 	}
 	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
@@ -1163,6 +1121,9 @@ func (a *App) authenticatedOrganization(ctx context.Context, header http.Header)
 		}
 		return "", connect.NewError(connect.CodeUnavailable, errors.New("authentication store unavailable"))
 	}
+	if collector, ok := telemetry.CollectorFrom(ctx); ok {
+		collector.SetOrganization(organizationID)
+	}
 	return organizationID, nil
 }
 
@@ -1173,6 +1134,43 @@ type rpcWideEvent struct {
 	Started        time.Time
 	Dimensions     map[string]string
 	Measurements   map[string]int64
+}
+
+// wideEventInterceptor emits exactly one canonical wide event per unary RPC.
+// Centralizing emission here guarantees every method (current and future) is
+// instrumented consistently; handlers enrich the same event through the
+// telemetry.Collector seeded into the request context.
+func (a *App) wideEventInterceptor() connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			started := time.Now()
+			ctx, collector := telemetry.NewCollector(ctx)
+			res, err := next(ctx, req)
+			status := "success"
+			if err != nil {
+				status = connect.CodeOf(err).String()
+			}
+			organizationID, dimensions, measurements := collector.Snapshot()
+			a.emitRPCWideEvent(rpcWideEvent{
+				Method:         procedureMethod(req.Spec().Procedure),
+				OrganizationID: organizationID,
+				Status:         status,
+				Started:        started,
+				Dimensions:     dimensions,
+				Measurements:   measurements,
+			})
+			return res, err
+		}
+	}
+}
+
+// procedureMethod extracts the bare RPC method from a fully-qualified Connect
+// procedure such as "/aperio.v1.AperioService/ListFindings".
+func procedureMethod(procedure string) string {
+	if index := strings.LastIndex(procedure, "/"); index >= 0 {
+		return procedure[index+1:]
+	}
+	return procedure
 }
 
 func (a *App) emitRPCWideEvent(event rpcWideEvent) {
