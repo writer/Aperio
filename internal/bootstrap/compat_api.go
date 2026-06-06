@@ -2,17 +2,21 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base32"
 	"encoding/base64"
-	"encoding/hex"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -135,6 +139,9 @@ func (a *App) dispatchCompatAPI(
 	case method == http.MethodPatch && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "checks":
 		return a.compatUpdateIntegrationChecks(ctx, segments[3], body, auth)
 	case method == http.MethodPost && path == "/api/v1/integrations/google-workspace/oauth/start":
+		if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+			return nil, err
+		}
 		return compatGoogleOAuthStart(body), nil
 	case method == http.MethodGet && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "google-mailbox-scan":
 		return a.compatGoogleMailboxConfig(ctx, segments[3], auth)
@@ -282,17 +289,18 @@ func (a *App) compatLogin(ctx context.Context, body map[string]any, headers http
 	slug, email, password := requiredString(body, "organizationSlug"), strings.ToLower(requiredString(body, "email")), requiredString(body, "password")
 	var userID, orgID, orgName, orgSlug, role, hash string
 	var displayName sql.NullString
+	var mfaSecret sql.NullString
 	var mfaEnabled bool
 	err := a.db.QueryRowContext(ctx, `
-		SELECT u.id, o.id, o.name, o.slug, r.name::text, u.password_hash, u.display_name, u.mfa_enabled
+		SELECT u.id, o.id, o.name, o.slug, r.name::text, u.password_hash, u.display_name, u.mfa_enabled, u.mfa_secret_encrypted
 		FROM users u JOIN organizations o ON o.id = u.organization_id JOIN roles r ON r.id = u.role_id
 		WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE
-	`, slug, email).Scan(&userID, &orgID, &orgName, &orgSlug, &role, &hash, &displayName, &mfaEnabled)
+	`, slug, email).Scan(&userID, &orgID, &orgName, &orgSlug, &role, &hash, &displayName, &mfaEnabled, &mfaSecret)
 	if err != nil || !compatVerifyPassword(password, hash) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid credentials"))
 	}
-	if mfaEnabled && !regexp.MustCompile(`^\d{6}$`).MatchString(requiredString(body, "totpCode")) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("authentication code required"))
+	if mfaEnabled && !compatVerifyTOTP(mfaSecret.String, requiredString(body, "totpCode")) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
 	}
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
@@ -429,7 +437,11 @@ func (a *App) compatMFASetup(ctx context.Context, auth compatAuth) (any, error) 
 }
 
 func (a *App) compatMFAEnable(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
-	if !regexp.MustCompile(`^\d{6}$`).MatchString(requiredString(body, "code")) {
+	var secret sql.NullString
+	if err := a.db.QueryRowContext(ctx, `SELECT mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&secret); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mfa setup is required"))
+	}
+	if !compatVerifyTOTP(secret.String, requiredString(body, "code")) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
 	}
 	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = TRUE, updated_at = NOW() WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID)
@@ -450,6 +462,9 @@ func (a *App) compatMFADisable(ctx context.Context, body map[string]any, auth co
 // Remaining route handlers intentionally preserve the web contract while keeping
 // provider-specific effects explicit and auditable in Go.
 func (a *App) compatUpdateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	status := requiredString(body, "status")
 	if status != "RESOLVED" && status != "MUTED" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid finding status"))
@@ -463,6 +478,9 @@ func (a *App) compatUpdateFinding(ctx context.Context, id string, body map[strin
 }
 
 func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	id := compatID("int")
 	provider, displayName, external := requiredString(body, "provider"), requiredString(body, "displayName"), requiredString(body, "externalAccountId")
 	mode := stringDefault(body, "mode", "READ_ONLY")
@@ -474,6 +492,9 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 }
 
 func (a *App) compatDeleteIntegration(ctx context.Context, id string, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	_, err := a.db.ExecContext(ctx, `DELETE FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -492,6 +513,9 @@ func (a *App) compatIntegrationChecks(ctx context.Context, id string, auth compa
 }
 
 func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	disabled := stringSlice(body["disabledChecks"])
 	_, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID)
 	if err != nil {
@@ -515,6 +539,9 @@ func (a *App) compatGoogleMailboxConfig(ctx context.Context, id string, auth com
 }
 
 func (a *App) compatUpdateGoogleMailboxConfig(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	enabled := boolValue(body["enabled"])
 	email := optionalStringPtr(body, "serviceAccountClientEmail")
 	key := optionalStringPtr(body, "privateKey")
@@ -532,6 +559,9 @@ func (a *App) compatUpdateGoogleMailboxConfig(ctx context.Context, id string, bo
 }
 
 func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
 	if err != nil {
@@ -546,20 +576,35 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 }
 
 func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	id := compatID("siem")
 	kind, name := requiredString(body, "kind"), requiredString(body, "name")
 	streams := stringSlice(body["streams"])
 	if len(streams) == 0 {
 		streams = []string{"FINDINGS"}
 	}
-	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, optionalStringPtr(body, "endpointUrl"), optionalStringPtr(body, "filePath"), optionalStringPtr(body, "index"), optionalStringPtr(body, "token"), streams)
+	endpointURL := optionalStringPtr(body, "endpointUrl")
+	if err := validateCompatSiemEndpoint(endpointURL); err != nil {
+		return nil, err
+	}
+	filePath := optionalStringPtr(body, "filePath")
+	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
+	}
+	encryptedToken := hashedOptionalSecret(body, "token")
+	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringPtr(body, "index"), encryptedToken, streams)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": optionalStringPtr(body, "endpointUrl"), "filePath": optionalStringPtr(body, "filePath"), "index": optionalStringPtr(body, "index"), "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": optionalStringPtr(body, "index"), "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
 func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	_, err := a.db.ExecContext(ctx, `DELETE FROM siem_destinations WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -568,16 +613,25 @@ func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) 
 }
 
 func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
-	return map[string]any{"data": map[string]any{"destinationId": id, "ok": true, "message": "Go runtime accepted test ping"}}, nil
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	return map[string]any{"data": map[string]any{"destinationId": id, "ok": false, "message": "SIEM test dispatch is not yet available in the Go runtime"}}, nil
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	action := requiredString(body, "action")
 	_, _ = a.db.ExecContext(ctx, `UPDATE security_findings SET status = 'RESOLVED', resolved_at = NOW(), resolved_by_id = $1 WHERE id = $2 AND organization_id = $3`, auth.UserID, id, auth.OrganizationID)
 	return map[string]any{"data": map[string]any{"findingId": id, "action": action, "success": true, "message": "Remediation recorded by Go runtime", "providerRequestId": compatID("rem"), "effects": []string{"finding_resolved"}}}, nil
 }
 
 func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	row := a.db.QueryRowContext(ctx, `SELECT id, name, slug, notification_email, data_retention_days, critical_risk_threshold, default_sla_hours, auto_resolve_low_severity, enforce_sso_only, webhook_alert_url, created_at, updated_at FROM organizations WHERE id = $1`, auth.OrganizationID)
 	data, err := scanOrg(row)
 	if err != nil {
@@ -587,6 +641,9 @@ func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, e
 }
 
 func (a *App) compatUpdateTenantSettings(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	_, err := a.db.ExecContext(ctx, `UPDATE organizations SET name = COALESCE($1, name), notification_email = COALESCE($2, notification_email), data_retention_days = COALESCE($3, data_retention_days), critical_risk_threshold = COALESCE($4, critical_risk_threshold), default_sla_hours = COALESCE($5, default_sla_hours), auto_resolve_low_severity = COALESCE($6, auto_resolve_low_severity), enforce_sso_only = COALESCE($7, enforce_sso_only), webhook_alert_url = COALESCE($8, webhook_alert_url), updated_at = NOW() WHERE id = $9`, optionalStringPtr(body, "name"), optionalStringPtr(body, "notificationEmail"), optionalInt(body, "dataRetentionDays"), optionalInt(body, "criticalRiskThreshold"), optionalInt(body, "defaultSlaHours"), optionalBool(body, "autoResolveLowSeverity"), optionalBool(body, "enforceSsoOnly"), optionalStringPtr(body, "webhookAlertUrl"), auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -595,6 +652,9 @@ func (a *App) compatUpdateTenantSettings(ctx context.Context, body map[string]an
 }
 
 func (a *App) compatMembers(ctx context.Context, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	rows, err := a.db.QueryContext(ctx, `SELECT u.id, u.email, u.display_name, u.is_active, u.password_hash IS NOT NULL, u.mfa_enabled, u.last_login_at, u.is_break_glass, r.name::text, u.created_at FROM users u JOIN roles r ON r.id = u.role_id WHERE u.organization_id = $1 ORDER BY u.created_at ASC`, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -618,6 +678,9 @@ func (a *App) compatMembers(ctx context.Context, auth compatAuth) (any, error) {
 }
 
 func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	email, roleName := strings.ToLower(requiredString(body, "email")), stringDefault(body, "roleName", "VIEWER")
 	roleID, _ := a.ensureCompatRole(ctx, auth.OrganizationID, roleName)
 	userID := compatID("usr")
@@ -633,6 +696,9 @@ func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth 
 }
 
 func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
 	_, err := a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, created_by_user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,$6,NOW())`, compatID("tok"), auth.OrganizationID, userID, auth.UserID, tokenHash, expires)
@@ -644,6 +710,9 @@ func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth c
 }
 
 func (a *App) compatUpdateMemberRole(ctx context.Context, userID string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	roleID, _ := a.ensureCompatRole(ctx, auth.OrganizationID, requiredString(body, "roleName"))
 	_, err := a.db.ExecContext(ctx, `UPDATE users SET role_id = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, roleID, userID, auth.OrganizationID)
 	if err != nil {
@@ -654,6 +723,9 @@ func (a *App) compatUpdateMemberRole(ctx context.Context, userID string, body ma
 }
 
 func (a *App) compatAuditLogs(ctx context.Context, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	rows, err := a.db.QueryContext(ctx, `SELECT tal.id, tal.action, tal.target_type, tal.target_id, COALESCE(u.email, 'system'), tal.created_at, COALESCE(tal.metadata::text, '{}') FROM tenant_audit_logs tal LEFT JOIN users u ON u.id = tal.actor_user_id WHERE tal.organization_id = $1 ORDER BY tal.created_at DESC LIMIT 50`, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -709,6 +781,9 @@ func (a *App) compatSecurityOverview(ctx context.Context, auth compatAuth) (any,
 }
 
 func (a *App) compatCreateSecurityAsset(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	id := compatID("ast")
 	_, err := a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, last_observed_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,'UNASSIGNED'),$13,$14,$15,$16,NOW(),NOW())`, id, auth.OrganizationID, optionalStringPtr(body, "integrationId"), requiredString(body, "type"), optionalStringPtr(body, "provider"), requiredString(body, "name"), optionalStringPtr(body, "summary"), optionalStringPtr(body, "externalId"), stringSlice(body["labels"]), stringDefault(body, "criticality", "MEDIUM"), stringDefault(body, "exposureLevel", "INTERNAL"), optionalStringPtr(body, "ownershipStatus"), boolValue(body["containsSensitiveData"]), boolValue(body["isPrivileged"]), intValue(body["riskScore"]), optionalTime(body, "lastObservedAt"))
 	if err != nil {
@@ -724,6 +799,9 @@ func (a *App) compatCreateSecurityAsset(ctx context.Context, body map[string]any
 }
 
 func (a *App) compatUpdateSecurityAsset(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	_, err := a.db.ExecContext(ctx, `UPDATE security_assets SET name = COALESCE($1, name), summary = COALESCE($2, summary), labels = COALESCE($3, labels), criticality = COALESCE($4, criticality), exposure_level = COALESCE($5, exposure_level), ownership_status = COALESCE($6, ownership_status), contains_sensitive_data = COALESCE($7, contains_sensitive_data), is_privileged = COALESCE($8, is_privileged), risk_score = COALESCE($9, risk_score), updated_at = NOW() WHERE id = $10 AND organization_id = $11`, optionalStringPtr(body, "name"), optionalStringPtr(body, "summary"), optionalStringSlice(body, "labels"), optionalStringPtr(body, "criticality"), optionalStringPtr(body, "exposureLevel"), optionalStringPtr(body, "ownershipStatus"), optionalBool(body, "containsSensitiveData"), optionalBool(body, "isPrivileged"), optionalInt(body, "riskScore"), id, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -738,6 +816,9 @@ func (a *App) compatUpdateSecurityAsset(ctx context.Context, id string, body map
 }
 
 func (a *App) compatCreateRiskException(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	id := compatID("rex")
 	status := "ACTIVE"
 	approvedBy := any(nil)
@@ -760,6 +841,9 @@ func (a *App) compatCreateRiskException(ctx context.Context, body map[string]any
 }
 
 func (a *App) compatUpdateRiskException(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+		return nil, err
+	}
 	_, err := a.db.ExecContext(ctx, `UPDATE risk_exceptions SET title = COALESCE($1, title), rationale = COALESCE($2, rationale), compensating_controls = COALESCE($3, compensating_controls), status = COALESCE($4, status), expires_at = COALESCE($5, expires_at), updated_at = NOW() WHERE id = $6 AND organization_id = $7`, optionalStringPtr(body, "title"), optionalStringPtr(body, "rationale"), optionalStringSlice(body, "compensatingControls"), optionalStringPtr(body, "status"), optionalTime(body, "expiresAt"), id, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -828,7 +912,39 @@ func compatVerifyPassword(password, hash string) bool {
 		return false
 	}
 	actual, _ := scrypt.Key([]byte(password), salt, 1<<15, 8, 1, 32)
-	return hex.EncodeToString(expected) == hex.EncodeToString(actual)
+	return subtle.ConstantTimeCompare(expected, actual) == 1
+}
+
+func compatVerifyTOTP(secret, code string) bool {
+	normalizedCode := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(code), " ", ""), "-", "")
+	if len(normalizedCode) != 6 {
+		return false
+	}
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(strings.TrimSpace(secret)))
+	if err != nil {
+		return false
+	}
+	counter := time.Now().Unix() / 30
+	for offset := int64(-1); offset <= 1; offset++ {
+		if subtle.ConstantTimeCompare([]byte(compatHOTP(key, uint64(counter+offset))), []byte(normalizedCode)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func compatHOTP(secret []byte, counter uint64) string {
+	var counterBytes [8]byte
+	binary.BigEndian.PutUint64(counterBytes[:], counter)
+	mac := hmac.New(sha1.New, secret)
+	_, _ = mac.Write(counterBytes[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	value := (int(sum[offset])&0x7f)<<24 |
+		(int(sum[offset+1])&0xff)<<16 |
+		(int(sum[offset+2])&0xff)<<8 |
+		(int(sum[offset+3]) & 0xff)
+	return strconv.Itoa(value%1000000 + 1000000)[1:]
 }
 
 func compatIssueSessionTx(ctx context.Context, tx *sql.Tx, orgID, userID string, mfaVerified bool) (string, error) {
@@ -1004,6 +1120,47 @@ func (a *App) ensureCompatRole(ctx context.Context, orgID, role string) (string,
 	id = compatID("role")
 	_, err = a.db.ExecContext(ctx, `INSERT INTO roles (id, organization_id, name, permissions, created_at, updated_at) VALUES ($1,$2,$3,ARRAY['read']::text[],NOW(),NOW())`, id, orgID, role)
 	return id, err
+}
+
+func requireCompatRole(auth compatAuth, allowed ...string) error {
+	for _, role := range allowed {
+		if auth.Role == role {
+			return nil
+		}
+	}
+	return connect.NewError(connect.CodePermissionDenied, errors.New("forbidden"))
+}
+
+func validateCompatSiemEndpoint(raw *string) error {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil
+	}
+	parsed, err := url.Parse(strings.TrimSpace(*raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM endpoint URL"))
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL must use HTTP or HTTPS"))
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint cannot target private hosts"))
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint cannot target private addresses"))
+		}
+	}
+	return nil
+}
+
+func hashedOptionalSecret(body map[string]any, key string) *string {
+	value := requiredString(body, key)
+	if value == "" {
+		return nil
+	}
+	hashed := "go-managed-secret:" + hashOpaqueToken(value)
+	return &hashed
 }
 
 func firstMemberByEmail(result any, email string) any {

@@ -44,7 +44,6 @@ jobs:
       APERIO_ENCRYPTION_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       APERIO_AUTH_SECRET: ci-auth-secret-at-least-thirty-two-chars
       APERIO_WEB_ORIGIN: http://localhost:3000
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
