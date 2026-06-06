@@ -1008,32 +1008,19 @@ func (a *App) compatSecurityOverview(ctx context.Context, auth compatAuth) (any,
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	assetData := []any{}
-	oauthApps := []any{}
-	dataAssets := []any{}
-	gaps := []any{}
-	nodes := []any{}
-	for _, asset := range assets {
-		item := protoJSON(asset.toProto())
-		assetData = append(assetData, item)
-		nodes = append(nodes, map[string]any{"id": "asset:" + asset.ID, "label": asset.Name, "kind": asset.Type, "riskScore": asset.RiskScore, "privileged": asset.IsPrivileged, "exposureLevel": asset.ExposureLevel, "criticality": asset.Criticality})
-		if asset.Type == "OAUTH_APP" {
-			oauthApps = append(oauthApps, item)
-		}
-		if asset.ContainsSensitiveData || asset.ExposureLevel != "INTERNAL" {
-			dataAssets = append(dataAssets, item)
-		}
-		if asset.OwnershipStatus != "ASSIGNED" {
-			gaps = append(gaps, item)
-		}
+	identities, err := a.loadOverviewIdentities(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	activeExceptions := []any{}
-	for _, ex := range exceptions {
-		if ex.Status == "ACTIVE" {
-			activeExceptions = append(activeExceptions, protoJSON(ex.toProto()))
-		}
+	findings, err := a.loadOverviewOpenFindings(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return map[string]any{"data": map[string]any{"summary": map[string]any{"privilegedIdentities": 0, "adminIdentitiesWithoutMfa": 0, "riskyOauthApps": len(oauthApps), "exposedDataAssets": len(dataAssets), "unownedAssets": len(gaps), "activeExceptions": len(activeExceptions), "topBlastRadiusScore": 0}, "identities": []any{}, "graph": map[string]any{"nodes": nodes, "edges": []any{}}, "oauthApps": oauthApps, "dataAssets": dataAssets, "attackPaths": []any{}, "ownershipGaps": gaps, "exceptions": activeExceptions, "domainWideDelegations": []any{}}}, nil
+	googleIntegrations, err := a.loadOverviewGoogleIntegrations(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return map[string]any{"data": computeSecurityOverview(identities, assets, exceptions, findings, googleIntegrations)}, nil
 }
 
 func (a *App) compatCreateSecurityAsset(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
