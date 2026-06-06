@@ -66,6 +66,9 @@ func (a *App) handleCompatAPI(
 			return "", nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid request body"))
 		}
 	}
+	if err := a.compatRateLimit(ctx, req.Header(), method, path, body); err != nil {
+		return "", nil, err
+	}
 	headers := http.Header{}
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 
@@ -201,8 +204,122 @@ func isPublicCompatPath(path string) bool {
 	}
 }
 
+func (a *App) compatRateLimit(
+	ctx context.Context,
+	header http.Header,
+	method string,
+	path string,
+	body map[string]any,
+) error {
+	if method != http.MethodPost {
+		return nil
+	}
+	max, window, ok := compatRateLimitPolicy(path)
+	if !ok {
+		return nil
+	}
+	client := compatClientIdentity(header)
+	subject := compatRateLimitSubject([]string{
+		requiredString(body, "organizationSlug"),
+		requiredString(body, "workspaceSlug"),
+		requiredString(body, "ownerEmail"),
+		requiredString(body, "email"),
+		requiredString(body, "token"),
+	})
+	now := time.Now()
+	ipKey := compatRateLimitKey(method, path, client, "")
+	if err := a.compatConsumeRateLimit(ctx, ipKey, max, window, now); err != nil {
+		return err
+	}
+	if subject != "" {
+		subjectKey := compatRateLimitKey(method, path, client, subject)
+		if err := a.compatConsumeRateLimit(ctx, subjectKey, max, window, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) compatConsumeRateLimit(ctx context.Context, key string, max int, window time.Duration, now time.Time) error {
+	resetAt := now.Add(window)
+	var count int
+	err := a.db.QueryRowContext(ctx, `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, 1, $2, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET
+		  count = CASE
+		    WHEN rate_limit_buckets.reset_at <= $3 THEN 1
+		    ELSE rate_limit_buckets.count + 1
+		  END,
+		  reset_at = CASE
+		    WHEN rate_limit_buckets.reset_at <= $3 THEN EXCLUDED.reset_at
+		    ELSE rate_limit_buckets.reset_at
+		  END,
+		  updated_at = NOW()
+		RETURNING count
+	`, key, resetAt, now).Scan(&count)
+	if err != nil {
+		return connect.NewError(connect.CodeUnavailable, errors.New("rate limiter unavailable"))
+	}
+	if count > max {
+		return connect.NewError(connect.CodeResourceExhausted, errors.New("too many requests"))
+	}
+	return nil
+}
+
+func compatRateLimitKey(method, path, client, subject string) string {
+	scope := "ip"
+	if subject != "" {
+		scope = "subject"
+	}
+	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", scope, method, path, client, subject}, ":"))
+}
+
+func compatRateLimitSubject(values []string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, ":")
+}
+
+func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
+	switch path {
+	case "/api/v1/auth/signup":
+		return 5, time.Hour, true
+	case "/api/v1/auth/login":
+		return 15, 10 * time.Minute, true
+	case "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/invitations/accept":
+		return 10, 15 * time.Minute, true
+	default:
+		if strings.HasPrefix(path, "/api/v1/integrations/") && strings.HasSuffix(path, "/force-sync") {
+			return 10, 10 * time.Minute, true
+		}
+		if strings.HasPrefix(path, "/api/v1/findings/") && strings.HasSuffix(path, "/remediate") {
+			return 20, 10 * time.Minute, true
+		}
+		return 0, 0, false
+	}
+}
+
+func compatClientIdentity(header http.Header) string {
+	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		if client := strings.TrimSpace(forwarded[index]); client != "" {
+			return client
+		}
+	}
+	if client := strings.TrimSpace(header.Get("X-Real-IP")); client != "" {
+		return client
+	}
+	return "unknown"
+}
+
 func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (compatAuth, error) {
-	token := sessionCookie(header.Get("Cookie"))
+	token := sessionToken(header)
 	if token == "" {
 		return compatAuth{}, errors.New("missing session")
 	}
@@ -213,7 +330,7 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 	var auth compatAuth
 	var lastSeenAt time.Time
 	err := a.db.QueryRowContext(ctx, `
-		SELECT us.id, us.organization_id, u.id, u.email, r.name::text, us.last_seen_at
+		SELECT us.id, u.organization_id, u.id, u.email, r.name::text, us.last_seen_at
 		FROM user_sessions us
 		JOIN users u ON u.id = us.user_id
 		JOIN roles r ON r.id = u.role_id
@@ -290,21 +407,34 @@ func (a *App) compatLogin(ctx context.Context, body map[string]any, headers http
 	var userID, orgID, orgName, orgSlug, role, hash string
 	var displayName sql.NullString
 	var mfaSecret sql.NullString
+	var mfaLastCounter sql.NullInt64
 	var mfaEnabled bool
 	err := a.db.QueryRowContext(ctx, `
-		SELECT u.id, o.id, o.name, o.slug, r.name::text, u.password_hash, u.display_name, u.mfa_enabled, u.mfa_secret_encrypted
+		SELECT u.id, o.id, o.name, o.slug, r.name::text, u.password_hash, u.display_name, u.mfa_enabled, u.mfa_secret_encrypted, u.mfa_last_counter
 		FROM users u JOIN organizations o ON o.id = u.organization_id JOIN roles r ON r.id = u.role_id
 		WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE
-	`, slug, email).Scan(&userID, &orgID, &orgName, &orgSlug, &role, &hash, &displayName, &mfaEnabled, &mfaSecret)
+	`, slug, email).Scan(&userID, &orgID, &orgName, &orgSlug, &role, &hash, &displayName, &mfaEnabled, &mfaSecret, &mfaLastCounter)
 	if err != nil || !compatVerifyPassword(password, hash) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid credentials"))
 	}
-	if mfaEnabled && !compatVerifyTOTP(mfaSecret.String, requiredString(body, "totpCode")) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
+	mfaCounter := int64(0)
+	if mfaEnabled {
+		if !mfaSecret.Valid {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("mfa cannot be verified"))
+		}
+		counter, ok := compatVerifyTOTPWithCounter(mfaSecret.String, requiredString(body, "totpCode"), mfaLastCounter)
+		if !ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
+		}
+		mfaCounter = counter
 	}
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, userID)
+	if mfaEnabled {
+		_, _ = tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), mfa_last_counter = $2, updated_at = NOW() WHERE id = $1`, userID, mfaCounter)
+	} else {
+		_, _ = tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, userID)
+	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, !mfaEnabled || requiredString(body, "totpCode") != "")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -355,19 +485,36 @@ func (a *App) compatSwitchWorkspace(ctx context.Context, body map[string]any, au
 	slug := requiredString(body, "organizationSlug")
 	var target compatAuth
 	var orgName string
+	var targetMFAEnabled bool
+	var targetMFASecret sql.NullString
+	var targetMFALastCounter sql.NullInt64
 	err := a.db.QueryRowContext(ctx, `
-		SELECT us.id, o.id, u.id, u.email, r.name::text, o.name
+		SELECT us.id, o.id, u.id, u.email, r.name::text, o.name, u.mfa_enabled, u.mfa_secret_encrypted, u.mfa_last_counter
 		FROM users u JOIN organizations o ON o.id = u.organization_id JOIN roles r ON r.id = u.role_id
 		LEFT JOIN user_sessions us ON us.id = $3
 		WHERE u.email = $1 AND o.slug = $2 AND u.is_active = TRUE
-	`, auth.Email, slug, auth.SessionID).Scan(&target.SessionID, &target.OrganizationID, &target.UserID, &target.Email, &target.Role, &orgName)
+	`, auth.Email, slug, auth.SessionID).Scan(&target.SessionID, &target.OrganizationID, &target.UserID, &target.Email, &target.Role, &orgName, &targetMFAEnabled, &targetMFASecret, &targetMFALastCounter)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("workspace not found"))
+	}
+	targetMFACounter := int64(0)
+	if targetMFAEnabled {
+		if !targetMFASecret.Valid {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("target workspace mfa cannot be verified"))
+		}
+		counter, ok := compatVerifyTOTPWithCounter(targetMFASecret.String, requiredString(body, "totpCode"), targetMFALastCounter)
+		if !ok {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("target workspace mfa verification required"))
+		}
+		targetMFACounter = counter
 	}
 	_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, auth.SessionID)
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
-	session, err := compatIssueSessionTx(ctx, tx, target.OrganizationID, target.UserID, true)
+	if targetMFAEnabled {
+		_, _ = tx.ExecContext(ctx, `UPDATE users SET mfa_last_counter = $2, last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, target.UserID, targetMFACounter)
+	}
+	session, err := compatIssueSessionTx(ctx, tx, target.OrganizationID, target.UserID, !targetMFAEnabled || targetMFACounter > 0)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -416,7 +563,7 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	}
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, updated_at = NOW() WHERE id = $2`, compatHashPassword(password), userID)
+	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2`, compatHashPassword(password), userID)
 	_, _ = tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token))
 	_, _ = tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
@@ -432,19 +579,21 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 
 func (a *App) compatMFASetup(ctx context.Context, auth compatAuth) (any, error) {
 	secret := compatBase32(20)
-	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_secret_encrypted = $1, mfa_enabled = FALSE, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, secret, auth.UserID, auth.OrganizationID)
+	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_secret_encrypted = $1, mfa_enabled = FALSE, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, secret, auth.UserID, auth.OrganizationID)
 	return map[string]any{"data": map[string]any{"secret": secret, "otpauthUrl": compatOtpAuthURL(auth.Email, secret)}}, nil
 }
 
 func (a *App) compatMFAEnable(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
 	var secret sql.NullString
-	if err := a.db.QueryRowContext(ctx, `SELECT mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&secret); err != nil {
+	var lastCounter sql.NullInt64
+	if err := a.db.QueryRowContext(ctx, `SELECT mfa_secret_encrypted, mfa_last_counter FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&secret, &lastCounter); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mfa setup is required"))
 	}
-	if !compatVerifyTOTP(secret.String, requiredString(body, "code")) {
+	counter, ok := compatVerifyTOTPWithCounter(secret.String, requiredString(body, "code"), lastCounter)
+	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid authentication code"))
 	}
-	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = TRUE, updated_at = NOW() WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID)
+	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = TRUE, mfa_last_counter = $3, updated_at = NOW() WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID, counter)
 	_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET mfa_verified_at = NOW() WHERE id = $1`, auth.SessionID)
 	return a.compatSession(ctx, auth, "")
 }
@@ -454,7 +603,7 @@ func (a *App) compatMFADisable(ctx context.Context, body map[string]any, auth co
 	if err := a.db.QueryRowContext(ctx, `SELECT password_hash FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&hash); err != nil || !compatVerifyPassword(requiredString(body, "password"), hash) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid password"))
 	}
-	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = FALSE, mfa_secret_encrypted = NULL, updated_at = NOW() WHERE id = $1`, auth.UserID)
+	_, _ = a.db.ExecContext(ctx, `UPDATE users SET mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $1`, auth.UserID)
 	_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET mfa_verified_at = NULL WHERE id = $1`, auth.SessionID)
 	return a.compatSession(ctx, auth, "")
 }
@@ -483,6 +632,9 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	}
 	id := compatID("int")
 	provider, displayName, external := requiredString(body, "provider"), requiredString(body, "displayName"), requiredString(body, "externalAccountId")
+	if err := validateCompatExternalAccount(provider, external); err != nil {
+		return nil, err
+	}
 	mode := stringDefault(body, "mode", "READ_ONLY")
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, mode); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -624,8 +776,20 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		return nil, err
 	}
 	action := requiredString(body, "action")
-	_, _ = a.db.ExecContext(ctx, `UPDATE security_findings SET status = 'RESOLVED', resolved_at = NOW(), resolved_by_id = $1 WHERE id = $2 AND organization_id = $3`, auth.UserID, id, auth.OrganizationID)
-	return map[string]any{"data": map[string]any{"findingId": id, "action": action, "success": true, "message": "Remediation recorded by Go runtime", "providerRequestId": compatID("rem"), "effects": []string{"finding_resolved"}}}, nil
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM security_findings WHERE id = $1 AND organization_id = $2)`, id, auth.OrganizationID).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
+	}
+	metadata, _ := json.Marshal(map[string]any{
+		"actionKey": action,
+		"note":      optionalStringPtr(body, "note"),
+		"simulated": false,
+	})
+	_, _ = a.db.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,'finding.remediate.unavailable','security_finding',$4,$5,NOW())`, compatID("aud"), auth.OrganizationID, auth.UserID, id, json.RawMessage(metadata))
+	return map[string]any{"data": map[string]any{"findingId": id, "action": action, "success": false, "message": "Provider-side remediation is not yet implemented in the Go runtime", "providerRequestId": compatID("noop"), "effects": []string{}}}, nil
 }
 
 func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, error) {
@@ -894,43 +1058,91 @@ func randomURL(n int) string {
 func compatHashPassword(password string) string {
 	salt := make([]byte, 16)
 	_, _ = rand.Read(salt)
-	key, _ := scrypt.Key([]byte(password), salt, 1<<15, 8, 1, 32)
-	return "s1$" + base64.RawURLEncoding.EncodeToString(salt) + "$" + base64.RawURLEncoding.EncodeToString(key)
+	key, _ := scrypt.Key([]byte(password), salt, compatPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP, 32)
+	return strings.Join([]string{
+		"s2",
+		strconv.Itoa(compatPasswordScryptN),
+		strconv.Itoa(compatPasswordScryptR),
+		strconv.Itoa(compatPasswordScryptP),
+		base64.RawURLEncoding.EncodeToString(salt),
+		base64.RawURLEncoding.EncodeToString(key),
+	}, "$")
 }
 
 func compatVerifyPassword(password, hash string) bool {
 	parts := strings.Split(hash, "$")
-	if len(parts) != 3 || parts[0] != "s1" {
+	switch {
+	case len(parts) == 6 && parts[0] == "s2":
+		n, errN := strconv.Atoi(parts[1])
+		r, errR := strconv.Atoi(parts[2])
+		p, errP := strconv.Atoi(parts[3])
+		if errN != nil || errR != nil || errP != nil || !validCompatScryptParams(n, r, p) {
+			return false
+		}
+		return compatVerifyPasswordWithParams(password, parts[4], parts[5], n, r, p)
+	case len(parts) == 3 && parts[0] == "s1":
+		if compatVerifyPasswordWithParams(password, parts[1], parts[2], compatPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP) {
+			return true
+		}
+		return compatVerifyPasswordWithParams(password, parts[1], parts[2], compatLegacyGoPasswordScryptN, compatPasswordScryptR, compatPasswordScryptP)
+	default:
 		return false
 	}
-	salt, err := base64.RawURLEncoding.DecodeString(parts[1])
+}
+
+const (
+	compatPasswordScryptN         = 16384
+	compatLegacyGoPasswordScryptN = 1 << 15
+	compatPasswordScryptR         = 8
+	compatPasswordScryptP         = 1
+	compatPasswordKeyBytes        = 32
+)
+
+func validCompatScryptParams(n, r, p int) bool {
+	return n >= 2 && n <= 1<<20 && r > 0 && r <= 32 && p > 0 && p <= 8
+}
+
+func compatVerifyPasswordWithParams(password, saltPart, hashPart string, n, r, p int) bool {
+	salt, err := base64.RawURLEncoding.DecodeString(saltPart)
 	if err != nil {
 		return false
 	}
-	expected, err := base64.RawURLEncoding.DecodeString(parts[2])
+	expected, err := base64.RawURLEncoding.DecodeString(hashPart)
 	if err != nil {
 		return false
 	}
-	actual, _ := scrypt.Key([]byte(password), salt, 1<<15, 8, 1, 32)
+	actual, err := scrypt.Key([]byte(password), salt, n, r, p, compatPasswordKeyBytes)
+	if err != nil {
+		return false
+	}
 	return subtle.ConstantTimeCompare(expected, actual) == 1
 }
 
 func compatVerifyTOTP(secret, code string) bool {
+	_, ok := compatVerifyTOTPWithCounter(secret, code, sql.NullInt64{})
+	return ok
+}
+
+func compatVerifyTOTPWithCounter(secret, code string, afterCounter sql.NullInt64) (int64, bool) {
 	normalizedCode := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(code), " ", ""), "-", "")
 	if len(normalizedCode) != 6 {
-		return false
+		return 0, false
 	}
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(strings.TrimSpace(secret)))
 	if err != nil {
-		return false
+		return 0, false
 	}
 	counter := time.Now().Unix() / 30
 	for offset := int64(-1); offset <= 1; offset++ {
-		if subtle.ConstantTimeCompare([]byte(compatHOTP(key, uint64(counter+offset))), []byte(normalizedCode)) == 1 {
-			return true
+		candidate := counter + offset
+		if afterCounter.Valid && candidate <= afterCounter.Int64 {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(compatHOTP(key, uint64(candidate))), []byte(normalizedCode)) == 1 {
+			return candidate, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 func compatHOTP(secret []byte, counter uint64) string {
@@ -1129,6 +1341,48 @@ func requireCompatRole(auth compatAuth, allowed ...string) error {
 		}
 	}
 	return connect.NewError(connect.CodePermissionDenied, errors.New("forbidden"))
+}
+
+func validateCompatExternalAccount(provider, externalAccountID string) error {
+	if strings.EqualFold(strings.TrimSpace(provider), "OKTA") {
+		return validateCompatOktaDomain(externalAccountID)
+	}
+	return nil
+}
+
+func validateCompatOktaDomain(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain is required"))
+	}
+	host := trimmed
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be a bare HTTPS host"))
+		}
+		host = parsed.Host
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if strings.Contains(host, "/") || strings.Contains(host, "@") || strings.Contains(host, ":") {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be a bare host name"))
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must be an Okta-hosted domain"))
+	}
+	if !isAllowedCompatOktaHost(host) {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("Okta domain must end in okta.com, oktapreview.com, okta-emea.com, or okta-gov.com"))
+	}
+	return nil
+}
+
+func isAllowedCompatOktaHost(host string) bool {
+	for _, suffix := range []string{".okta.com", ".oktapreview.com", ".okta-emea.com", ".okta-gov.com"} {
+		if strings.HasSuffix(host, suffix) && len(host) > len(suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCompatSiemEndpoint(raw *string) error {

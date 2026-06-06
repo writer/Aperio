@@ -3,8 +3,10 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"github.com/writer/aperio/gen/aperio/v1/aperiov1connect"
 	"github.com/writer/aperio/internal/config"
+	"golang.org/x/crypto/scrypt"
 )
 
 // TestCheckHealthConnectEndpoint exercises the generated Go Connect client
@@ -258,6 +261,69 @@ func TestCompatSiemEndpointRejectsPrivateHosts(t *testing.T) {
 	public := "https://siem.example.com/events"
 	if err := validateCompatSiemEndpoint(&public); err != nil {
 		t.Fatalf("expected public SIEM endpoint to pass, got %v", err)
+	}
+}
+
+func TestCompatOktaDomainRejectsPrivateHosts(t *testing.T) {
+	if err := validateCompatOktaDomain("169.254.169.254"); err == nil {
+		t.Fatal("expected metadata IP to be rejected")
+	}
+	if err := validateCompatOktaDomain("tenant.okta.com/path"); err == nil {
+		t.Fatal("expected Okta domain with path to be rejected")
+	}
+	if err := validateCompatOktaDomain("tenant.okta.com"); err != nil {
+		t.Fatalf("expected Okta tenant host to pass, got %v", err)
+	}
+}
+
+func TestCompatRateLimitUsesSeparateIPAndSubjectBuckets(t *testing.T) {
+	subject := compatRateLimitSubject([]string{"", "Acme", "owner@example.com", " "})
+	if subject != "Acme:owner@example.com" {
+		t.Fatalf("unexpected subject %q", subject)
+	}
+	ipKey := compatRateLimitKey(http.MethodPost, "/api/v1/auth/login", "203.0.113.1", "")
+	subjectKey := compatRateLimitKey(http.MethodPost, "/api/v1/auth/login", "203.0.113.1", subject)
+	if ipKey == subjectKey {
+		t.Fatal("expected global IP bucket and per-subject bucket to differ")
+	}
+}
+
+func TestCompatClientIdentityUsesRightmostForwardedFor(t *testing.T) {
+	header := http.Header{}
+	header.Set("X-Forwarded-For", "198.51.100.10, 203.0.113.20")
+	header.Set("X-Real-IP", "192.0.2.30")
+	if got := compatClientIdentity(header); got != "203.0.113.20" {
+		t.Fatalf("expected rightmost forwarded address, got %q", got)
+	}
+}
+
+func TestCompatPasswordHashEmitsAndVerifiesS2(t *testing.T) {
+	hash := compatHashPassword("correct horse battery staple")
+	if !strings.HasPrefix(hash, "s2$16384$8$1$") {
+		t.Fatalf("expected s2 hash with TS-compatible params, got %q", hash)
+	}
+	if !compatVerifyPassword("correct horse battery staple", hash) {
+		t.Fatal("expected s2 hash to verify")
+	}
+	if compatVerifyPassword("wrong horse battery staple", hash) {
+		t.Fatal("expected wrong password to fail")
+	}
+}
+
+func TestCompatPasswordVerifierAcceptsLegacyS1TSHash(t *testing.T) {
+	password := "correct horse battery staple"
+	salt := []byte("0123456789abcdef")
+	key, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := strings.Join([]string{
+		"s1",
+		base64.RawURLEncoding.EncodeToString(salt),
+		base64.RawURLEncoding.EncodeToString(key),
+	}, "$")
+	if !compatVerifyPassword(password, hash) {
+		t.Fatal("expected legacy TypeScript s1 hash to verify")
 	}
 }
 

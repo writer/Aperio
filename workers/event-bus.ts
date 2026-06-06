@@ -36,7 +36,10 @@ class NatsJetStreamPublisher implements EventPublisher {
           connection,
           jetstream: connection.jetstream()
         };
-      })();
+      })().catch((error) => {
+        this.connectionPromise = null;
+        throw error;
+      });
     }
     return this.connectionPromise;
   }

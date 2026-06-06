@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
@@ -32,6 +32,7 @@ type DispatcherResult = {
   destinationId: string;
   ok: boolean;
   message: string;
+  permanent?: boolean;
   cerebroClaims?: CerebroClaim[];
   cerebroRuntimeId?: string;
   findingId?: string;
@@ -114,6 +115,43 @@ function buildEnvelope(
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+export function stableDeliveryKey(
+  payload: SiemPayload,
+  destinationId: string,
+  stream: SiemStreamType
+) {
+  const record = payload.record ?? {};
+  const stableRecordId =
+    stringValue(record.findingId) ??
+    stringValue(record.id) ??
+    stringValue(record.dedupeKey) ??
+    stringValue(record.sourceEventId) ??
+    JSON.stringify(record);
+  const findingOccurrence =
+    payload.kind === "finding"
+      ? (stringValue(record.sourceEventId) ??
+        stringValue(record.detectedAt) ??
+        payload.occurredAt)
+      : undefined;
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        organizationId: payload.organizationId,
+        destinationId,
+        stream,
+        kind: payload.kind,
+        stableRecordId,
+        ...(findingOccurrence
+          ? {
+              findingOccurrence,
+              findingStatus: stringValue(record.status)
+            }
+          : {})
+      })
+    )
+    .digest("hex");
 }
 
 function decryptToken(destination: SiemDestination): string | undefined {
@@ -721,7 +759,8 @@ function parseDeliveryPayload(value: unknown): SiemPayload | null {
 
 function nextRetryAt(attempt: number): Date {
   const delaySeconds = Math.min(60 * 30, 2 ** Math.max(0, attempt - 1) * 30);
-  return new Date(Date.now() + delaySeconds * 1000);
+  const jitter = 0.8 + Math.random() * 0.4;
+  return new Date(Date.now() + Math.round(delaySeconds * jitter) * 1000);
 }
 
 async function finishDelivery(
@@ -748,10 +787,11 @@ async function finishDelivery(
     data: {
       status: attempts >= delivery.maxAttempts ? "DEAD_LETTER" : "FAILED",
       attempts,
-      nextAttemptAt: nextRetryAt(attempts),
+      nextAttemptAt: result.permanent ? new Date() : nextRetryAt(attempts),
       leaseOwner: null,
       leaseExpiresAt: null,
-      lastError: result.message.slice(0, 500)
+      lastError: result.message.slice(0, 500),
+      ...(result.permanent ? { status: "DEAD_LETTER" as const } : {})
     }
   });
   return updated.count === 1;
@@ -763,7 +803,8 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
     const result = {
       destinationId: delivery.destinationId ?? "unknown",
       ok: false,
-      message: "invalid delivery payload"
+      message: "invalid delivery payload",
+      permanent: true
     };
     await finishDelivery(delivery, result);
     return result;
@@ -780,7 +821,8 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
     const result = {
       destinationId: delivery.destinationId,
       ok: false,
-      message: "destination not active"
+      message: "destination not active",
+      permanent: true
     };
     await finishDelivery(delivery, result);
     return result;
@@ -809,15 +851,17 @@ export async function enqueueSiemDeliveries(
   if (destinations.length === 0) {
     return 0;
   }
-  await prisma.siemDelivery.createMany({
+  const created = await prisma.siemDelivery.createMany({
     data: destinations.map((destination) => ({
       organizationId: payload.organizationId,
       destinationId: destination.id,
       stream: targetStream,
+      dedupeKey: stableDeliveryKey(payload, destination.id, targetStream),
       payload: jsonSafe(payload)
-    }))
+    })),
+    skipDuplicates: true
   });
-  return destinations.length;
+  return created.count;
 }
 
 export async function drainSiemDeliveries(
@@ -873,6 +917,7 @@ export async function drainSiemDeliveries(
       "organization_id" AS "organizationId",
       "destination_id" AS "destinationId",
       "stream",
+      "dedupe_key" AS "dedupeKey",
       "payload",
       "status",
       "attempts",

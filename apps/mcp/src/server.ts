@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@aperio/db";
 import {
@@ -23,7 +24,8 @@ type RpcMessage = {
 };
 
 const organizationScopedSchema = z.object({
-  organizationId: z.string().trim().min(1)
+  organizationId: z.string().trim().min(1),
+  authToken: z.string().trim().min(1).optional()
 });
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
@@ -69,6 +71,29 @@ async function ensureFindingId(
   return finding.id;
 }
 
+function safeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function assertMcpScope(input: { organizationId: string; authToken?: string }) {
+  const allowedOrganizationId = process.env.APERIO_MCP_ORGANIZATION_ID?.trim();
+  if (
+    allowedOrganizationId &&
+    input.organizationId !== allowedOrganizationId
+  ) {
+    throw new Error("Organization is not allowed for this MCP broker");
+  }
+  const sharedSecret = process.env.APERIO_MCP_SHARED_SECRET?.trim();
+  if (sharedSecret && !safeEqual(input.authToken ?? "", sharedSecret)) {
+    throw new Error("Invalid MCP broker token");
+  }
+}
+
 function sendFrame(message: unknown) {
   const body = JSON.stringify(message);
   process.stdout.write(
@@ -95,6 +120,7 @@ const tools = [
       required: ["organizationId", "key", "name"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         key: { type: "string" },
         name: { type: "string" },
         kind: { type: "string" },
@@ -113,6 +139,7 @@ const tools = [
       required: ["organizationId", "taskType", "title"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         taskType: { type: "string" },
         title: { type: "string" },
         input: { type: "object" },
@@ -130,6 +157,7 @@ const tools = [
       required: ["organizationId", "content"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         taskId: { type: "string" },
         fromAgentKey: { type: "string" },
         toAgentKey: { type: "string" },
@@ -148,6 +176,7 @@ const tools = [
       required: ["organizationId"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         status: { type: "string" },
         assignedAgentKey: { type: "string" }
       }
@@ -161,6 +190,7 @@ const tools = [
       required: ["organizationId", "action", "rationale", "payload"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         taskId: { type: "string" },
         findingId: { type: "string" },
         proposedByAgentKey: { type: "string" },
@@ -178,6 +208,7 @@ const tools = [
       required: ["organizationId", "record"],
       properties: {
         organizationId: { type: "string" },
+        authToken: { type: "string" },
         kind: { type: "string" },
         occurredAt: { type: "string" },
         record: { type: "object" }
@@ -189,6 +220,7 @@ const tools = [
 async function callTool(name: string, args: unknown) {
   if (name === "aperio.register_agent") {
     const scoped = organizationScopedSchema.merge(registerAgentSchema).parse(args);
+    assertMcpScope(scoped);
     const agent = await prisma.agent.upsert({
       where: {
         organizationId_key: {
@@ -222,6 +254,7 @@ async function callTool(name: string, args: unknown) {
 
   if (name === "aperio.create_task") {
     const scoped = organizationScopedSchema.merge(createAgentTaskSchema).parse(args);
+    assertMcpScope(scoped);
     const [createdByAgentId, assignedAgentId] = await Promise.all([
       getAgentId(scoped.organizationId, scoped.createdByAgentKey),
       getAgentId(scoped.organizationId, scoped.assignedAgentKey)
@@ -246,6 +279,7 @@ async function callTool(name: string, args: unknown) {
 
   if (name === "aperio.send_message") {
     const scoped = organizationScopedSchema.merge(sendAgentMessageSchema).parse(args);
+    assertMcpScope(scoped);
     const [fromAgentId, toAgentId] = await Promise.all([
       getAgentId(scoped.organizationId, scoped.fromAgentKey),
       getAgentId(scoped.organizationId, scoped.toAgentKey)
@@ -273,6 +307,7 @@ async function callTool(name: string, args: unknown) {
         assignedAgentKey: z.string().trim().min(2).max(120).optional()
       })
       .parse(args);
+    assertMcpScope(parsed);
     const assignedAgentId = await getAgentId(
       parsed.organizationId,
       parsed.assignedAgentKey
@@ -297,6 +332,7 @@ async function callTool(name: string, args: unknown) {
     const scoped = organizationScopedSchema
       .merge(createAgentProposalSchema)
       .parse(args);
+    assertMcpScope(scoped);
     const proposedByAgentId = await getAgentId(
       scoped.organizationId,
       scoped.proposedByAgentKey
@@ -320,7 +356,8 @@ async function callTool(name: string, args: unknown) {
   }
 
   if (name === "aperio.enqueue_siem_payload") {
-    const parsed = enqueueSiemPayloadSchema.parse(args);
+    const parsed = organizationScopedSchema.merge(enqueueSiemPayloadSchema).parse(args);
+    assertMcpScope(parsed);
     const count = await enqueueSiemDeliveries({
       kind: parsed.kind,
       organizationId: parsed.organizationId,

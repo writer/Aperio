@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -25,7 +29,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeMinutes) * time.Minute)
+	db.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxIdleMinutes) * time.Minute)
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := db.PingContext(pingCtx); err != nil {
+		cancelPing()
+		_ = db.Close()
+		log.Fatal(err)
+	}
+	cancelPing()
 
 	app := bootstrap.NewApp(cfg, db)
 	// The service intentionally uses the standard net/http server that ConnectRPC
@@ -39,5 +53,28 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("Aperio Go Connect service listening on %s", cfg.Addr)
-	log.Fatal(server.ListenAndServe())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Aperio Go Connect graceful shutdown failed: %v", err)
+		}
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			_ = db.Close()
+			log.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		log.Printf("database close failed: %v", err)
+	}
 }
