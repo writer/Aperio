@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -10,6 +12,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +28,20 @@ import (
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"golang.org/x/crypto/scrypt"
 )
+
+const (
+	compatEncryptionAlgorithm  = "aes-256-gcm"
+	compatEncryptionKeyBytes   = 32
+	compatEncryptionNonceBytes = 12
+)
+
+type compatEncryptedEnvelope struct {
+	Version    int    `json:"version"`
+	Algorithm  string `json:"algorithm"`
+	IV         string `json:"iv"`
+	Tag        string `json:"tag"`
+	Ciphertext string `json:"ciphertext"`
+}
 
 type compatAuth struct {
 	SessionID      string
@@ -636,11 +653,28 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 		return nil, err
 	}
 	mode := stringDefault(body, "mode", "READ_ONLY")
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'go-managed-token','CONNECTED',$6,ARRAY[]::text[],ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, mode); err != nil {
+	accessToken := nestedString(body, "credentials", "accessToken")
+	if len(accessToken) < 8 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("integration access token is required"))
+	}
+	encryptedAccessToken, err := compatEncryptString(accessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, external, "access_token"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration credential encryption failed"))
+	}
+	refreshToken, err := encryptedOptionalSecret(asMap(body["credentials"]), "refreshToken", compatIntegrationSecretAAD(auth.OrganizationID, provider, external, "refresh_token"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration refresh token encryption failed"))
+	}
+	webhookSecret, err := encryptedOptionalSecret(asMap(body["credentials"]), "webhookSecret", compatIntegrationSecretAAD(auth.OrganizationID, provider, external, "webhook_secret"))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("integration webhook secret encryption failed"))
+	}
+	scopes := compatScopesForMode(provider, mode)
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, encryptedAccessToken, refreshToken, webhookSecret, mode, scopes); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
-	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": []string{}, "disabledChecks": []string{}, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": []string{}, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
 func (a *App) compatDeleteIntegration(ctx context.Context, id string, auth compatAuth) (any, error) {
@@ -700,8 +734,11 @@ func (a *App) compatUpdateGoogleMailboxConfig(ctx context.Context, id string, bo
 	if !enabled {
 		email, key = nil, nil
 	} else if key != nil {
-		placeholder := "go-managed-private-key"
-		key = &placeholder
+		encrypted, err := compatEncryptString(*key, auth.OrganizationID+":"+id+":google_mailbox_private_key")
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("google mailbox private key encryption failed"))
+		}
+		key = &encrypted
 	}
 	_, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, email, key, id, auth.OrganizationID)
 	if err != nil {
@@ -714,6 +751,28 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
 		return nil, err
 	}
+	var provider string
+	var external string
+	err := a.db.QueryRowContext(ctx, `SELECT provider::text, external_account_id FROM integration_connections WHERE id = $1 AND organization_id = $2 AND status = 'CONNECTED'`, id, auth.OrganizationID).Scan(&provider, &external)
+	if err == sql.ErrNoRows {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	jobID := compatID("job")
+	payload := map[string]any{
+		"provider":          provider,
+		"integrationId":     id,
+		"externalAccountId": external,
+		"requestedBy":       auth.UserID,
+		"reason":            "manual_force_sync",
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	_, err = a.db.ExecContext(ctx, `INSERT INTO ingestion_jobs (id, organization_id, integration_id, provider, event_type, source, actor, occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4,'MANUAL_FORCE_SYNC','aperio.force_sync',$5,NOW(),$6,'QUEUED',0,3,NOW(),NOW(),NOW())`, jobID, auth.OrganizationID, id, provider, auth.Email, json.RawMessage(payloadJSON))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
 	if err != nil {
@@ -721,7 +780,7 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	}
 	for _, row := range rows {
 		if row.ID == id {
-			return map[string]any{"data": row.toProto(), "sync": map[string]any{"sampleCount": 0, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{}}}, nil
+			return map[string]any{"data": row.toProto(), "sync": map[string]any{"sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}, "jobId": jobID}}, nil
 		}
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
@@ -745,8 +804,11 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
 	}
-	encryptedToken := hashedOptionalSecret(body, "token")
-	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringPtr(body, "index"), encryptedToken, streams)
+	encryptedToken, err := encryptedOptionalSecret(body, "token", auth.OrganizationID+":siem:"+id+":token")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
+	}
+	_, err = a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringPtr(body, "index"), encryptedToken, streams)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -768,7 +830,32 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	return map[string]any{"data": map[string]any{"destinationId": id, "ok": false, "message": "SIEM test dispatch is not yet available in the Go runtime"}}, nil
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM siem_destinations WHERE id = $1 AND organization_id = $2)`, id, auth.OrganizationID).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("SIEM destination not found"))
+	}
+	deliveryID := compatID("sdel")
+	payload := map[string]any{
+		"kind":           "finding",
+		"organizationId": auth.OrganizationID,
+		"occurredAt":     time.Now().UTC().Format(time.RFC3339Nano),
+		"record": map[string]any{
+			"test":     true,
+			"id":       deliveryID,
+			"title":    "Aperio SIEM connectivity test",
+			"severity": "INFO",
+			"provider": "APERIO",
+		},
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,'FINDINGS',$4,$5,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, "test:"+deliveryID, json.RawMessage(payloadJSON))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return map[string]any{"data": map[string]any{"destinationId": id, "ok": true, "message": "SIEM test payload queued for dispatcher", "deliveryId": deliveryID}}, nil
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
@@ -1408,13 +1495,137 @@ func validateCompatSiemEndpoint(raw *string) error {
 	return nil
 }
 
-func hashedOptionalSecret(body map[string]any, key string) *string {
+func compatResolveEncryptionKey() ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
+	if raw == "" {
+		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
+	}
+	switch {
+	case strings.HasPrefix(raw, "base64:"):
+		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != compatEncryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	case strings.HasPrefix(raw, "base64url:"):
+		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != compatEncryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	case strings.HasPrefix(raw, "hex:"):
+		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != compatEncryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	default:
+		if os.Getenv("NODE_ENV") == "production" {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
+		}
+		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, compatEncryptionKeyBytes)
+	}
+}
+
+func compatEncryptString(plaintext string, additionalAuthenticatedData string) (string, error) {
+	nonce := make([]byte, compatEncryptionNonceBytes)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	return compatEncryptStringWithNonce(plaintext, additionalAuthenticatedData, nonce)
+}
+
+func compatEncryptStringWithNonce(plaintext string, additionalAuthenticatedData string, nonce []byte) (string, error) {
+	if plaintext == "" {
+		return "", errors.New("cannot encrypt an empty string")
+	}
+	if len(nonce) != compatEncryptionNonceBytes {
+		return "", errors.New("invalid encryption nonce length")
+	}
+	key, err := compatResolveEncryptionKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nil, nonce, []byte(plaintext), []byte(additionalAuthenticatedData))
+	tagStart := len(sealed) - gcm.Overhead()
+	envelope := compatEncryptedEnvelope{
+		Version:    1,
+		Algorithm:  compatEncryptionAlgorithm,
+		IV:         base64.RawURLEncoding.EncodeToString(nonce),
+		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
+		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded), nil
+}
+
+func nestedString(body map[string]any, objectKey string, key string) string {
+	nested, _ := body[objectKey].(map[string]any)
+	if nested == nil {
+		return ""
+	}
+	return requiredString(nested, key)
+}
+
+func asMap(value any) map[string]any {
+	out, _ := value.(map[string]any)
+	if out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
+	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
+}
+
+func compatScopesForMode(provider string, mode string) []string {
+	base := map[string][]string{
+		"GITHUB":           {"repo:read", "audit_log:read"},
+		"SLACK":            {"team:read", "users:read"},
+		"GOOGLE_WORKSPACE": {"admin.directory.user.readonly", "admin.reports.audit.readonly"},
+		"OKTA":             {"okta.users.read", "okta.logs.read"},
+		"ONE_PASSWORD":     {"scim:read"},
+		"MICROSOFT_365":    {"AuditLog.Read.All", "Directory.Read.All"},
+		"ATLASSIAN":        {"read:audit-log:jira", "read:confluence-content.summary"},
+	}
+	scopes := append([]string{}, base[provider]...)
+	if strings.EqualFold(mode, "REMEDIATION") {
+		scopes = append(scopes, "remediation:write")
+	}
+	return scopes
+}
+
+func encryptedOptionalSecret(body map[string]any, key string, aad string) (*string, error) {
 	value := requiredString(body, key)
 	if value == "" {
-		return nil
+		return nil, nil
 	}
-	hashed := "go-managed-secret:" + hashOpaqueToken(value)
-	return &hashed
+	encrypted, err := compatEncryptString(value, aad)
+	if err != nil {
+		return nil, err
+	}
+	return &encrypted, nil
 }
 
 func firstMemberByEmail(result any, email string) any {
