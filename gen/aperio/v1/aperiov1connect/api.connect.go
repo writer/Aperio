@@ -33,6 +33,8 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// AperioServiceCallApiProcedure is the fully-qualified name of the AperioService's CallApi RPC.
+	AperioServiceCallApiProcedure = "/aperio.v1.AperioService/CallApi"
 	// AperioServiceCheckHealthProcedure is the fully-qualified name of the AperioService's CheckHealth
 	// RPC.
 	AperioServiceCheckHealthProcedure = "/aperio.v1.AperioService/CheckHealth"
@@ -67,6 +69,7 @@ const (
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
 type AperioServiceClient interface {
+	CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error)
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
@@ -90,6 +93,12 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	aperioServiceMethods := v1.File_aperio_v1_api_proto.Services().ByName("AperioService").Methods()
 	return &aperioServiceClient{
+		callApi: connect.NewClient[v1.CallApiRequest, v1.CallApiResponse](
+			httpClient,
+			baseURL+AperioServiceCallApiProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CallApi")),
+			connect.WithClientOptions(opts...),
+		),
 		checkHealth: connect.NewClient[v1.CheckHealthRequest, v1.CheckHealthResponse](
 			httpClient,
 			baseURL+AperioServiceCheckHealthProcedure,
@@ -155,6 +164,7 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // aperioServiceClient implements AperioServiceClient.
 type aperioServiceClient struct {
+	callApi                    *connect.Client[v1.CallApiRequest, v1.CallApiResponse]
 	checkHealth                *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
 	getDashboardMetrics        *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
 	listFindings               *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
@@ -165,6 +175,11 @@ type aperioServiceClient struct {
 	listShadowItOauthAppGrants *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
 	listSecurityAssets         *connect.Client[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse]
 	listRiskExceptions         *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
+}
+
+// CallApi calls aperio.v1.AperioService.CallApi.
+func (c *aperioServiceClient) CallApi(ctx context.Context, req *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error) {
+	return c.callApi.CallUnary(ctx, req)
 }
 
 // CheckHealth calls aperio.v1.AperioService.CheckHealth.
@@ -219,6 +234,7 @@ func (c *aperioServiceClient) ListRiskExceptions(ctx context.Context, req *conne
 
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
+	CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error)
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
@@ -238,6 +254,12 @@ type AperioServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	aperioServiceMethods := v1.File_aperio_v1_api_proto.Services().ByName("AperioService").Methods()
+	aperioServiceCallApiHandler := connect.NewUnaryHandler(
+		AperioServiceCallApiProcedure,
+		svc.CallApi,
+		connect.WithSchema(aperioServiceMethods.ByName("CallApi")),
+		connect.WithHandlerOptions(opts...),
+	)
 	aperioServiceCheckHealthHandler := connect.NewUnaryHandler(
 		AperioServiceCheckHealthProcedure,
 		svc.CheckHealth,
@@ -300,6 +322,8 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case AperioServiceCallApiProcedure:
+			aperioServiceCallApiHandler.ServeHTTP(w, r)
 		case AperioServiceCheckHealthProcedure:
 			aperioServiceCheckHealthHandler.ServeHTTP(w, r)
 		case AperioServiceGetDashboardMetricsProcedure:
@@ -328,6 +352,10 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 
 // UnimplementedAperioServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAperioServiceHandler struct{}
+
+func (UnimplementedAperioServiceHandler) CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CallApi is not implemented"))
+}
 
 func (UnimplementedAperioServiceHandler) CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CheckHealth is not implemented"))

@@ -244,6 +244,23 @@ func (a *App) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // CheckHealth is the first ConnectRPC method exposed by the Go service. It
 // matches Cerebro's generated-handler pattern and gives TypeScript clients a
 // stable endpoint to verify transport compatibility.
+func (a *App) CallApi(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CallApiRequest],
+) (*connect.Response[aperiov1.CallApiResponse], error) {
+	bodyJSON, headers, err := a.handleCompatAPI(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	response := connect.NewResponse(&aperiov1.CallApiResponse{BodyJson: bodyJSON})
+	for key, values := range headers {
+		for _, value := range values {
+			response.Header().Add(key, value)
+		}
+	}
+	return response, nil
+}
+
 func (a *App) CheckHealth(
 	ctx context.Context,
 	_ *connect.Request[aperiov1.CheckHealthRequest],

@@ -7,6 +7,7 @@ option go_package = "github.com/writer/aperio/gen/aperio/v1;aperiov1";
 import "google/protobuf/timestamp.proto";
 
 service AperioService {
+  rpc CallApi(CallApiRequest) returns (CallApiResponse);
   rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
   rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
@@ -17,6 +18,16 @@ service AperioService {
   rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
   rpc ListSecurityAssets(ListSecurityAssetsRequest) returns (ListSecurityAssetsResponse);
   rpc ListRiskExceptions(ListRiskExceptionsRequest) returns (ListRiskExceptionsResponse);
+}
+
+message CallApiRequest {
+  string method = 1;
+  string path = 2;
+  string body_json = 3;
+}
+
+message CallApiResponse {
+  string body_json = 1;
 }
 
 message CheckHealthRequest {}

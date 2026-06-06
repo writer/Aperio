@@ -1,9 +1,5 @@
 import { aperioConnectClient } from "@aperio/connect/client";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
-  "http://localhost:4000";
-
 const AUTH_TOKEN_STORAGE_KEY = "aperio.auth.token";
 
 export type TenantRole = "OWNER" | "ADMIN" | "SECURITY_ANALYST" | "VIEWER";
@@ -54,43 +50,15 @@ export function clearAuthToken() {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {})
-    },
-    cache: "no-store"
+  const body =
+    typeof init?.body === "string" && init.body.length > 0
+      ? JSON.parse(init.body)
+      : undefined;
+  return aperioConnectClient.callApi<T>({
+    method: init?.method ?? "GET",
+    path,
+    body
   });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | {
-          error?: string;
-          details?: {
-            formErrors?: string[];
-            fieldErrors?: Record<string, string[] | undefined>;
-          };
-        }
-      | null;
-    const fieldErrors = Object.values(body?.details?.fieldErrors ?? {})
-      .flat()
-      .filter((value): value is string => Boolean(value));
-    const detailMessage = [...(body?.details?.formErrors ?? []), ...fieldErrors]
-      .join(". ")
-      .trim();
-
-    throw new Error(
-      detailMessage ||
-        body?.error ||
-        `Request failed with ${response.status}`
-    );
-  }
-
-  return response.json() as Promise<T>;
 }
 
 export type DashboardMetrics = {
@@ -549,16 +517,10 @@ export async function testSiemDestination(id: string) {
 }
 
 export async function deleteSiemDestination(id: string) {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/siem/${encodeURIComponent(id)}`,
-    { method: "DELETE", cache: "no-store" }
+  await request<{ data?: { ok: boolean } }>(
+    `/api/v1/siem/${encodeURIComponent(id)}`,
+    { method: "DELETE" }
   );
-  if (!response.ok && response.status !== 204) {
-    const body = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(body?.error ?? `Request failed with ${response.status}`);
-  }
 }
 
 export async function fetchIntegrationChecks(integrationId: string) {
@@ -609,24 +571,10 @@ export async function remediateFinding(
 }
 
 export async function disconnectIntegration(id: string) {
-  const token = getAuthToken();
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/integrations/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      cache: "no-store",
-      headers: {
-        ...(token ? { authorization: `Bearer ${token}` } : {})
-      }
-    }
+  await request<{ data?: { ok: boolean } }>(
+    `/api/v1/integrations/${encodeURIComponent(id)}`,
+    { method: "DELETE" }
   );
-
-  if (!response.ok && response.status !== 204) {
-    const body = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(body?.error ?? `Request failed with ${response.status}`);
-  }
 }
 
 export type TenantSettings = {
