@@ -42,6 +42,7 @@ func TestNormalizeCompatRoute(t *testing.T) {
 		{"/api/v1/integrations/clf2x9q1z0000abcd1234efgh/google-mailbox-scan", "/api/v1/integrations/:id/google-mailbox-scan"},
 		{"/api/v1/findings/clf2x9q1z0000abcd1234efgh/remediate", "/api/v1/findings/:id/remediate"},
 		{"/api/v1/findings/clf2x9q1z0000abcd1234efgh", "/api/v1/findings/:id"},
+		{"/api/v1/integrations/int_aZ-9_xY12345678abcdEF/checks", "/api/v1/integrations/:id/checks"},
 		{"/api/v1/admin/members/org_demo_000000000000000000000001/role", "/api/v1/admin/members/:id/role"},
 		{"/api/v1/siem/123e4567-e89b-12d3-a456-426614174000/test", "/api/v1/siem/:id/test"},
 		{"/api/v1/findings/clf2x9q1z0000abcd1234efgh?cursor=abc", "/api/v1/findings/:id"},
@@ -50,6 +51,46 @@ func TestNormalizeCompatRoute(t *testing.T) {
 	for _, tc := range cases {
 		if got := normalizeCompatRoute(tc.path); got != tc.want {
 			t.Errorf("normalizeCompatRoute(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestCompatRouteLabel(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/api/v1/security/overview", "/api/v1/security/overview"},
+		{"/api/v1/integrations/clf2x9q1z0000abcd1234efgh/checks", "/api/v1/integrations/:id/checks"},
+		{"/api/v1/findings/fnd_aZ-9_xY12345678abcdEF/remediate", "/api/v1/findings/:id/remediate"},
+		{"/api/v1/integrations/google-workspace/oauth/start", "/api/v1/integrations/google-workspace/oauth/start"},
+		// Unauthenticated attacker input must collapse to a single bounded value.
+		{"/zzz1/zzz2/zzz3", "unmatched"},
+		{"/api/v1/integrations/clf2x9q1z0000abcd1234efgh/evil", "unmatched"},
+		{"/api/v1/totally/made/up/path", "unmatched"},
+		{"", "unmatched"},
+	}
+	for _, tc := range cases {
+		if got := compatRouteLabel(tc.path); got != tc.want {
+			t.Errorf("compatRouteLabel(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestCompatMethodLabel(t *testing.T) {
+	cases := map[string]string{
+		"GET":    "GET",
+		"post":   "POST",
+		"Patch":  "PATCH",
+		"DELETE": "DELETE",
+		" put ":  "PUT",
+		"":       "GET",
+		"FOOBAR": "other",
+		"TRACE":  "other",
+	}
+	for raw, want := range cases {
+		if got := compatMethodLabel(raw); got != want {
+			t.Errorf("compatMethodLabel(%q) = %q, want %q", raw, got, want)
 		}
 	}
 }
@@ -175,5 +216,65 @@ func TestWideEventInterceptorEmitsForUninstrumentedRPC(t *testing.T) {
 	}
 	if _, ok := event["duration_ms"]; !ok {
 		t.Error("expected duration_ms measurement on the wide event")
+	}
+}
+
+// TestWideEventInterceptorEnrichesCallApiTunnel drives real CallApi requests
+// through the handler stack (no DB) and asserts the emitted wide event carries
+// bounded tunnel dimensions, including for unauthenticated attacker-style input.
+func TestWideEventInterceptorEnrichesCallApiTunnel(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	server := httptest.NewServer(app.Handler())
+	defer server.Close()
+
+	callApi := func(t *testing.T, body string) map[string]any {
+		t.Helper()
+		sink := &syncBuffer{}
+		restore := telemetry.SetOutput(sink)
+		defer restore()
+
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/aperio.v1.AperioService/CallApi", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Connect-Protocol-Version", "1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("call CallApi: %v", err)
+		}
+		defer resp.Body.Close()
+		_, _ = io.ReadAll(resp.Body)
+
+		for _, line := range strings.Split(strings.TrimSpace(sink.String()), "\n") {
+			if line == "" {
+				continue
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+				t.Fatalf("emitted telemetry was not valid JSON: %v (line=%q)", err, line)
+			}
+			if decoded["rpc.method"] == "CallApi" {
+				return decoded
+			}
+		}
+		t.Fatalf("expected a CallApi wide event, got: %q", sink.String())
+		return nil
+	}
+
+	matched := callApi(t, `{"method":"GET","path":"/api/v1/integrations/clf2x9q1z0000abcd1234efgh/checks"}`)
+	if matched["http.tunnel.route"] != "/api/v1/integrations/:id/checks" {
+		t.Errorf("tunnel.route = %v, want bounded template", matched["http.tunnel.route"])
+	}
+	if matched["http.tunnel.method"] != "GET" {
+		t.Errorf("tunnel.method = %v, want GET", matched["http.tunnel.method"])
+	}
+
+	attacker := callApi(t, `{"method":"WUT","path":"/zzz1/zzz2/zzz3"}`)
+	if attacker["http.tunnel.route"] != "unmatched" {
+		t.Errorf("tunnel.route = %v, want unmatched", attacker["http.tunnel.route"])
+	}
+	if attacker["http.tunnel.method"] != "other" {
+		t.Errorf("tunnel.method = %v, want other", attacker["http.tunnel.method"])
 	}
 }

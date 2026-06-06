@@ -254,12 +254,8 @@ func (a *App) CallApi(
 	req *connect.Request[aperiov1.CallApiRequest],
 ) (*connect.Response[aperiov1.CallApiResponse], error) {
 	if collector, ok := telemetry.CollectorFrom(ctx); ok {
-		method := strings.ToUpper(strings.TrimSpace(req.Msg.Method))
-		if method == "" {
-			method = http.MethodGet
-		}
-		collector.Dimension("http.tunnel.method", method)
-		collector.Dimension("http.tunnel.route", normalizeCompatRoute(req.Msg.Path))
+		collector.Dimension("http.tunnel.method", compatMethodLabel(req.Msg.Method))
+		collector.Dimension("http.tunnel.route", compatRouteLabel(req.Msg.Path))
 	}
 	bodyJSON, headers, err := a.handleCompatAPI(ctx, req)
 	if err != nil {
