@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/writer/aperio/internal/config"
 )
@@ -207,8 +208,16 @@ func TestDBSlackRemediationUsesDecryptedToken(t *testing.T) {
 
 	const plaintextToken = "xoxp-remediation-secret"
 	var providerCalls int
+	var findingID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		providerCalls++
+		var requestedAuditRows int
+		if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.requested'`, auth.OrganizationID, findingID).Scan(&requestedAuditRows); err != nil {
+			t.Fatalf("query requested audit rows before provider call: %v", err)
+		}
+		if requestedAuditRows != 1 {
+			t.Fatalf("expected requested audit before provider call, got %d", requestedAuditRows)
+		}
 		if r.URL.Path != "/admin.apps.uninstall" {
 			t.Fatalf("path = %s, want /admin.apps.uninstall", r.URL.Path)
 		}
@@ -243,7 +252,7 @@ func TestDBSlackRemediationUsesDecryptedToken(t *testing.T) {
 	}
 	integrationID := dataMap(t, created)["id"].(string)
 
-	findingID := compatID("fnd")
+	findingID = compatID("fnd")
 	if _, err := app.db.ExecContext(ctx, `INSERT INTO security_findings (id, organization_id, integration_id, dedupe_key, title, description, severity, status, risk_score, remediation_steps, evidence, detected_at) VALUES ($1,$2,$3,$4,$5,$6,'HIGH','OPEN',70,ARRAY[]::text[],$7,NOW())`, findingID, auth.OrganizationID, integrationID, "dk-"+findingID, "Suspicious Slack app", "seeded for remediation test", json.RawMessage(`{"subject":"A123"}`)); err != nil {
 		t.Fatalf("seed finding: %v", err)
 	}
@@ -277,6 +286,62 @@ func TestDBSlackRemediationUsesDecryptedToken(t *testing.T) {
 	}
 	if !strings.Contains(auditMetadata, "slack-db-route-req") {
 		t.Fatalf("audit metadata missing provider request id: %s", auditMetadata)
+	}
+	var requestedMetadata string
+	if err := app.db.QueryRowContext(ctx, `SELECT metadata::text FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.requested'`, auth.OrganizationID, findingID).Scan(&requestedMetadata); err != nil {
+		t.Fatalf("query requested audit metadata: %v", err)
+	}
+	if strings.Contains(requestedMetadata, plaintextToken) {
+		t.Fatal("requested audit metadata leaked the Slack access token")
+	}
+}
+
+func TestDBSlackRemediationRequiresExplicitAppID(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+	auth.UserID = ""
+
+	var providerCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	app.remediationHTTPClient = server.Client()
+	app.slackAPIBaseURL = server.URL
+
+	created, err := app.compatCreateIntegration(ctx, map[string]any{
+		"provider":          "SLACK",
+		"displayName":       "Slack Remediation",
+		"externalAccountId": "T123456",
+		"mode":              "REMEDIATION",
+		"credentials":       map[string]any{"accessToken": "xoxp-remediation-secret"},
+	}, auth)
+	if err != nil {
+		t.Fatalf("create integration: %v", err)
+	}
+	integrationID := dataMap(t, created)["id"].(string)
+
+	findingID := compatID("fnd")
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO security_findings (id, organization_id, integration_id, dedupe_key, title, description, severity, status, risk_score, remediation_steps, evidence, detected_at) VALUES ($1,$2,$3,$4,$5,$6,'HIGH','OPEN',70,ARRAY[]::text[],$7,NOW())`, findingID, auth.OrganizationID, integrationID, "dk-"+findingID, "Slack user finding", "seeded for remediation test", json.RawMessage(`{"subject":"user@example.com"}`)); err != nil {
+		t.Fatalf("seed finding: %v", err)
+	}
+
+	_, err = app.compatRemediateFinding(ctx, findingID, map[string]any{"action": "slack.revoke_app_install"}, auth)
+	if err == nil {
+		t.Fatal("expected missing Slack app id to reject")
+	}
+	if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v (%v)", code, err)
+	}
+	if providerCalls != 0 {
+		t.Fatalf("expected no provider calls, got %d", providerCalls)
+	}
+	var requestedRows int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action = 'finding.remediate.requested'`, auth.OrganizationID, findingID).Scan(&requestedRows); err != nil {
+		t.Fatalf("count requested audit rows: %v", err)
+	}
+	if requestedRows != 0 {
+		t.Fatalf("expected no requested audit for rejected request, got %d", requestedRows)
 	}
 }
 

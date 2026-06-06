@@ -1208,6 +1208,9 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	}
 
 	targetIdentifier := targetOverride
+	if action == "slack.revoke_app_install" && targetIdentifier == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("slack.revoke_app_install requires targetIdentifier to be the Slack app id"))
+	}
 	if targetIdentifier == "" {
 		// Prefer the finding's subject/actor evidence when the UI does not supply
 		// a target override; falling back to the external account keeps legacy
@@ -1220,6 +1223,12 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 			targetIdentifier = actor
 		} else {
 			targetIdentifier = externalAccount
+		}
+	}
+
+	if action == "slack.revoke_app_install" {
+		if err := a.recordRemediationRequested(ctx, auth, id, provider, integrationID, action, targetIdentifier, note); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
 
@@ -1302,6 +1311,45 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		"providerRequestId": result.ProviderRequestID,
 		"effects":           result.Effects,
 	}}, nil
+}
+
+func (a *App) recordRemediationRequested(ctx context.Context, auth compatAuth, findingID, provider, integrationID, action, targetIdentifier string, note *string) error {
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	var noteValue any
+	if note != nil {
+		noteValue = *note
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"provider":         provider,
+		"integrationId":    integrationID,
+		"actionKey":        action,
+		"targetIdentifier": targetIdentifier,
+		"note":             noteValue,
+	})
+	if err != nil {
+		return err
+	}
+	var actor any
+	if auth.UserID != "" {
+		actor = auth.UserID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,'finding.remediate.requested','security_finding',$4,$5,NOW())`, compatID("aud"), auth.OrganizationID, actor, findingID, metadata); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, error) {
