@@ -75,6 +75,8 @@ function safeEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
   return (
+    // Check length first because timingSafeEqual throws on mismatched buffers;
+    // equal-length comparisons still use constant-time semantics for tokens.
     leftBuffer.length === rightBuffer.length &&
     timingSafeEqual(leftBuffer, rightBuffer)
   );
@@ -82,6 +84,9 @@ function safeEqual(left: string, right: string) {
 
 function assertMcpScope(input: { organizationId: string; authToken?: string }) {
   const allowedOrganizationId = process.env.APERIO_MCP_ORGANIZATION_ID?.trim();
+  // The broker may be deployed as a single-tenant MCP bridge. Enforcing the
+  // configured organization at the tool boundary prevents cross-tenant reads or
+  // writes even if an external MCP client supplies arbitrary arguments.
   if (
     allowedOrganizationId &&
     input.organizationId !== allowedOrganizationId
@@ -89,6 +94,8 @@ function assertMcpScope(input: { organizationId: string; authToken?: string }) {
     throw new Error("Organization is not allowed for this MCP broker");
   }
   const sharedSecret = process.env.APERIO_MCP_SHARED_SECRET?.trim();
+  // Shared-secret auth is optional for local development, but when configured it
+  // is validated before any Prisma lookup so failed probes do not reveal IDs.
   if (sharedSecret && !safeEqual(input.authToken ?? "", sharedSecret)) {
     throw new Error("Invalid MCP broker token");
   }
@@ -96,6 +103,8 @@ function assertMcpScope(input: { organizationId: string; authToken?: string }) {
 
 function sendFrame(message: unknown) {
   const body = JSON.stringify(message);
+  // MCP over stdio uses HTTP-like framing. Always compute byte length after
+  // JSON serialization so multibyte characters do not corrupt frame parsing.
   process.stdout.write(
     `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`
   );
@@ -219,6 +228,8 @@ const tools = [
 
 async function callTool(name: string, args: unknown) {
   if (name === "aperio.register_agent") {
+    // Every tool composes organizationScopedSchema with a tool-specific schema
+    // before scope checks, keeping validation and tenant authorization adjacent.
     const scoped = organizationScopedSchema.merge(registerAgentSchema).parse(args);
     assertMcpScope(scoped);
     const agent = await prisma.agent.upsert({
@@ -255,6 +266,8 @@ async function callTool(name: string, args: unknown) {
   if (name === "aperio.create_task") {
     const scoped = organizationScopedSchema.merge(createAgentTaskSchema).parse(args);
     assertMcpScope(scoped);
+    // Agent references are resolved inside the requested organization so a task
+    // cannot accidentally point at an agent key from another tenant.
     const [createdByAgentId, assignedAgentId] = await Promise.all([
       getAgentId(scoped.organizationId, scoped.createdByAgentKey),
       getAgentId(scoped.organizationId, scoped.assignedAgentKey)
@@ -333,6 +346,8 @@ async function callTool(name: string, args: unknown) {
       .merge(createAgentProposalSchema)
       .parse(args);
     assertMcpScope(scoped);
+    // Proposals are human-gated by design: the MCP broker records intent and
+    // rationale, but it does not execute remediations directly.
     const proposedByAgentId = await getAgentId(
       scoped.organizationId,
       scoped.proposedByAgentKey
@@ -358,6 +373,8 @@ async function callTool(name: string, args: unknown) {
   if (name === "aperio.enqueue_siem_payload") {
     const parsed = organizationScopedSchema.merge(enqueueSiemPayloadSchema).parse(args);
     assertMcpScope(parsed);
+    // Tool callers can omit transport defaults; the dispatcher always receives
+    // a canonical Aperio SIEM payload with stable kind and timestamp fields.
     const count = await enqueueSiemDeliveries({
       kind: parsed.kind,
       organizationId: parsed.organizationId,
@@ -400,6 +417,8 @@ async function handleMessage(message: RpcMessage) {
         })
         .parse(message.params);
       const result = await callTool(params.name, params.arguments);
+      // Results are wrapped in MCP "content" blocks so clients that do not
+      // understand Aperio-specific JSON still receive a printable response.
       respond(message.id, {
         content: [{ type: "text", text: JSON.stringify(result) }]
       });
@@ -436,6 +455,8 @@ process.stdin.on("data", (chunk: Buffer) => {
     const start = separator + 4;
     const end = start + length;
     if (buffer.length < end) return;
+    // Process complete frames one at a time and leave partial trailing bytes in
+    // the buffer for the next stdin data event.
     const body = buffer.subarray(start, end).toString("utf8");
     buffer = buffer.subarray(end);
     try {

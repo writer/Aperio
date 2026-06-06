@@ -2,9 +2,16 @@ import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AperioService,
+  type ConnectorDefinition as ProtoConnectorDefinition,
   type Finding as ProtoFinding,
+  type GoogleMailboxScanConfig as ProtoGoogleMailboxScanConfig,
+  type IntegrationCheckState as ProtoIntegrationCheckState,
+  type IntegrationConnection as ProtoIntegrationConnection,
+  type RemediationResult as ProtoRemediationResult,
   type RiskException as ProtoRiskException,
   type SecurityAsset as ProtoSecurityAsset,
+  type SiemDestination as ProtoSiemDestination,
+  type SiemDestinationDefinition as ProtoSiemDestinationDefinition,
   type ShadowItOauthApp as ProtoShadowItOauthApp,
   type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant
 } from "./gen/aperio/v1/api_pb";
@@ -72,6 +79,77 @@ export type ConnectIntegrationConnection = {
   createdAt: string;
 };
 
+export type ConnectIntegrationPayload = {
+  provider: ConnectProvider;
+  displayName: string;
+  externalAccountId: string;
+  mode: "READ_ONLY" | "REMEDIATION";
+  credentials: {
+    accessToken: string;
+    refreshToken?: string;
+    webhookSecret?: string;
+  };
+};
+
+export type ConnectConnectorDefinition = {
+  provider: ConnectProvider;
+  name: string;
+  category: string;
+  availability: "production_ready" | "preview";
+  readinessNote?: string;
+  description: string;
+  readScopes: string[];
+  remediationScopes: string[];
+  remediationActions: {
+    key: string;
+    label: string;
+    description: string;
+    severityHint: "CRITICAL" | "HIGH" | "MEDIUM";
+  }[];
+  findingChecks: {
+    key: string;
+    title: string;
+    description: string;
+    severityHint: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+    defaultEnabled: boolean;
+  }[];
+  docsUrl: string;
+  fields: {
+    key: string;
+    label: string;
+    placeholder?: string;
+    helper?: string;
+    type: "text" | "password" | "url";
+    required: boolean;
+    secret: boolean;
+  }[];
+};
+
+export type ConnectGoogleMailboxScanConfig = {
+  enabled: boolean;
+  serviceAccountClientEmail: string | null;
+};
+
+export type ConnectIntegrationCheckState = {
+  integrationId: string;
+  disabledChecks: string[];
+  checks: {
+    key: string;
+    title: string;
+    description: string;
+    severityHint: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+    defaultEnabled: boolean;
+    enabled: boolean;
+  }[];
+};
+
+export type ConnectSyncSummary = {
+  sampleCount: number;
+  eventsIngested: number;
+  findingsOpened: number;
+  sources: string[];
+};
+
 export type ConnectSiemDestination = {
   id: string;
   kind: string;
@@ -86,6 +164,41 @@ export type ConnectSiemDestination = {
   deliveriesOk: number;
   deliveriesFail: number;
   createdAt: string;
+};
+
+export type ConnectSiemDestinationDefinition = {
+  kind: string;
+  name: string;
+  vendor: string;
+  description: string;
+  category: "Cloud SIEM" | "Hosted Search" | "Observability" | "Graph" | "Generic";
+  docsUrl: string;
+  defaultStreams: string[];
+  fields: {
+    key: "endpointUrl" | "token" | "filePath" | "index";
+    label: string;
+    placeholder?: string;
+    helper?: string;
+    type: "text" | "password" | "url";
+    required: boolean;
+    secret: boolean;
+  }[];
+};
+
+export type ConnectCreateSiemPayload = {
+  kind: string;
+  name: string;
+  endpointUrl?: string;
+  filePath?: string;
+  index?: string;
+  token?: string;
+  streams: string[];
+};
+
+export type ConnectSiemTestResult = {
+  destinationId: string;
+  ok: boolean;
+  message: string;
 };
 
 export type ConnectShadowItOauthApp = {
@@ -204,6 +317,15 @@ export type ConnectRiskException = {
   } | null;
 };
 
+export type ConnectRemediationResult = {
+  findingId: string;
+  action: string;
+  success: boolean;
+  message: string;
+  providerRequestId: string;
+  effects: string[];
+};
+
 const transport = createConnectTransport({
   baseUrl: CONNECT_BASE_URL,
   fetch(input, init) {
@@ -246,6 +368,146 @@ function findingFromProto(finding: ProtoFinding): ConnectFinding {
         "") as ConnectFinding["integration"]["provider"],
       displayName: finding.integration?.displayName ?? ""
     }
+  };
+}
+
+function integrationFromProto(
+  integration: ProtoIntegrationConnection
+): ConnectIntegrationConnection {
+  return {
+    id: integration.id,
+    provider: integration.provider as ConnectProvider,
+    displayName: integration.displayName,
+    externalAccountId: integration.externalAccountId,
+    status: integration.status as ConnectIntegrationConnection["status"],
+    mode: integration.mode as ConnectIntegrationConnection["mode"],
+    scopes: integration.scopes,
+    disabledChecks: integration.disabledChecks,
+    googleMailboxScanEnabled: integration.googleMailboxScanEnabled,
+    googleMailboxScanClientEmail:
+      integration.googleMailboxScanClientEmail || null,
+    lastSyncAt: integration.lastSyncAt || null,
+    createdAt: integration.createdAt
+  };
+}
+
+function connectorDefinitionFromProto(
+  definition: ProtoConnectorDefinition
+): ConnectConnectorDefinition {
+  return {
+    provider: definition.provider as ConnectProvider,
+    name: definition.name,
+    category: definition.category,
+    availability: definition.availability as ConnectConnectorDefinition["availability"],
+    readinessNote: definition.readinessNote || undefined,
+    description: definition.description,
+    readScopes: definition.readScopes,
+    remediationScopes: definition.remediationScopes,
+    remediationActions: definition.remediationActions.map((action) => ({
+      key: action.key,
+      label: action.label,
+      description: action.description,
+      severityHint: action.severityHint as "CRITICAL" | "HIGH" | "MEDIUM"
+    })),
+    findingChecks: definition.findingChecks.map((check) => ({
+      key: check.key,
+      title: check.title,
+      description: check.description,
+      severityHint: check.severityHint as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+      defaultEnabled: check.defaultEnabled
+    })),
+    docsUrl: definition.docsUrl,
+    fields: definition.fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.placeholder || undefined,
+      helper: field.helper || undefined,
+      type: field.type as "text" | "password" | "url",
+      required: field.required,
+      secret: field.secret
+    }))
+  };
+}
+
+function googleMailboxScanConfigFromProto(
+  config: ProtoGoogleMailboxScanConfig
+): ConnectGoogleMailboxScanConfig {
+  return {
+    enabled: config.enabled,
+    serviceAccountClientEmail: config.serviceAccountClientEmail || null
+  };
+}
+
+function integrationCheckStateFromProto(
+  state: ProtoIntegrationCheckState
+): ConnectIntegrationCheckState {
+  return {
+    integrationId: state.integrationId,
+    disabledChecks: state.disabledChecks,
+    checks: state.checks.map((check) => ({
+      key: check.key,
+      title: check.title,
+      description: check.description,
+      severityHint: check.severityHint as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+      defaultEnabled: check.defaultEnabled,
+      enabled: check.enabled
+    }))
+  };
+}
+
+function siemDestinationFromProto(
+  destination: ProtoSiemDestination
+): ConnectSiemDestination {
+  return {
+    id: destination.id,
+    kind: destination.kind,
+    name: destination.name,
+    endpointUrl: destination.endpointUrl || null,
+    filePath: destination.filePath || null,
+    index: destination.index || null,
+    streams: destination.streams,
+    status: destination.status as ConnectSiemDestination["status"],
+    lastDeliveryAt: destination.lastDeliveryAt || null,
+    lastError: destination.lastError || null,
+    deliveriesOk: destination.deliveriesOk,
+    deliveriesFail: destination.deliveriesFail,
+    createdAt: destination.createdAt
+  };
+}
+
+function siemDefinitionFromProto(
+  definition: ProtoSiemDestinationDefinition
+): ConnectSiemDestinationDefinition {
+  return {
+    kind: definition.kind,
+    name: definition.name,
+    vendor: definition.vendor,
+    description: definition.description,
+    category: definition.category as ConnectSiemDestinationDefinition["category"],
+    docsUrl: definition.docsUrl,
+    defaultStreams: definition.defaultStreams,
+    fields: definition.fields.map((field) => ({
+      key: field.key as "endpointUrl" | "token" | "filePath" | "index",
+      label: field.label,
+      placeholder: field.placeholder || undefined,
+      helper: field.helper || undefined,
+      type: field.type as "text" | "password" | "url",
+      required: field.required,
+      secret: field.secret
+    }))
+  };
+}
+
+function remediationResultFromProto(
+  result: ProtoRemediationResult
+): ConnectRemediationResult {
+  return {
+    findingId: result.findingId,
+    action: result.action,
+    success: result.success,
+    message: result.message,
+    providerRequestId: result.providerRequestId,
+    effects: result.effects
   };
 }
 
@@ -434,44 +696,191 @@ export const aperioConnectClient = {
     }
     return { data: findingFromProto(response.data) };
   },
+  async updateFindingStatus(
+    id: string,
+    payload: { status: "RESOLVED" | "MUTED"; resolutionNote?: string }
+  ): Promise<{ data: { id: string; status: "RESOLVED" | "MUTED" } }> {
+    const response = await client.updateFindingStatus({
+      id,
+      status: payload.status,
+      resolutionNote: payload.resolutionNote ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Finding update failed");
+    }
+    return {
+      data: {
+        id: response.data.id,
+        status: response.data.status as "RESOLVED" | "MUTED"
+      }
+    };
+  },
+  async remediateFinding(
+    findingId: string,
+    payload: { action: string; targetIdentifier?: string; note?: string }
+  ): Promise<{ data: ConnectRemediationResult }> {
+    const response = await client.remediateFinding({
+      findingId,
+      action: payload.action,
+      targetIdentifier: payload.targetIdentifier ?? "",
+      note: payload.note ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Remediation failed");
+    }
+    return { data: remediationResultFromProto(response.data) };
+  },
+  async listConnectorCatalog(): Promise<{
+    data: ConnectConnectorDefinition[];
+  }> {
+    const response = await client.listConnectorCatalog({});
+    return { data: response.data.map(connectorDefinitionFromProto) };
+  },
   async listIntegrations(): Promise<{ data: ConnectIntegrationConnection[] }> {
     const response = await client.listIntegrations({});
+    return { data: response.data.map(integrationFromProto) };
+  },
+  async createIntegration(
+    payload: ConnectIntegrationPayload
+  ): Promise<{ data: ConnectIntegrationConnection }> {
+    const response = await client.createIntegration({
+      provider: payload.provider,
+      displayName: payload.displayName,
+      externalAccountId: payload.externalAccountId,
+      mode: payload.mode,
+      credentials: {
+        accessToken: payload.credentials.accessToken,
+        refreshToken: payload.credentials.refreshToken ?? "",
+        webhookSecret: payload.credentials.webhookSecret ?? ""
+      }
+    });
+    if (!response.data) {
+      throw new Error("Integration create failed");
+    }
+    return { data: integrationFromProto(response.data) };
+  },
+  async deleteIntegration(id: string): Promise<void> {
+    await client.deleteIntegration({ id });
+  },
+  async getIntegrationChecks(
+    integrationId: string
+  ): Promise<{ data: ConnectIntegrationCheckState }> {
+    const response = await client.getIntegrationChecks({ integrationId });
+    if (!response.data) {
+      throw new Error("Integration checks unavailable");
+    }
+    return { data: integrationCheckStateFromProto(response.data) };
+  },
+  async updateIntegrationChecks(
+    integrationId: string,
+    disabledChecks: string[]
+  ): Promise<{ data: ConnectIntegrationCheckState }> {
+    const response = await client.updateIntegrationChecks({
+      integrationId,
+      disabledChecks
+    });
+    if (!response.data) {
+      throw new Error("Integration checks update failed");
+    }
+    return { data: integrationCheckStateFromProto(response.data) };
+  },
+  async getGoogleMailboxScanConfig(
+    integrationId: string
+  ): Promise<{ data: ConnectGoogleMailboxScanConfig }> {
+    const response = await client.getGoogleMailboxScanConfig({
+      integrationId
+    });
+    if (!response.data) {
+      throw new Error("Google mailbox scan config unavailable");
+    }
+    return { data: googleMailboxScanConfigFromProto(response.data) };
+  },
+  async updateGoogleMailboxScanConfig(
+    integrationId: string,
+    payload: {
+      enabled: boolean;
+      serviceAccountClientEmail?: string;
+      privateKey?: string;
+    }
+  ): Promise<{ data: ConnectGoogleMailboxScanConfig }> {
+    const response = await client.updateGoogleMailboxScanConfig({
+      integrationId,
+      enabled: payload.enabled,
+      serviceAccountClientEmail: payload.serviceAccountClientEmail ?? "",
+      privateKey: payload.privateKey ?? ""
+    });
+    if (!response.data) {
+      throw new Error("Google mailbox scan config update failed");
+    }
+    return { data: googleMailboxScanConfigFromProto(response.data) };
+  },
+  async startGoogleWorkspaceOAuth(
+    mode: "READ_ONLY" | "REMEDIATION"
+  ): Promise<{ data: { url: string } }> {
+    const response = await client.startGoogleWorkspaceOAuth({ mode });
+    return { data: { url: response.data?.url ?? "" } };
+  },
+  async forceSyncIntegration(integrationId: string): Promise<{
+    data: ConnectIntegrationConnection;
+    sync: ConnectSyncSummary;
+  }> {
+    const response = await client.forceSyncIntegration({ integrationId });
+    if (!response.data) {
+      throw new Error("Integration sync failed");
+    }
     return {
-      data: response.data.map((integration) => ({
-        id: integration.id,
-        provider: integration.provider as ConnectProvider,
-        displayName: integration.displayName,
-        externalAccountId: integration.externalAccountId,
-        status: integration.status as ConnectIntegrationConnection["status"],
-        mode: integration.mode as ConnectIntegrationConnection["mode"],
-        scopes: integration.scopes,
-        disabledChecks: integration.disabledChecks,
-        googleMailboxScanEnabled: integration.googleMailboxScanEnabled,
-        googleMailboxScanClientEmail:
-          integration.googleMailboxScanClientEmail || null,
-        lastSyncAt: integration.lastSyncAt || null,
-        createdAt: integration.createdAt
-      }))
+      data: integrationFromProto(response.data),
+      sync: {
+        sampleCount: response.sync?.sampleCount ?? 0,
+        eventsIngested: response.sync?.eventsIngested ?? 0,
+        findingsOpened: response.sync?.findingsOpened ?? 0,
+        sources: response.sync?.sources ?? []
+      }
     };
+  },
+  async listSiemCatalog(): Promise<{
+    data: ConnectSiemDestinationDefinition[];
+  }> {
+    const response = await client.listSiemCatalog({});
+    return { data: response.data.map(siemDefinitionFromProto) };
   },
   async listSiemDestinations(): Promise<{ data: ConnectSiemDestination[] }> {
     const response = await client.listSiemDestinations({});
+    return { data: response.data.map(siemDestinationFromProto) };
+  },
+  async createSiemDestination(
+    payload: ConnectCreateSiemPayload
+  ): Promise<{ data: ConnectSiemDestination }> {
+    const response = await client.createSiemDestination({
+      kind: payload.kind,
+      name: payload.name,
+      endpointUrl: payload.endpointUrl ?? "",
+      filePath: payload.filePath ?? "",
+      index: payload.index ?? "",
+      token: payload.token ?? "",
+      streams: payload.streams
+    });
+    if (!response.data) {
+      throw new Error("SIEM destination create failed");
+    }
+    return { data: siemDestinationFromProto(response.data) };
+  },
+  async deleteSiemDestination(id: string): Promise<void> {
+    await client.deleteSiemDestination({ id });
+  },
+  async testSiemDestination(
+    id: string
+  ): Promise<{ data: ConnectSiemTestResult }> {
+    const response = await client.testSiemDestination({ id });
+    if (!response.data) {
+      throw new Error("SIEM destination test failed");
+    }
     return {
-      data: response.data.map((destination) => ({
-        id: destination.id,
-        kind: destination.kind,
-        name: destination.name,
-        endpointUrl: destination.endpointUrl || null,
-        filePath: destination.filePath || null,
-        index: destination.index || null,
-        streams: destination.streams,
-        status: destination.status as ConnectSiemDestination["status"],
-        lastDeliveryAt: destination.lastDeliveryAt || null,
-        lastError: destination.lastError || null,
-        deliveriesOk: destination.deliveriesOk,
-        deliveriesFail: destination.deliveriesFail,
-        createdAt: destination.createdAt
-      }))
+      data: {
+        destinationId: response.data.destinationId,
+        ok: response.data.ok,
+        message: response.data.message
+      }
     };
   },
   async listShadowItOauthApps(): Promise<{ data: ConnectShadowItOauthApp[] }> {

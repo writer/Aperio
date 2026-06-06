@@ -354,6 +354,30 @@ func compatDefaultDisabledChecks(provider string) []string {
 	return disabled
 }
 
+func validCompatDisabledChecks(provider string, requested []string) []string {
+	definition := findConnectorDefinition(provider)
+	if definition == nil {
+		return []string{}
+	}
+	valid := map[string]struct{}{}
+	for _, check := range definition.FindingChecks {
+		valid[check.Key] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	disabled := []string{}
+	for _, key := range requested {
+		if _, ok := valid[key]; !ok {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		disabled = append(disabled, key)
+	}
+	return disabled
+}
+
 // compatFindingCheckStatuses overlays the integration's disabled set onto the
 // catalog check definitions to produce the IntegrationCheckState.checks shape.
 func compatFindingCheckStatuses(provider string, disabledChecks []string) []findingCheckStatus {

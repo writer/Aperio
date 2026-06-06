@@ -47,6 +47,21 @@ func TestCheckHealthConnectEndpoint(t *testing.T) {
 	}
 }
 
+func TestTypedCatalogConnectEndpointIsRegistered(t *testing.T) {
+	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
+	server := httptest.NewServer(app.Handler())
+	defer server.Close()
+	client := aperiov1connect.NewAperioServiceClient(server.Client(), server.URL)
+
+	_, err := client.ListConnectorCatalog(
+		context.Background(),
+		connect.NewRequest(&aperiov1.ListConnectorCatalogRequest{}),
+	)
+	if connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("expected unavailable without database, got %v", err)
+	}
+}
+
 func TestReadyzReportsDependencyHealth(t *testing.T) {
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
@@ -261,7 +276,7 @@ func TestCompatSiemEndpointRejectsPrivateHosts(t *testing.T) {
 	if err := validateCompatSiemEndpoint(&loopback); err == nil {
 		t.Fatal("expected loopback SIEM endpoint to be rejected")
 	}
-	public := "https://siem.example.com/events"
+	public := "https://8.8.8.8/events"
 	if err := validateCompatSiemEndpoint(&public); err != nil {
 		t.Fatalf("expected public SIEM endpoint to pass, got %v", err)
 	}
@@ -375,6 +390,90 @@ func TestCompatEncryptStringUsesSharedEnvelope(t *testing.T) {
 	}
 	if _, err := gcm.Open(nil, iv, sealed, []byte("wrong-aad")); err == nil {
 		t.Fatal("expected wrong AAD to fail authentication")
+	}
+}
+
+func TestCompatDecryptIntegrationSecretAcceptsCanonicalAndLegacyAAD(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	organizationID := "org_demo"
+	integrationID := "int_demo"
+	provider := "GITHUB"
+	externalAccountID := "writer"
+	nonce := []byte("123456789012")
+
+	canonical, err := compatEncryptStringWithNonce(
+		"canonical-token",
+		compatIntegrationSecretAAD(organizationID, provider, externalAccountID, "access_token"),
+		nonce,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := compatDecryptIntegrationSecret(canonical, organizationID, integrationID, provider, externalAccountID, "access_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "canonical-token" {
+		t.Fatalf("unexpected canonical plaintext %q", got)
+	}
+
+	legacy, err := compatEncryptStringWithNonce(
+		"legacy-token",
+		compatLegacyIntegrationSecretAAD(organizationID, integrationID, "access_token"),
+		nonce,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = compatDecryptIntegrationSecret(legacy, organizationID, integrationID, provider, externalAccountID, "access_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "legacy-token" {
+		t.Fatalf("unexpected legacy plaintext %q", got)
+	}
+}
+
+func TestTypedCatalogProjectionsUseCompatDefinitions(t *testing.T) {
+	connectors := connectorCatalogProto()
+	if len(connectors) == 0 {
+		t.Fatal("expected connector catalog entries")
+	}
+	var github *aperiov1.ConnectorDefinition
+	for _, connector := range connectors {
+		if connector.Provider == "GITHUB" {
+			github = connector
+			break
+		}
+	}
+	if github == nil {
+		t.Fatal("expected GitHub connector definition")
+	}
+	if github.Category != "Source Control" {
+		t.Fatalf("expected real GitHub category, got %q", github.Category)
+	}
+	if len(github.ReadScopes) == 0 || len(github.Fields) == 0 || len(github.FindingChecks) == 0 {
+		t.Fatal("expected real scopes, fields, and finding checks")
+	}
+
+	disabled := compatDefaultDisabledChecks("GITHUB")
+	if len(disabled) == 0 {
+		t.Fatal("expected at least one default-disabled GitHub check")
+	}
+	state := integrationCheckStateProto("integration_1", "GITHUB", disabled)
+	if len(state.Checks) != len(github.FindingChecks) {
+		t.Fatalf("expected %d check statuses, got %d", len(github.FindingChecks), len(state.Checks))
+	}
+	for _, check := range state.Checks {
+		if check.Key == disabled[0] && check.Enabled {
+			t.Fatalf("expected default-disabled check %q to be disabled", check.Key)
+		}
+	}
+
+	siem := siemCatalogProto()
+	if len(siem) == 0 || len(siem[0].Fields) == 0 || siem[0].DocsUrl == "" {
+		t.Fatal("expected real SIEM catalog definitions")
 	}
 }
 
