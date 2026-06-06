@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -249,26 +248,17 @@ func (a *App) CallApi(
 	ctx context.Context,
 	req *connect.Request[aperiov1.CallApiRequest],
 ) (*connect.Response[aperiov1.CallApiResponse], error) {
-	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil && !isPublicCompatPath(req.Msg.Path) {
+	bodyJSON, headers, err := a.handleCompatAPI(ctx, req)
+	if err != nil {
 		return nil, err
 	}
-	return nil, connect.NewError(
-		connect.CodeUnimplemented,
-		fmt.Errorf("node compatibility route %s %s has not been migrated to Go", req.Msg.Method, req.Msg.Path),
-	)
-}
-
-func isPublicCompatPath(path string) bool {
-	switch path {
-	case "/api/v1/auth/signup",
-		"/api/v1/auth/login",
-		"/api/v1/auth/forgot-password",
-		"/api/v1/auth/reset-password",
-		"/api/v1/auth/invitations/accept":
-		return true
-	default:
-		return false
+	response := connect.NewResponse(&aperiov1.CallApiResponse{BodyJson: bodyJSON})
+	for key, values := range headers {
+		for _, value := range values {
+			response.Header().Add(key, value)
+		}
 	}
+	return response, nil
 }
 
 func (a *App) CheckHealth(
