@@ -12,6 +12,7 @@ import {
 import { calculateFindingRiskScore } from "@aperio/shared/risk-scoring";
 import { enqueueSiemDeliveries } from "./siem-dispatcher";
 import { publishAperioEvent } from "./event-bus";
+import { emitWideEvent, type WideEvent } from "./telemetry";
 
 type IngestionPayload = {
   jobId?: string;
@@ -1309,12 +1310,15 @@ function toApiJob(job: PersistedIngestionJob): IngestionJob {
   };
 }
 
-async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
+async function markJobFailure(
+  job: PersistedIngestionJob,
+  error: unknown
+): Promise<boolean> {
   const attempts = job.attempts + 1;
   const retryable = attempts < job.maxAttempts;
   const message = error instanceof Error ? error.message : "Unknown ingestion error";
 
-  await prisma.ingestionJob.updateMany({
+  const updated = await prisma.ingestionJob.updateMany({
     // The lease guard ensures only the worker that claimed the job can record
     // failure or release it back to the queue.
     where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
@@ -1327,10 +1331,45 @@ async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
       lastError: message.slice(0, 500)
     }
   });
-  await publishIngestionJobEvent(job, "failed", attempts);
+  if (updated.count === 1) {
+    await publishIngestionJobEvent(job, "failed", attempts);
+  }
+  return updated.count === 1;
+}
+
+// ingestionJobWideEvent builds the per-job wide event. Pure (the caller supplies
+// the measured duration) so the outcome and dimension mapping can be unit-tested
+// without a database or clock.
+export function ingestionJobWideEvent(input: {
+  organizationId: string;
+  provider: string;
+  eventType: string;
+  attempts: number;
+  maxAttempts: number;
+  outcome: "succeeded" | "failed" | "dead_letter" | "lost_lease";
+  durationMs: number;
+  errorName?: string;
+}): WideEvent {
+  return {
+    name: "ingestion.job.process",
+    service: "ingestion-worker",
+    organizationId: input.organizationId,
+    dimensions: {
+      outcome: input.outcome,
+      provider: input.provider,
+      event_type: input.eventType,
+      error_kind: input.errorName
+    },
+    measurements: {
+      attempt: input.attempts + 1,
+      max_attempts: input.maxAttempts,
+      duration_ms: input.durationMs
+    }
+  };
 }
 
 async function processJob(job: PersistedIngestionJob): Promise<boolean> {
+  const startedAt = Date.now();
   try {
     await publishIngestionJobEvent(job, "running");
     await new IngestionWorker().process(toIngestionPayload(job));
@@ -1345,12 +1384,41 @@ async function processJob(job: PersistedIngestionJob): Promise<boolean> {
         lastError: null
       }
     });
-    if (updated.count === 1) {
+    const ok = updated.count === 1;
+    if (ok) {
       await publishIngestionJobEvent(job, "succeeded", job.attempts + 1);
     }
-    return updated.count === 1;
+    emitWideEvent(
+      ingestionJobWideEvent({
+        organizationId: job.organizationId,
+        provider: job.provider,
+        eventType: job.eventType,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        outcome: ok ? "succeeded" : "lost_lease",
+        durationMs: Date.now() - startedAt
+      })
+    );
+    return ok;
   } catch (error) {
-    await markJobFailure(job, error);
+    const finalized = await markJobFailure(job, error);
+    const attempt = job.attempts + 1;
+    emitWideEvent(
+      ingestionJobWideEvent({
+        organizationId: job.organizationId,
+        provider: job.provider,
+        eventType: job.eventType,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        outcome: !finalized
+          ? "lost_lease"
+          : attempt >= job.maxAttempts
+            ? "dead_letter"
+            : "failed",
+        durationMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : "unknown"
+      })
+    );
     return false;
   }
 }
