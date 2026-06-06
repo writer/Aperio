@@ -1,47 +1,37 @@
 # Configuration
 
-Most runtime configuration comes from `.env.example`, `package.json`, and `docker-compose.yml`. There is no layered config system or deployment manifest in this checkout.
+Aperio reads runtime configuration from environment variables. Use `.env.example` as the source of truth for local development.
 
-## Environment variables
+## Core variables
 
-| Variable | Used by | Purpose |
+| Variable | Consumed by | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Prisma, API, workers, MCP | Database connection string |
-| `APERIO_ENCRYPTION_KEY` | `packages/security/src/crypto.ts` | Secret encryption key |
-| `APERIO_AUTH_SECRET` | `apps/api/src/middleware/security.ts` | Token verification secret |
-| `APERIO_WEB_ORIGIN` | `apps/api/src/server.ts` | CORS allowlist origin |
-| `NEXT_PUBLIC_API_BASE_URL` | `apps/web/lib/api.ts` | Browser API base URL |
-| `DEMO_ORGANIZATION_ID` | API auth fallback, seed assumptions | Demo tenant identity |
-| `DEMO_USER_ID` | API auth fallback, seed assumptions | Demo user identity |
-| `NODE_ENV` | API, Prisma, Next.js | Environment mode |
+| `DATABASE_URL` | Go API, Prisma, workers, MCP | Postgres connection string |
+| `APERIO_CONNECT_ADDR` | `cmd/aperio/main.go` | Go API listen address, `:4100` locally |
+| `APERIO_WEB_ORIGIN` | Go API | Credentialed CORS origin and web callback origin |
+| `NEXT_PUBLIC_CONNECT_API_BASE_URL` | `apps/web/lib/api.ts` | Browser base URL for ConnectRPC |
+| `APERIO_ENCRYPTION_KEY` | `packages/security`, Go compatibility handlers | AES-256-GCM credential encryption key |
+| `APERIO_AUTH_SECRET` | Go API | Session/email token HMAC secret |
+| `APERIO_SESSION_TTL_HOURS` | Go API | Absolute session lifetime |
+| `APERIO_SESSION_IDLE_MINUTES` | Go API | Idle session timeout |
+| `APERIO_MFA_ISSUER` | Go API | TOTP issuer label |
 
-## Script configuration
+## Local commands
 
-The repo uses one root `package.json` for all startup and validation commands:
+```bash
+npm run dev:connect
+npm run dev:web
+npm run worker:ingestion
+npm run worker:siem
+npm run mcp:broker
+```
 
-- `npm run dev:api`
-- `npm run dev:web`
-- `npm run worker:ingestion`
-- `npm run worker:siem`
-- `npm run mcp:broker`
-- `npm run typecheck`
-- `npm run build:web`
-- `npm run db:generate`
-- `npm run db:validate`
+## Integrations
 
-## Local services
+Google Workspace OAuth uses `GOOGLE_WORKSPACE_CLIENT_ID`, `GOOGLE_WORKSPACE_CLIENT_SECRET`, and `GOOGLE_WORKSPACE_REDIRECT_URI`. Service-account scans can also use `GOOGLE_WORKSPACE_SERVICE_ACCOUNT_CLIENT_EMAIL` and `GOOGLE_WORKSPACE_SERVICE_ACCOUNT_PRIVATE_KEY`.
 
-`docker-compose.yml` defines the local Postgres instance. There are no other containers in the current checkout.
+SIEM JSONL exports use `APERIO_SIEM_EXPORT_DIR`. Optional NATS publication uses `APERIO_EVENT_BUS`, `APERIO_NATS_URL`, and `APERIO_NATS_STREAM`.
 
-## Runtime assumptions
+## Tenant settings
 
-- The API listens on port 4000.
-- The web app listens on port 3000.
-- The MCP broker uses stdio rather than a TCP port.
-- The API process starts the SIEM dispatcher internally.
-
-## Tenant-level settings stored in the database
-
-Some operational settings are not environment variables. They are stored per tenant through `apps/api/src/routes/admin.ts`, including retention days, notification email, critical risk threshold, default SLA, auto-resolve behavior, SSO-only mode, and webhook alert URL.
-
-For the entities that store these settings, go to [Data models](data-models.md). For setup steps, go to [Getting started](../overview/getting-started.md).
+Some operational settings are stored per tenant in the database and managed through Go API compatibility handlers: retention days, notification email, critical risk threshold, default SLA, auto-resolve behavior, SSO-only mode, and webhook alert URL.

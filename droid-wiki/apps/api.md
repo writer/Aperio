@@ -1,64 +1,49 @@
-# API
+# Go API
 
-Active contributors: unavailable in this checkout because git history is missing.
+The product API is the Go service rooted at `cmd/aperio/main.go` and `internal/bootstrap`. It serves ConnectRPC procedures, health/readiness endpoints, browser CORS, cookie-backed auth, and the `/api/v1/*` compatibility surface used by the web console.
 
-The API is an Express server that owns the tenant boundary, validation, Prisma writes, audit logging, and most user-facing workflows. It is the main runtime for the product because the web app depends on it and it also starts the durable SIEM dispatcher.
-
-## Directory layout
+## Layout
 
 ```text
-apps/api/src/
-├── middleware/security.ts
-├── remediation/executor.ts
-├── routes/
-│   ├── admin.ts
-│   ├── agents.ts
-│   ├── dashboard.ts
-│   ├── findings.ts
-│   ├── ingestion.ts
-│   ├── integrations.ts
-│   ├── remediations.ts
-│   └── siem.ts
-└── server.ts
+cmd/aperio/main.go              process entrypoint
+internal/config/config.go       environment parsing
+internal/bootstrap/app.go       service wiring and typed RPC handlers
+internal/bootstrap/compat_api.go REST-shaped compatibility dispatch
+internal/telemetry              logging and wide-event helpers
+proto/aperio/v1/api.proto       public protobuf service contract
+gen/aperio/v1                   generated Go protobuf code
 ```
 
-## Key abstractions
+## Responsibilities
 
-| File | Purpose |
+| Area | Files |
 | --- | --- |
-| `apps/api/src/server.ts` | Server boot, middleware wiring, route mounting, SIEM dispatcher startup |
-| `apps/api/src/middleware/security.ts` | Auth parsing, demo fallback, tenant scoping, role checks |
-| `apps/api/src/routes/integrations.ts` | Connector catalog, connect/disconnect, per-integration checks |
-| `apps/api/src/routes/findings.ts` | List and resolve findings |
-| `apps/api/src/routes/remediations.ts` | Run provider remediation actions |
-| `apps/api/src/routes/siem.ts` | SIEM destination catalog and CRUD/test APIs |
-| `apps/api/src/routes/admin.ts` | Tenant settings, members, audit logs |
-| `apps/api/src/routes/agents.ts` | Agent registry, tasks, messages, proposals |
+| Server boot | `cmd/aperio/main.go` |
+| Config | `internal/config/config.go` |
+| ConnectRPC service | `internal/bootstrap/app.go` |
+| REST-shaped compatibility | `internal/bootstrap/compat_api.go` |
+| Contracts | `proto/aperio/v1/api.proto`, `packages/connect/src/gen` |
+| Tests | `internal/bootstrap/app_test.go` |
 
-## How it works
+## Request model
 
-Every `/api/v1/*` request goes through `requireAuth` and `requireTenant` from `apps/api/src/middleware/security.ts`. Route handlers then parse the payload with Zod, scope Prisma access by `tenantReq.tenantId`, and serialize dates before returning JSON.
+Native clients call ConnectRPC procedure paths. The web app calls `apps/web/lib/api.ts`, which uses generated Connect clients for typed RPCs and `CallApi` for compatibility paths. `CallApi` preserves the existing JSON response shapes without requiring a Node API runtime.
 
-```mermaid
-flowchart LR
-  Req[HTTP request] --> Auth[requireAuth]
-  Auth --> Tenant[requireTenant]
-  Tenant --> Route[Route handler]
-  Route --> Prisma[Prisma queries]
-  Prisma --> Audit[TenantAuditLog when needed]
-  Prisma --> Res[JSON response]
+## Auth and tenancy
+
+The API validates `aperio_session` cookies against `user_sessions`, enforces role checks for mutations, scopes database access by organization, and reflects only the configured `APERIO_WEB_ORIGIN` for credentialed browser calls.
+
+## Development
+
+Run the API locally with:
+
+```bash
+npm run dev:connect
 ```
 
-## Integration points
+Run Go validation with:
 
-- Reads and writes the Prisma model in `packages/db/prisma/schema.prisma`
-- Uses shared contracts from `packages/shared/src/types.ts`, `packages/shared/src/connectors.ts`, `packages/shared/src/siem.ts`, and `packages/shared/src/a2a.ts`
-- Encrypts and decrypts secrets through `packages/security/src/crypto.ts`
-- Hands background work to `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts`
-- Serves data to `apps/web/lib/api.ts`
-
-## Entry points for modification
-
-If you are adding a new tenant-scoped workflow, start in `apps/api/src/server.ts` to see where the route belongs, then add validation and queries in the matching route file. If the shape is shared with the UI or MCP broker, define it in `packages/shared/src` first.
-
-For endpoint grouping, go to [API surface](../api/index.md). For the web consumer of these routes, go to [Web](web.md).
+```bash
+npm run test:go
+npm run proto:lint
+```

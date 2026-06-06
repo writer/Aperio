@@ -1,25 +1,11 @@
 # Features
 
-Active contributors: unavailable in this checkout because git history is missing.
-
-The repo is best understood as five product capabilities layered on one shared tenant model: connectors and event intake, findings and remediation, SIEM fanout, tenant administration, and agent orchestration. Each feature spans more than one directory, which is why this section exists alongside [Apps](../apps/index.md) and [Packages](../packages/index.md).
-
-## Feature map
-
-| Feature | Main code paths |
+| Feature | Main implementation |
 | --- | --- |
-| Connectors and integrations | `packages/shared/src/connectors.ts`, `apps/api/src/routes/integrations.ts`, `apps/web/components/connectors/connectors-page.tsx` |
-| Findings and remediation | `apps/api/src/routes/findings.ts`, `apps/api/src/routes/remediations.ts`, `workers/ingestion-worker.ts`, `apps/web/components/dashboard/dashboard-page.tsx` |
-| SIEM delivery | `packages/shared/src/siem.ts`, `apps/api/src/routes/siem.ts`, `workers/siem-dispatcher.ts`, `apps/web/components/connectors/siem-section.tsx` |
-| Admin and governance | `apps/api/src/routes/admin.ts`, `apps/web/components/admin/admin-page.tsx` |
-| Agent orchestration | `packages/shared/src/a2a.ts`, `apps/api/src/routes/agents.ts`, `apps/mcp/src/server.ts` |
+| Connectors and integrations | `internal/bootstrap/compat_api.go`, `packages/shared/src/connectors.ts`, `workers/ingestion-worker.ts`, `apps/web/components/connectors/connectors-page.tsx` |
+| Findings and remediation | `internal/bootstrap/compat_api.go`, `workers/ingestion-worker.ts`, `apps/web/components/findings` |
+| SIEM delivery | `internal/bootstrap/compat_api.go`, `packages/shared/src/siem.ts`, `workers/siem-dispatcher.ts`, `apps/web/components/connectors/siem-page.tsx` |
+| Admin and governance | `internal/bootstrap/compat_api.go`, `apps/web/components/admin` and settings pages |
+| Agent orchestration | `packages/shared/src/a2a.ts`, `internal/bootstrap/compat_api.go`, `apps/mcp/src/server.ts` |
 
-## Entry points for modification
-
-Choose a feature page first when the change crosses apps or packages. These pages tell you where the end-to-end workflow begins, which shared files control it, and which UI surface exposes it.
-
-- [Connectors and integrations](connectors-and-integrations.md)
-- [Findings and remediation](findings-and-remediation.md)
-- [SIEM delivery](siem-delivery.md)
-- [Admin and governance](admin-and-governance.md)
-- [Agent orchestration](agent-orchestration.md)
+The API is Go/ConnectRPC. TypeScript remains for the web console, MCP broker, workers, shared catalogs, and tooling.

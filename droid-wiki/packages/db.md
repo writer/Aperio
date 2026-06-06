@@ -42,7 +42,7 @@ The client in `packages/db/src/client.ts` is cached on `globalThis` outside prod
 
 ## Integration points
 
-- Imported by `apps/api/src/server.ts` and every API route file
+- Used by the Go API through SQL/Prisma-compatible tables and by TypeScript workers through Prisma
 - Imported by `apps/mcp/src/server.ts`
 - Imported by `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts`
 

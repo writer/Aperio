@@ -1,48 +1,41 @@
-# API surface
+# API
 
-Aperio exposes two API styles in this checkout: a tenant-scoped REST API under `/api/v1/*` and a stdio JSON-RPC MCP broker. The REST API is the primary surface for the web console, while the MCP broker mirrors a narrower set of agent-oriented actions.
+Aperio's HTTP API is implemented in Go. Typed ConnectRPC methods are defined in `proto/aperio/v1/api.proto`, implemented in `internal/bootstrap`, and exposed by `cmd/aperio/main.go`.
 
-## REST route groups
+The web console still uses some REST-shaped paths such as `/api/v1/integrations` and `/api/v1/siem`; these are not served by an Express app. They are tunneled through the `CallApi` ConnectRPC method and dispatched by `internal/bootstrap/compat_api.go` while the remaining workflows move to first-class RPCs.
 
-| Route group | Main file | Purpose |
-| --- | --- | --- |
-| `/api/v1/dashboard` | `apps/api/src/routes/dashboard.ts` | Dashboard aggregates |
-| `/api/v1/findings` | `apps/api/src/routes/findings.ts`, `apps/api/src/routes/remediations.ts` | Findings list, resolve, remediate |
-| `/api/v1/ingestion` | `apps/api/src/routes/ingestion.ts` | SaaS event intake |
-| `/api/v1/integrations` | `apps/api/src/routes/integrations.ts` | Connector catalog and integration lifecycle |
-| `/api/v1/siem` | `apps/api/src/routes/siem.ts` | SIEM destination catalog and CRUD/test |
-| `/api/v1/admin` | `apps/api/src/routes/admin.ts` | Tenant settings, members, audit logs |
-| `/api/v1/agents` | `apps/api/src/routes/agents.ts` | Agents, tasks, messages, proposals |
+## Native RPC surface
 
-## Shared REST rules
-
-- Every mounted route under `/api/v1` passes through `requireAuth` and `requireTenant` in `apps/api/src/middleware/security.ts`.
-- Write routes often also pass through `requireRole(...)`.
-- Dates are serialized to ISO strings before they leave route handlers.
-
-## MCP tool groups
-
-`apps/mcp/src/server.ts` exposes these tool families:
-
-- `aperio.register_agent`
-- `aperio.create_task`
-- `aperio.send_message`
-- `aperio.list_tasks`
-- `aperio.propose_remediation`
-- `aperio.enqueue_siem_payload`
-
-## Key source files
-
-| File | Purpose |
+| Area | Contract / implementation |
 | --- | --- |
-| `apps/api/src/server.ts` | REST server boot and route mounting |
-| `apps/api/src/middleware/security.ts` | Auth, tenant scoping, role enforcement |
-| `apps/api/src/routes/*.ts` | Domain route groups |
-| `apps/mcp/src/server.ts` | MCP broker and tool dispatch |
-| `apps/web/lib/api.ts` | Web client wrapper around REST endpoints |
+| Health and readiness | `internal/bootstrap/app.go` |
+| Dashboard metrics | `GetDashboardMetrics` |
+| Findings reads | `ListFindings`, `GetFinding`, lifecycle events |
+| Integrations reads | `ListIntegrations` |
+| SIEM reads | `ListSiemDestinations` |
+| Shadow IT reads | `ListShadowItOauthApps`, `ListShadowItOauthAppGrants` |
+| Security reads | assets and overview RPCs |
 
-## Entry points for modification
+## Compatibility groups
 
-If you are adding an operator-facing HTTP workflow, add it to the relevant route file under `apps/api/src/routes/`. If you are adding an agent-facing tool, start in `apps/mcp/src/server.ts` and decide whether a REST equivalent also belongs in `apps/api/src/routes/agents.ts`.
+| Compatibility path | Purpose |
+| --- | --- |
+| `/api/v1/auth/*` | Signup, login, logout, password reset, MFA, workspace switching |
+| `/api/v1/admin/*` | Organization settings, members, roles, audit log |
+| `/api/v1/integrations/*` | Connector catalog, creation, checks, OAuth, force-sync |
+| `/api/v1/findings/*` | Mutations and exports not yet promoted to typed RPCs |
+| `/api/v1/security/*` | Posture overview and asset compatibility responses |
+| `/api/v1/shadow-it/*` | OAuth app inventory compatibility responses |
+| `/api/v1/siem/*` | SIEM catalog, CRUD, and test dispatch compatibility |
+| `/api/v1/agents/*` | Agent task/message/proposal compatibility workflows |
 
-For the runtime hosts behind these APIs, go to [API](../apps/api.md) and [MCP broker](../apps/mcp.md).
+## MCP
+
+`apps/mcp/src/server.ts` exposes a JSON-RPC tool surface for agent workflows and SIEM enqueue operations. It shares the Prisma schema and tenant data model with the Go API but is a separate stdio runtime.
+
+## Where to change things
+
+- Add or promote API contracts in `proto/aperio/v1/api.proto`.
+- Implement Go handlers in `internal/bootstrap`.
+- Update the browser Connect client in `packages/connect/src` and `apps/web/lib/api.ts`.
+- Keep MCP-specific tools in `apps/mcp/src/server.ts`.

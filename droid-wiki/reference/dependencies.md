@@ -1,47 +1,20 @@
 # Dependencies
 
-This page summarizes the important third-party libraries visible in `package.json` and how they map onto the codebase.
+Aperio is now a Go API plus TypeScript web/workers/tooling project. The Node dependency set supports the web app, workers, MCP broker, Prisma, tests, and build tooling; the API server itself is Go/ConnectRPC.
 
-## Runtime libraries
+## Runtime and framework dependencies
 
-| Dependency | Where it shows up | Why it matters |
+| Dependency | Used by | Purpose |
 | --- | --- | --- |
-| `express` | `apps/api/src/server.ts` | REST API framework |
-| `cors` | `apps/api/src/server.ts` | Browser origin control |
-| `helmet` | `apps/api/src/server.ts` | Basic HTTP hardening |
-| `compression` | `apps/api/src/server.ts` | Response compression |
-| `@prisma/client` | API, MCP, workers | Database client |
-| `zod` | `packages/shared/src/*.ts`, route files | Runtime validation |
-| `next` / `react` / `react-dom` | `apps/web` | Operator console runtime |
-| `lucide-react` | `apps/web/components/**/*.tsx` | UI icons |
-| `tailwindcss` | `apps/web` | Styling system |
-| `tsx` | root scripts | TypeScript execution in development |
+| Go `net/http` | `cmd/aperio`, `internal/bootstrap` | HTTP server runtime |
+| `connectrpc.com/connect` | Go API | ConnectRPC handlers |
+| `@connectrpc/connect`, `@connectrpc/connect-web` | `packages/connect`, `apps/web` | Browser ConnectRPC client |
+| `next`, `react`, `react-dom` | `apps/web` | Operator console |
+| `@prisma/client`, `prisma` | API, workers, MCP, scripts | Database client and migrations |
+| `zod` | shared TypeScript schemas | Runtime validation for TS surfaces |
+| `nats` | workers/event bus | Optional event publication |
+| `tsx`, `typescript` | workers, tests, scripts | TypeScript execution and checking |
 
-## Database and tooling libraries
+## Removed runtime dependencies
 
-| Dependency | Where it shows up | Why it matters |
-| --- | --- | --- |
-| `prisma` | root scripts, `packages/db/prisma/schema.prisma` | Schema validation and client generation |
-| `typescript` | `tsconfig.json` | Type checking |
-| `autoprefixer` / `postcss` | `apps/web` | CSS build support |
-
-## Native or platform dependencies
-
-| Dependency | Source | Why it matters |
-| --- | --- | --- |
-| PostgreSQL | `docker-compose.yml`, `DATABASE_URL` | Main backing store |
-| Node.js | root scripts | Runs all apps and workers |
-
-## Not present in this checkout
-
-A few common repo-level tools are notably absent from the visible config:
-
-- ESLint
-- Prettier
-- Jest / Vitest
-- Playwright / Cypress
-- end-to-end browser testing
-
-That absence explains why the repo leans heavily on type checking, Prisma validation, API tests, CI, and manual smoke tests.
-
-For scripts built on these dependencies, go to [Tooling](../how-to-contribute/tooling.md). For the data layer they support, go to [DB](../packages/db.md).
+The legacy Express API dependencies (`express`, `cors`, `helmet`, `compression`) are no longer present. Browser CORS and HTTP hardening live in the Go API and deployment edge configuration.

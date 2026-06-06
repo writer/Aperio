@@ -66,4 +66,4 @@ erDiagram
 
 Schema changes start in `packages/db/prisma/schema.prisma`, then flow outward into route handlers, workers, and UI types. Because there are no migration files in this checkout, local development typically uses `prisma db push` rather than checked-in SQL migrations.
 
-For the package that owns this schema, go to [DB](../packages/db.md). For the API and UI that use it, go to [API](../apps/api.md) and [Web](../apps/web.md).
+For the package that owns this schema, go to [DB](../packages/db.md). For the Go API and UI that use it, go to [API](../apps/api.md) and [Web](../apps/web.md).
