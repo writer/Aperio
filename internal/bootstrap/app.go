@@ -215,6 +215,7 @@ func (a *App) Handler() http.Handler {
 func (a *App) routes() {
 	a.mux.HandleFunc("/healthz", a.handleHealthz)
 	a.mux.HandleFunc("/readyz", a.handleReadyz)
+	a.mux.HandleFunc("/api/v1/integrations/google-workspace/oauth/callback", a.handleGoogleOAuthCallback)
 	path, handler := aperiov1connect.NewAperioServiceHandler(a)
 	a.mux.Handle(path, handler)
 }

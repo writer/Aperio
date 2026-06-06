@@ -162,7 +162,7 @@ func (a *App) dispatchCompatAPI(
 		if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 			return nil, err
 		}
-		return compatGoogleOAuthStart(body), nil
+		return a.compatGoogleOAuthStart(body, auth)
 	case method == http.MethodGet && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "google-mailbox-scan":
 		return a.compatGoogleMailboxConfig(ctx, segments[3], auth)
 	case method == http.MethodPatch && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "google-mailbox-scan":
@@ -713,11 +713,6 @@ func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": compatFindingCheckStatuses(provider, disabled)}}, nil
-}
-
-func compatGoogleOAuthStart(body map[string]any) any {
-	mode := url.QueryEscape(stringDefault(body, "mode", "READ_ONLY"))
-	return map[string]any{"data": map[string]string{"url": "/connectors?googleWorkspaceOAuth=configure&mode=" + mode}}
 }
 
 func (a *App) compatGoogleMailboxConfig(ctx context.Context, id string, auth compatAuth) (any, error) {
