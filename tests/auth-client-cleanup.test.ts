@@ -114,3 +114,21 @@ test("frontend requests rely on cookies instead of Authorization bearer headers"
     );
   }
 });
+
+test("frontend sources do not expose the CallApi compatibility bridge", () => {
+  const browserSources = [
+    ...sourceFilesUnder("apps/web"),
+    ...sourceFilesUnder("packages/connect/src")
+  ].filter(
+    (relativePath) => !relativePath.includes(`${path.sep}gen${path.sep}`)
+  );
+
+  for (const relativePath of browserSources) {
+    const source = readRepoFile(relativePath);
+    assert.doesNotMatch(
+      source,
+      /\bcallApi\b|\/api\/v1\//,
+      `${relativePath} must use typed Connect helpers instead of the legacy compatibility bridge`
+    );
+  }
+});
