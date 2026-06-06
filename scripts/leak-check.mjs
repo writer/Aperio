@@ -38,10 +38,11 @@ function walk(directory) {
     const lines = content.split(/\r?\n/);
     for (const [pattern, label] of patterns) {
       for (const [index, line] of lines.entries()) {
+        const normalized = line.toLowerCase();
         if (
-          line.includes("placeholder") ||
-          line.includes("example") ||
-          line.includes("development-demo")
+          normalized.includes("placeholder") ||
+          normalized.includes("example") ||
+          normalized.includes("development-demo")
         ) {
           continue;
         }
