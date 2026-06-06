@@ -329,6 +329,8 @@ export type ConnectRemediationResult = {
 const transport = createConnectTransport({
   baseUrl: CONNECT_BASE_URL,
   fetch(input, init) {
+    // ConnectRPC calls use the same HttpOnly session cookie as the compatibility
+    // API, and no-store avoids showing stale security posture after mutations.
     return fetch(input, {
       ...init,
       credentials: "include",
@@ -344,12 +346,18 @@ function parseEvidence(evidenceJson: string) {
     return undefined;
   }
   const parsed = JSON.parse(evidenceJson) as unknown;
+  // Evidence is an open-ended JSON object produced by provider-specific
+  // detectors. Keep it typed as a record for UI rendering without coupling this
+  // bridge to every detector schema.
   return parsed && typeof parsed === "object"
     ? (parsed as Record<string, unknown>)
     : undefined;
 }
 
 function findingFromProto(finding: ProtoFinding): ConnectFinding {
+  // Generated proto3 strings default to "", while the web API contract uses
+  // null for absent optional fields. Normalize at the edge so components do not
+  // need to know protobuf defaulting rules.
   return {
     id: finding.id,
     assetId: finding.assetId || null,
@@ -394,6 +402,8 @@ function integrationFromProto(
 function connectorDefinitionFromProto(
   definition: ProtoConnectorDefinition
 ): ConnectConnectorDefinition {
+  // Catalog definitions are authored in Go and rendered directly by React; casts
+  // here preserve the narrower UI unions while the proto contract stays stringly.
   return {
     provider: definition.provider as ConnectProvider,
     name: definition.name,
@@ -553,6 +563,8 @@ function shadowItGrantFromProto(
 }
 
 function securityAssetFromProto(asset: ProtoSecurityAsset): ConnectSecurityAsset {
+  // Asset ownership and integration refs are optional nested messages. Collapse
+  // missing messages and empty proto strings into nulls for stable React checks.
   return {
     id: asset.id,
     type: asset.type,
@@ -648,6 +660,8 @@ export const aperioConnectClient = {
     path: string;
     body?: unknown;
   }): Promise<T> {
+    // callApi is the JSON compatibility escape hatch used while older routes are
+    // migrated to first-class protobuf methods.
     const response = await client.callApi({
       method: input.method,
       path: input.path,
@@ -673,6 +687,8 @@ export const aperioConnectClient = {
     data: ConnectFinding[];
     pageInfo: { total: number; nextCursor: string | null };
   }> {
+    // Default to OPEN findings to match the security triage view; callers that
+    // need full history must explicitly pass status: "ALL".
     const response = await client.listFindings({
       severity: filters?.severity ?? "",
       status: filters?.status === "ALL" ? "ALL" : filters?.status ?? "OPEN",
@@ -743,6 +759,8 @@ export const aperioConnectClient = {
   async createIntegration(
     payload: ConnectIntegrationPayload
   ): Promise<{ data: ConnectIntegrationConnection }> {
+    // Empty strings are used for absent proto fields because optional scalar
+    // presence is not relied on by the Go compatibility layer.
     const response = await client.createIntegration({
       provider: payload.provider,
       displayName: payload.displayName,
@@ -817,6 +835,8 @@ export const aperioConnectClient = {
   async startGoogleWorkspaceOAuth(
     mode: "READ_ONLY" | "REMEDIATION"
   ): Promise<{ data: { url: string } }> {
+    // Google Workspace is intentionally OAuth-only in the UI; the callback fills
+    // in tenant identity and encrypted tokens server-side.
     const response = await client.startGoogleWorkspaceOAuth({ mode });
     return { data: { url: response.data?.url ?? "" } };
   },
