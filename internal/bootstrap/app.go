@@ -597,8 +597,9 @@ func (a *App) CreateIntegration(
 		return nil, connect.NewError(connect.CodeInternal, errors.New("integration webhook secret encryption failed"))
 	}
 	scopes := compatScopesForMode(provider, mode)
+	disabledChecks := compatDefaultDisabledChecks(provider)
 	id := compatID("int")
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, mode, scopes); err != nil {
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,$11,NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, mode, scopes, disabledChecks); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
@@ -611,7 +612,7 @@ func (a *App) CreateIntegration(
 			Status:            "CONNECTED",
 			Mode:              mode,
 			Scopes:            scopes,
-			DisabledChecks:    []string{},
+			DisabledChecks:    disabledChecks,
 			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
 		},
 	}), nil
@@ -659,10 +660,14 @@ func (a *App) UpdateIntegrationChecks(
 	}
 	id := strings.TrimSpace(req.Msg.IntegrationId)
 	disabled := req.Msg.DisabledChecks
-	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID); err != nil {
+	var provider string
+	if err := a.db.QueryRowContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3 RETURNING provider::text`, disabled, id, auth.OrganizationID).Scan(&provider); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: integrationCheckStateProto(id, disabled)}), nil
+	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: integrationCheckStateProto(id, provider, disabled)}), nil
 }
 
 func (a *App) GetGoogleMailboxScanConfig(
@@ -866,20 +871,21 @@ func (a *App) TestSiemDestination(
 }
 
 func (a *App) integrationChecksProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.IntegrationCheckState, error) {
+	var provider string
 	var disabledJSON string
-	if err := a.db.QueryRowContext(ctx, `SELECT array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&disabledJSON); err != nil {
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &disabledJSON); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
 	}
 	disabled := []string{}
 	_ = json.Unmarshal([]byte(disabledJSON), &disabled)
-	return integrationCheckStateProto(id, disabled), nil
+	return integrationCheckStateProto(id, provider, disabled), nil
 }
 
-func integrationCheckStateProto(id string, disabled []string) *aperiov1.IntegrationCheckState {
+func integrationCheckStateProto(id string, provider string, disabled []string) *aperiov1.IntegrationCheckState {
 	return &aperiov1.IntegrationCheckState{
 		IntegrationId:  id,
 		DisabledChecks: disabled,
-		Checks:         []*aperiov1.FindingCheckStatus{},
+		Checks:         findingCheckStatusesProto(compatFindingCheckStatuses(provider, disabled)),
 	}
 }
 
@@ -896,45 +902,122 @@ func (a *App) googleMailboxScanConfigProto(ctx context.Context, id string, auth 
 }
 
 func connectorCatalogProto() []*aperiov1.ConnectorDefinition {
-	providers := []string{"GITHUB", "SLACK", "GOOGLE_WORKSPACE", "ONE_PASSWORD", "OKTA", "MICROSOFT_365", "ATLASSIAN"}
-	out := make([]*aperiov1.ConnectorDefinition, 0, len(providers))
-	for _, provider := range providers {
-		out = append(out, &aperiov1.ConnectorDefinition{
-			Provider:           provider,
-			Name:               strings.ReplaceAll(provider, "_", " "),
-			Category:           "Productivity",
-			Availability:       "preview",
-			Description:        "Go-managed connector",
-			ReadScopes:         []string{},
-			RemediationScopes:  []string{},
-			RemediationActions: []*aperiov1.RemediationAction{},
-			FindingChecks:      []*aperiov1.FindingCheck{},
-			DocsUrl:            "",
-			Fields: []*aperiov1.ConnectorField{{
-				Key:      "accessToken",
-				Label:    "Access token",
-				Type:     "password",
-				Required: true,
-				Secret:   true,
-			}},
-		})
+	catalog := compatConnectorCatalog()
+	out := make([]*aperiov1.ConnectorDefinition, 0, len(catalog))
+	for _, definition := range catalog {
+		out = append(out, connectorDefinitionProto(definition))
 	}
 	return out
 }
 
 func siemCatalogProto() []*aperiov1.SiemDestinationDefinition {
-	kinds := []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE"}
-	out := make([]*aperiov1.SiemDestinationDefinition, 0, len(kinds))
-	for _, kind := range kinds {
-		label := strings.ReplaceAll(kind, "_", " ")
-		out = append(out, &aperiov1.SiemDestinationDefinition{
-			Kind:           kind,
-			Name:           label,
-			Vendor:         label,
-			Description:    "Go-managed SIEM destination",
-			Category:       "Generic",
-			DefaultStreams: []string{"FINDINGS"},
-			Fields:         []*aperiov1.SiemField{},
+	catalog := compatSiemCatalog()
+	out := make([]*aperiov1.SiemDestinationDefinition, 0, len(catalog))
+	for _, definition := range catalog {
+		out = append(out, siemDestinationDefinitionProto(definition))
+	}
+	return out
+}
+
+func connectorDefinitionProto(definition connectorDefinition) *aperiov1.ConnectorDefinition {
+	return &aperiov1.ConnectorDefinition{
+		Provider:           definition.Provider,
+		Name:               definition.Name,
+		Category:           definition.Category,
+		Availability:       definition.Availability,
+		ReadinessNote:      definition.ReadinessNote,
+		Description:        definition.Description,
+		ReadScopes:         append([]string{}, definition.ReadScopes...),
+		RemediationScopes:  append([]string{}, definition.RemediationScopes...),
+		RemediationActions: remediationActionsProto(definition.RemediationActions),
+		FindingChecks:      findingChecksProto(definition.FindingChecks),
+		DocsUrl:            definition.DocsURL,
+		Fields:             connectorFieldsProto(definition.Fields),
+	}
+}
+
+func connectorFieldsProto(fields []connectorField) []*aperiov1.ConnectorField {
+	out := make([]*aperiov1.ConnectorField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, &aperiov1.ConnectorField{
+			Key:         field.Key,
+			Label:       field.Label,
+			Placeholder: field.Placeholder,
+			Helper:      field.Helper,
+			Type:        field.Type,
+			Required:    field.Required,
+			Secret:      field.Secret,
+		})
+	}
+	return out
+}
+
+func remediationActionsProto(actions []remediationAction) []*aperiov1.RemediationAction {
+	out := make([]*aperiov1.RemediationAction, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, &aperiov1.RemediationAction{
+			Key:          action.Key,
+			Label:        action.Label,
+			Description:  action.Description,
+			SeverityHint: action.SeverityHint,
+		})
+	}
+	return out
+}
+
+func findingChecksProto(checks []findingCheck) []*aperiov1.FindingCheck {
+	out := make([]*aperiov1.FindingCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, &aperiov1.FindingCheck{
+			Key:            check.Key,
+			Title:          check.Title,
+			Description:    check.Description,
+			SeverityHint:   check.SeverityHint,
+			DefaultEnabled: check.DefaultEnabled,
+		})
+	}
+	return out
+}
+
+func findingCheckStatusesProto(statuses []findingCheckStatus) []*aperiov1.FindingCheckStatus {
+	out := make([]*aperiov1.FindingCheckStatus, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, &aperiov1.FindingCheckStatus{
+			Key:            status.Key,
+			Title:          status.Title,
+			Description:    status.Description,
+			SeverityHint:   status.SeverityHint,
+			DefaultEnabled: status.DefaultEnabled,
+			Enabled:        status.Enabled,
+		})
+	}
+	return out
+}
+
+func siemDestinationDefinitionProto(definition siemDestinationDefinition) *aperiov1.SiemDestinationDefinition {
+	return &aperiov1.SiemDestinationDefinition{
+		Kind:           definition.Kind,
+		Name:           definition.Name,
+		Vendor:         definition.Vendor,
+		Description:    definition.Description,
+		Category:       definition.Category,
+		DocsUrl:        definition.DocsURL,
+		DefaultStreams: append([]string{}, definition.DefaultStreams...),
+		Fields:         siemFieldsProto(definition.Fields),
+	}
+}
+
+func siemFieldsProto(fields []siemField) []*aperiov1.SiemField {
+	out := make([]*aperiov1.SiemField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, &aperiov1.SiemField{
+			Key:         field.Key,
+			Label:       field.Label,
+			Placeholder: field.Placeholder,
+			Helper:      field.Helper,
+			Type:        field.Type,
+			Required:    field.Required,
+			Secret:      field.Secret,
 		})
 	}
 	return out

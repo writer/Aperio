@@ -393,6 +393,48 @@ func TestCompatEncryptStringUsesSharedEnvelope(t *testing.T) {
 	}
 }
 
+func TestTypedCatalogProjectionsUseCompatDefinitions(t *testing.T) {
+	connectors := connectorCatalogProto()
+	if len(connectors) == 0 {
+		t.Fatal("expected connector catalog entries")
+	}
+	var github *aperiov1.ConnectorDefinition
+	for _, connector := range connectors {
+		if connector.Provider == "GITHUB" {
+			github = connector
+			break
+		}
+	}
+	if github == nil {
+		t.Fatal("expected GitHub connector definition")
+	}
+	if github.Category != "Source Control" {
+		t.Fatalf("expected real GitHub category, got %q", github.Category)
+	}
+	if len(github.ReadScopes) == 0 || len(github.Fields) == 0 || len(github.FindingChecks) == 0 {
+		t.Fatal("expected real scopes, fields, and finding checks")
+	}
+
+	disabled := compatDefaultDisabledChecks("GITHUB")
+	if len(disabled) == 0 {
+		t.Fatal("expected at least one default-disabled GitHub check")
+	}
+	state := integrationCheckStateProto("integration_1", "GITHUB", disabled)
+	if len(state.Checks) != len(github.FindingChecks) {
+		t.Fatalf("expected %d check statuses, got %d", len(github.FindingChecks), len(state.Checks))
+	}
+	for _, check := range state.Checks {
+		if check.Key == disabled[0] && check.Enabled {
+			t.Fatalf("expected default-disabled check %q to be disabled", check.Key)
+		}
+	}
+
+	siem := siemCatalogProto()
+	if len(siem) == 0 || len(siem[0].Fields) == 0 || siem[0].DocsUrl == "" {
+		t.Fatal("expected real SIEM catalog definitions")
+	}
+}
+
 func TestCompatTOTPVerifiesGeneratedCode(t *testing.T) {
 	secret := "JBSWY3DPEHPK3PXP"
 	counter := uint64(time.Now().Unix() / 30)
