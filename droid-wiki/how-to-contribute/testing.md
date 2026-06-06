@@ -1,68 +1,28 @@
 # Testing
 
-This checkout has a focused `node:test` API/security suite under `tests/`. The current strategy is static validation, Prisma schema checks, production dependency audit, API tests, and targeted smoke tests.
+Use targeted checks while iterating and the full validator set before merging.
 
-## Baseline validation
-
-Run these for most changes:
+## Core commands
 
 ```bash
 npm run typecheck
 npm run test:api
-npm run build:web
+npm run test:go
 npm run db:validate
-npm run audit:prod
+npm run build:web
+npm run leak:check
+npm run proto:lint
 ```
 
-For PR parity, run:
+`npm run test:api` now covers TypeScript package/contract tests, not an Express server. Go API behavior is covered by `npm run test:go`.
 
-```bash
-npm run verify
-```
+## Areas to cover
 
-If you changed the Prisma schema, also run:
+- ConnectRPC handlers and compatibility dispatch in `internal/bootstrap`.
+- Web API facade behavior in `apps/web/lib/api.ts`.
+- Connector lifecycle and force-sync queue writes.
+- Ingestion worker rule evaluation and finding dedupe.
+- SIEM dispatcher adapter behavior and retry/dead-letter handling.
+- MCP broker tool schemas and tenant scoping.
 
-```bash
-npx prisma migrate dev --schema packages/db/prisma/schema.prisma
-npm run db:generate
-```
-
-## What to smoke test
-
-### Connector changes
-
-- `GET /api/v1/integrations/catalog`
-- connect or disconnect through `apps/web/components/connectors/connectors-page.tsx`
-- fetch and update check state through `apps/api/src/routes/integrations.ts`
-
-### Finding and remediation changes
-
-- `POST /api/v1/ingestion/events`
-- `GET /api/v1/findings`
-- `POST /api/v1/findings/:id/remediate`
-- dashboard modal flow in `apps/web/components/dashboard/dashboard-page.tsx`
-
-### SIEM changes
-
-- `GET /api/v1/siem/catalog`
-- create, test, and delete destinations through `apps/api/src/routes/siem.ts`
-- verify outbox behavior in `workers/siem-dispatcher.ts`
-
-### Agent changes
-
-- `GET /api/v1/agents`
-- create tasks and proposals through `apps/api/src/routes/agents.ts`
-- initialize and `tools/list` the broker in `apps/mcp/src/server.ts`
-
-## Demo data helpers
-
-Use `npx tsx scripts/seed.ts` to create one tenant, three integrations, and three findings. That is the quickest way to get the dashboard, apps page, and admin page into a useful state.
-
-## What is missing
-
-- no Jest, Vitest, Playwright, or Cypress config
-- no load test or contract test harness
-
-That gap shows up in the code structure. Large files like `apps/web/components/connectors/connectors-page.tsx` and `apps/web/components/admin/admin-page.tsx` are validated mostly by type safety, API tests, and manual runs.
-
-For day-to-day commands, go to [Development workflow](development-workflow.md). For common failures to check during smoke tests, go to [Debugging](debugging.md).
+For integration features, include cross-runtime tests when Go writes data that TypeScript workers later consume, especially encrypted credentials and queue payloads.

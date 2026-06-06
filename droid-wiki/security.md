@@ -1,43 +1,33 @@
 # Security
 
-Aperio is a security product, so the most important implementation details are the tenant boundary, role checks, and secret handling. Those controls live mainly in `apps/api/src/middleware/security.ts`, `packages/security/src/crypto.ts`, and the tenant-scoped Prisma queries throughout `apps/api/src/routes/*.ts`.
+Aperio is a security product, so the most important implementation details are tenant boundaries, role checks, credential encryption, session safety, and outbound integration controls.
 
-## Main controls
+## Tenant and session boundary
 
-### Authentication and demo fallback
+- The Go API validates the `aperio_session` HttpOnly cookie against hashed session tokens in `user_sessions`.
+- Cookie-backed unsafe methods require a trusted browser origin derived from `APERIO_WEB_ORIGIN`.
+- API handlers scope reads and writes by organization ID.
+- Background workers lease organization-scoped jobs/deliveries from Postgres.
+- Development demo auth is controlled by explicit environment flags and should stay disabled in shared environments.
 
-`apps/api/src/middleware/security.ts` accepts bearer tokens for API compatibility and an `HttpOnly`, `SameSite=Lax` session cookie for the web console. Cookie-backed unsafe methods require an allowed `Origin`/`Referer` derived from `APERIO_WEB_ORIGIN`. In non-production, auth can fall back to `DEMO_USER_ID` and `DEMO_ORGANIZATION_ID`, which is convenient locally but should be understood before exposing a deployment.
+## Roles
 
-### Tenant isolation
+Role checks live in `internal/bootstrap/compat_api.go` for compatibility workflows and in typed RPC handlers as workflows are promoted. Owner/admin-only mutations include tenant settings, member management, connector writes, SIEM writes, and remediation approval paths.
 
-Every route mounted under `/api/v1` uses `requireTenant`, and route handlers include `organizationId: tenantReq.tenantId` in their Prisma queries. The A2A routes also validate that referenced tasks, findings, and agents belong to the same tenant.
+## Secrets
 
-### Role enforcement
+Credential material is encrypted at rest with AES-256-GCM helpers in `packages/security/src/crypto.ts`. Go compatibility handlers must write data in the same envelope format consumed by TypeScript workers.
 
-Privileged routes use `requireRole(...)`, especially around admin settings, member updates, and proposal approvals. Roles are stored in the `Role` model in `packages/db/prisma/schema.prisma`.
+Sensitive paths:
 
-### Secret encryption
-
-`packages/security/src/crypto.ts` encrypts integration and SIEM credentials with AES-256-GCM and binds them to a record-specific AAD string. Secrets are decrypted only when a worker or route needs them.
-
-### Audit logging
-
-Routes for connectors, SIEM destinations, admin settings, remediation actions, and proposal decisions all write `TenantAuditLog` entries.
-
-## Security-relevant files
-
-| File | Why it matters |
+| Path | Why it matters |
 | --- | --- |
-| `apps/api/src/middleware/security.ts` | Auth and tenant boundary |
-| `packages/security/src/crypto.ts` | Secret encryption/decryption |
-| `apps/api/src/routes/integrations.ts` | Stores provider credentials |
-| `apps/api/src/routes/siem.ts` | Stores SIEM credentials |
-| `apps/api/src/routes/admin.ts` | Role-sensitive admin mutations |
-| `apps/api/src/routes/agents.ts` | Proposal approvals and agent tenant checks |
+| `internal/bootstrap/compat_api.go` | Auth, role gates, credential persistence, compatibility mutations |
+| `packages/security/src/crypto.ts` | Shared encryption envelope and password helpers |
+| `workers/ingestion-worker.ts` | Decrypts connector credentials and writes findings/assets |
+| `workers/siem-dispatcher.ts` | Decrypts SIEM credentials and sends outbound data |
+| `apps/mcp/src/server.ts` | Agent-facing tools backed by tenant data |
 
-## Known limits in this checkout
+## Outbound safety
 
-- Local demo-mode auth can mask real auth issues if you forget the environment mode.
-- External provider tokens are stored securely, but the repo does not yet show secret rotation workflows.
-
-For the encryption implementation, go to [Security package](packages/security.md). For environment variables that influence auth and crypto, go to [Configuration](reference/configuration.md).
+SIEM destinations should reject private/link-local endpoints unless explicitly intended, never log raw tokens, and store only encrypted credentials. Test dispatch and force-sync flows should use the same queue contracts as production dispatch paths.

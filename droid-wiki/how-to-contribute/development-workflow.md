@@ -1,64 +1,40 @@
 # Development workflow
 
-The repo uses one root `package.json`, one Prisma schema, and several app entry points. Most work starts with the database, then the API, then the web UI.
-
-## Usual workflow
-
-1. Start Postgres from `docker-compose.yml`.
-2. Update `.env` from `.env.example` if needed.
-3. If the schema changes, run `npx prisma db push --schema packages/db/prisma/schema.prisma` and `npm run db:generate`.
-4. Start the API with `npm run dev:api`.
-5. Start the web app with `npm run dev:web`.
-6. Seed demo data with `npx tsx scripts/seed.ts` if the UI needs fixtures.
-7. Run validation commands before you stop.
-
-## Commands you will actually use
+1. Install Node, npm, Go, and Docker.
+2. Copy `.env.example` to `.env` and fill in local secrets.
+3. Start Postgres with `docker compose up -d`.
+4. Run migrations with Prisma.
+5. Start the Go API with `npm run dev:connect`.
+6. Start the web console and any workers you need.
 
 ```bash
-npm run dev:api
+npm install
+npm run db:generate
+npx prisma migrate dev --schema packages/db/prisma/schema.prisma
+npm run dev:connect
 npm run dev:web
 npm run mcp:broker
 npm run worker:ingestion
 npm run worker:siem
-npm run typecheck
-npm run build:web
-npm run db:generate
-npm run db:validate
 ```
 
-## Schema-first changes
+## Validation
 
-If you touch `packages/db/prisma/schema.prisma`, follow this order:
+Run the fastest relevant checks while iterating, then run the broader set before opening a PR:
 
-1. Update the schema.
-2. Push the schema to the local database.
-3. Regenerate the Prisma client.
-4. Fix TypeScript errors in routes, workers, and UI types.
-5. Smoke test the changed flows.
+```bash
+npm run typecheck
+npm run test:api
+npm run test:go
+npm run db:validate
+npm run build:web
+npm run leak:check
+npm run proto:lint
+```
 
-## API-first changes
+## Where to start
 
-For route work in `apps/api/src/routes/*.ts`:
-
-- add or update Zod schemas in `packages/shared/src/*.ts` when the payload is reused
-- keep tenant scoping on every query
-- write audit logs for privileged actions
-- return serialized dates as ISO strings
-
-## UI-first changes
-
-For web changes in `apps/web/components/**/*.tsx`:
-
-- start from `apps/web/lib/api.ts`
-- match existing component patterns in `apps/web/components/ui/*.tsx`
-- prefer adding fields to shared API types over inline `any`
-- smoke test the route in the browser after `npm run build:web`
-
-## Agent and SIEM changes
-
-These features span more than one process. If you touch them, trace the end-to-end flow:
-
-- A2A: `packages/shared/src/a2a.ts` -> `apps/api/src/routes/agents.ts` -> `apps/mcp/src/server.ts`
-- SIEM: `packages/shared/src/siem.ts` -> `apps/api/src/routes/siem.ts` -> `workers/siem-dispatcher.ts` -> UI in `apps/web/components/connectors/siem-section.tsx`
-
-For validation advice, go to [Testing](testing.md). For debugging patterns, go to [Debugging](debugging.md).
+- API contract work: `proto/aperio/v1/api.proto` -> `internal/bootstrap` -> `packages/connect/src` -> `apps/web/lib/api.ts`
+- Connector work: `internal/bootstrap/compat_api.go`, `packages/shared/src/connectors.ts`, `workers/ingestion-worker.ts`, connector UI
+- SIEM work: `internal/bootstrap/compat_api.go`, `packages/shared/src/siem.ts`, `workers/siem-dispatcher.ts`, SIEM UI
+- Agent work: `packages/shared/src/a2a.ts`, `internal/bootstrap/compat_api.go`, `apps/mcp/src/server.ts`

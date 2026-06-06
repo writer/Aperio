@@ -1,73 +1,44 @@
 # Architecture
 
-Aperio has three runnable surfaces: the Express API in `apps/api/src/server.ts`, the Next.js console in `apps/web/app/layout.tsx`, and the MCP broker in `apps/mcp/src/server.ts`. Shared schemas live in `packages/shared/src/*.ts`, persistent state lives in `packages/db/prisma/schema.prisma`, and secret handling lives in `packages/security/src/crypto.ts`.
-
-## System layout
+Aperio has four active runtime surfaces: the Go/ConnectRPC API, the Next.js console, the MCP broker, and TypeScript background workers. Shared schemas live in `packages/shared/src`, persistent state lives in `packages/db/prisma/schema.prisma`, and secret handling lives in `packages/security/src/crypto.ts`.
 
 ```mermaid
 flowchart LR
-  UI[Next.js web app\napps/web] -->|HTTP JSON| API[Express API\napps/api/src/server.ts]
-  API -->|Prisma| DB[(PostgreSQL)]
-  API -->|enqueue events| IW[Ingestion worker\nworkers/ingestion-worker.ts]
-  IW -->|writes findings| DB
-  IW -->|enqueue outbox| SD[SIEM dispatcher\nworkers/siem-dispatcher.ts]
-  SD --> SIEM[Splunk / Panther / Elastic / Webhook / File]
-  MCP[MCP broker\napps/mcp/src/server.ts] -->|Prisma| DB
-  API -->|shared contracts| Shared[packages/shared]
-  MCP -->|shared contracts| Shared
-  API -->|encrypt/decrypt| Crypto[packages/security/src/crypto.ts]
-  SD -->|decrypt tokens| Crypto
+  UI[Next.js web app\napps/web] -->|ConnectRPC / CallApi| API[Go API\ncmd/aperio + internal/bootstrap]
+  API -->|Prisma/Postgres| DB[(Postgres)]
+  Worker[Ingestion worker\nworkers/ingestion-worker.ts] --> DB
+  SIEM[SIEM dispatcher\nworkers/siem-dispatcher.ts] --> DB
+  SIEM --> Destinations[Splunk / Panther / Elastic / Datadog / Webhook / JSONL]
+  MCP[MCP broker\napps/mcp/src/server.ts] --> DB
 ```
 
-## Request and processing flow
+## API boundary
+
+The Go API exposes typed ConnectRPC methods from `proto/aperio/v1/api.proto`. The web console also sends REST-shaped `/api/v1/*` requests through the `CallApi` RPC in `apps/web/lib/api.ts`; those routes are compatibility handlers in `internal/bootstrap/compat_api.go` until each workflow graduates to typed RPCs.
+
+## Ingestion and SIEM flow
 
 ```mermaid
 sequenceDiagram
-  participant Browser
-  participant API as apps/api
-  participant DB as Prisma/Postgres
+  participant UI as Operator UI
+  participant API as Go API
+  participant DB as Postgres
   participant Worker as ingestion-worker
-  participant Dispatcher as siem-dispatcher
+  participant SIEM as siem-dispatcher
 
-  Browser->>API: POST /api/v1/ingestion/events
-  API->>Worker: enqueueIngestionPayload(...)
-  Worker->>DB: create IngestedEvent
-  Worker->>DB: upsert SecurityFinding
-  Worker->>DB: create SiemDelivery rows
-  Dispatcher->>DB: claim pending deliveries
-  Dispatcher->>Dispatcher: build aperio.finding.v1 envelope
-  Dispatcher->>Browser: no direct response
+  UI->>API: Connect/force-sync provider
+  API->>DB: Store connector / enqueue ingestion job
+  Worker->>DB: Lease ingestion job and write findings/assets
+  Worker->>DB: Create SIEM delivery rows
+  SIEM->>DB: Lease delivery rows
+  SIEM-->>SIEM: Adapt canonical envelope
+  SIEM->>DB: Mark delivered or retry/dead-letter
 ```
 
-## Major components
+## Security model
 
-| Component | Key files | Role |
-| --- | --- | --- |
-| Web console | `apps/web/app/page.tsx`, `apps/web/components/dashboard/dashboard-page.tsx`, `apps/web/components/connectors/connectors-page.tsx`, `apps/web/components/admin/admin-page.tsx` | Operator UI for findings, connectors, SIEM, apps, and admin settings |
-| REST API | `apps/api/src/server.ts`, `apps/api/src/routes/*.ts` | Tenant-scoped CRUD and action layer |
-| Background processing | `workers/ingestion-worker.ts`, `workers/siem-dispatcher.ts` | Event evaluation, finding creation, SIEM delivery |
-| MCP broker | `apps/mcp/src/server.ts` | JSON-RPC tool surface for A2A workflows |
-| Shared contracts | `packages/shared/src/types.ts`, `packages/shared/src/connectors.ts`, `packages/shared/src/siem.ts`, `packages/shared/src/a2a.ts` | Zod schemas, catalogs, and shared enums |
-| Persistence | `packages/db/prisma/schema.prisma`, `packages/db/src/client.ts` | Tenant data model and Prisma client |
-| Secret management | `packages/security/src/crypto.ts` | AES-256-GCM encryption with additional authenticated data |
-
-## Language mix in source files
-
-The bulk of the repo is TypeScript and TSX. Prisma is used for the schema, and CSS is minimal.
-
-```mermaid
-xychart-beta
-  title "Source lines by language"
-  x-axis [TypeScript, TSX, Prisma, CSS]
-  y-axis "Lines" 0 --> 6000
-  bar [5632, 3716, 444, 13]
-```
-
-## Design choices that matter
-
-- Every API route under `/api/v1` passes through `requireAuth` and `requireTenant` in `apps/api/src/middleware/security.ts`.
-- Connectors, SIEM destinations, and A2A workflows are all catalog or schema driven, which keeps the UI and API in sync through shared files in `packages/shared/src`.
-- Ingestion and SIEM delivery both use database-backed queues before fanout, which keeps accepted events and outbound deliveries durable across API restarts.
-- Remediation is intentionally narrower than detection. Only a few handlers in `apps/api/src/remediation/executor.ts` do real work today; the rest are explicit stubs.
-
-For setup details, go to [Getting started](getting-started.md). For the runtime surfaces, go to [Apps](../apps/index.md).
+- Sessions are stored in `user_sessions` and carried by the `aperio_session` HttpOnly cookie.
+- The Go API validates cookie token hashes directly against Postgres.
+- `APERIO_WEB_ORIGIN` controls credentialed browser CORS.
+- Tenant scoping is enforced in Go API queries and worker leases by `organization_id`.
+- Credentials are encrypted with AES-256-GCM helpers in `packages/security`.

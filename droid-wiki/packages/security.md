@@ -29,8 +29,8 @@ packages/security/
 | File | Purpose |
 | --- | --- |
 | `packages/security/src/crypto.ts` | Key resolution, envelope format, encrypt/decrypt implementation |
-| `apps/api/src/routes/integrations.ts` | Encrypts connector credentials before saving |
-| `apps/api/src/routes/siem.ts` | Encrypts SIEM tokens before saving |
+| `internal/bootstrap/compat_api.go` | Encrypts connector credentials before saving through Go compatibility handlers |
+| `internal/bootstrap/compat_api.go` | Encrypts SIEM credentials before saving through Go compatibility handlers |
 | `workers/ingestion-worker.ts` | Decrypts integration tokens before event processing |
 | `workers/siem-dispatcher.ts` | Decrypts SIEM tokens before delivery |
 

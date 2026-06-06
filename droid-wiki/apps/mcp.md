@@ -2,7 +2,7 @@
 
 Active contributors: unavailable in this checkout because git history is missing.
 
-The MCP broker is a stdio JSON-RPC server that exposes agent and SIEM operations to external agent clients. It is smaller than the REST API, but it is important because it turns the database-backed A2A model into a tool-based control surface.
+The MCP broker is a stdio JSON-RPC server that exposes agent and SIEM operations to external agent clients. It is separate from the Go API, but it is important because it turns the database-backed A2A model into a tool-based control surface.
 
 ## Directory layout
 
@@ -39,12 +39,12 @@ sequenceDiagram
 
 ## Integration points
 
-- Shares the same data model as the REST API through `packages/db/prisma/schema.prisma`
-- Reuses the same A2A schemas as `apps/api/src/routes/agents.ts`
+- Shares the same data model as the Go API through `packages/db/prisma/schema.prisma`
+- Reuses the same A2A schemas as the Go API compatibility handlers
 - Can enqueue SIEM payloads through `workers/siem-dispatcher.ts`
 
 ## Entry points for modification
 
-If you add a new MCP tool, update the `tools` catalog and `callTool` switch in `apps/mcp/src/server.ts`, then decide whether the payload schema belongs in `packages/shared/src/a2a.ts` or `packages/shared/src/siem.ts`. Keep broker behavior aligned with the REST agent model so the two surfaces do not drift.
+If you add a new MCP tool, update the `tools` catalog and `callTool` switch in `apps/mcp/src/server.ts`, then decide whether the payload schema belongs in `packages/shared/src/a2a.ts` or `packages/shared/src/siem.ts`. Keep broker behavior aligned with the Go API agent model so the two surfaces do not drift.
 
 For the REST version of the same workflows, go to [Agent orchestration](../features/agent-orchestration.md) and [API surface](../api/index.md).
