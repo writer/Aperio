@@ -940,15 +940,6 @@ func siemCatalogProto() []*aperiov1.SiemDestinationDefinition {
 	return out
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func optionalStringFromProto(value string) *string {
 	value = strings.TrimSpace(value)
 	if value == "" {
