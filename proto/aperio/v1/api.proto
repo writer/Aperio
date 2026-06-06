@@ -16,6 +16,7 @@ service AperioService {
   rpc ListShadowItOauthApps(ListShadowItOauthAppsRequest) returns (ListShadowItOauthAppsResponse);
   rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
   rpc ListSecurityAssets(ListSecurityAssetsRequest) returns (ListSecurityAssetsResponse);
+  rpc ListRiskExceptions(ListRiskExceptionsRequest) returns (ListRiskExceptionsResponse);
 }
 
 message CheckHealthRequest {}
@@ -228,4 +229,39 @@ message SecurityPrincipal {
   string id = 1;
   string email = 2;
   string display_name = 3;
+}
+
+message ListRiskExceptionsRequest {}
+
+message ListRiskExceptionsResponse {
+  repeated RiskException data = 1;
+}
+
+message RiskException {
+  string id = 1;
+  string title = 2;
+  string rationale = 3;
+  repeated string compensating_controls = 4;
+  string status = 5;
+  string expires_at = 6;
+  string approved_at = 7;
+  string created_at = 8;
+  string updated_at = 9;
+  RiskExceptionAsset asset = 10;
+  RiskExceptionFinding finding = 11;
+  SecurityPrincipal created_by = 12;
+  SecurityPrincipal approved_by = 13;
+}
+
+message RiskExceptionAsset {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+}
+
+message RiskExceptionFinding {
+  string id = 1;
+  string title = 2;
+  string severity = 3;
+  string status = 4;
 }

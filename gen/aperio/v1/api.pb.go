@@ -2130,6 +2130,354 @@ func (x *SecurityPrincipal) GetDisplayName() string {
 	return ""
 }
 
+type ListRiskExceptionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRiskExceptionsRequest) Reset() {
+	*x = ListRiskExceptionsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRiskExceptionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRiskExceptionsRequest) ProtoMessage() {}
+
+func (x *ListRiskExceptionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRiskExceptionsRequest.ProtoReflect.Descriptor instead.
+func (*ListRiskExceptionsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{31}
+}
+
+type ListRiskExceptionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*RiskException       `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRiskExceptionsResponse) Reset() {
+	*x = ListRiskExceptionsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRiskExceptionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRiskExceptionsResponse) ProtoMessage() {}
+
+func (x *ListRiskExceptionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRiskExceptionsResponse.ProtoReflect.Descriptor instead.
+func (*ListRiskExceptionsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ListRiskExceptionsResponse) GetData() []*RiskException {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type RiskException struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title                string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Rationale            string                 `protobuf:"bytes,3,opt,name=rationale,proto3" json:"rationale,omitempty"`
+	CompensatingControls []string               `protobuf:"bytes,4,rep,name=compensating_controls,json=compensatingControls,proto3" json:"compensating_controls,omitempty"`
+	Status               string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	ExpiresAt            string                 `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	ApprovedAt           string                 `protobuf:"bytes,7,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
+	CreatedAt            string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt            string                 `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Asset                *RiskExceptionAsset    `protobuf:"bytes,10,opt,name=asset,proto3" json:"asset,omitempty"`
+	Finding              *RiskExceptionFinding  `protobuf:"bytes,11,opt,name=finding,proto3" json:"finding,omitempty"`
+	CreatedBy            *SecurityPrincipal     `protobuf:"bytes,12,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	ApprovedBy           *SecurityPrincipal     `protobuf:"bytes,13,opt,name=approved_by,json=approvedBy,proto3" json:"approved_by,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *RiskException) Reset() {
+	*x = RiskException{}
+	mi := &file_aperio_v1_api_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RiskException) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RiskException) ProtoMessage() {}
+
+func (x *RiskException) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RiskException.ProtoReflect.Descriptor instead.
+func (*RiskException) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *RiskException) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RiskException) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *RiskException) GetRationale() string {
+	if x != nil {
+		return x.Rationale
+	}
+	return ""
+}
+
+func (x *RiskException) GetCompensatingControls() []string {
+	if x != nil {
+		return x.CompensatingControls
+	}
+	return nil
+}
+
+func (x *RiskException) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RiskException) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+func (x *RiskException) GetApprovedAt() string {
+	if x != nil {
+		return x.ApprovedAt
+	}
+	return ""
+}
+
+func (x *RiskException) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *RiskException) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *RiskException) GetAsset() *RiskExceptionAsset {
+	if x != nil {
+		return x.Asset
+	}
+	return nil
+}
+
+func (x *RiskException) GetFinding() *RiskExceptionFinding {
+	if x != nil {
+		return x.Finding
+	}
+	return nil
+}
+
+func (x *RiskException) GetCreatedBy() *SecurityPrincipal {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return nil
+}
+
+func (x *RiskException) GetApprovedBy() *SecurityPrincipal {
+	if x != nil {
+		return x.ApprovedBy
+	}
+	return nil
+}
+
+type RiskExceptionAsset struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RiskExceptionAsset) Reset() {
+	*x = RiskExceptionAsset{}
+	mi := &file_aperio_v1_api_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RiskExceptionAsset) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RiskExceptionAsset) ProtoMessage() {}
+
+func (x *RiskExceptionAsset) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RiskExceptionAsset.ProtoReflect.Descriptor instead.
+func (*RiskExceptionAsset) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RiskExceptionAsset) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RiskExceptionAsset) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RiskExceptionAsset) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+type RiskExceptionFinding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Severity      string                 `protobuf:"bytes,3,opt,name=severity,proto3" json:"severity,omitempty"`
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RiskExceptionFinding) Reset() {
+	*x = RiskExceptionFinding{}
+	mi := &file_aperio_v1_api_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RiskExceptionFinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RiskExceptionFinding) ProtoMessage() {}
+
+func (x *RiskExceptionFinding) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RiskExceptionFinding.ProtoReflect.Descriptor instead.
+func (*RiskExceptionFinding) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *RiskExceptionFinding) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RiskExceptionFinding) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *RiskExceptionFinding) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *RiskExceptionFinding) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
@@ -2315,7 +2663,40 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x11SecurityPrincipal\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName2\xef\x06\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"\x1b\n" +
+	"\x19ListRiskExceptionsRequest\"J\n" +
+	"\x1aListRiskExceptionsResponse\x12,\n" +
+	"\x04data\x18\x01 \x03(\v2\x18.aperio.v1.RiskExceptionR\x04data\"\x8a\x04\n" +
+	"\rRiskException\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1c\n" +
+	"\trationale\x18\x03 \x01(\tR\trationale\x123\n" +
+	"\x15compensating_controls\x18\x04 \x03(\tR\x14compensatingControls\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\tR\texpiresAt\x12\x1f\n" +
+	"\vapproved_at\x18\a \x01(\tR\n" +
+	"approvedAt\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\x123\n" +
+	"\x05asset\x18\n" +
+	" \x01(\v2\x1d.aperio.v1.RiskExceptionAssetR\x05asset\x129\n" +
+	"\afinding\x18\v \x01(\v2\x1f.aperio.v1.RiskExceptionFindingR\afinding\x12;\n" +
+	"\n" +
+	"created_by\x18\f \x01(\v2\x1c.aperio.v1.SecurityPrincipalR\tcreatedBy\x12=\n" +
+	"\vapproved_by\x18\r \x01(\v2\x1c.aperio.v1.SecurityPrincipalR\n" +
+	"approvedBy\"L\n" +
+	"\x12RiskExceptionAsset\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\"p\n" +
+	"\x14RiskExceptionFinding\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1a\n" +
+	"\bseverity\x18\x03 \x01(\tR\bseverity\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status2\xd2\a\n" +
 	"\rAperioService\x12L\n" +
 	"\vCheckHealth\x12\x1d.aperio.v1.CheckHealthRequest\x1a\x1e.aperio.v1.CheckHealthResponse\x12d\n" +
 	"\x13GetDashboardMetrics\x12%.aperio.v1.GetDashboardMetricsRequest\x1a&.aperio.v1.GetDashboardMetricsResponse\x12O\n" +
@@ -2326,7 +2707,8 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x14ListSiemDestinations\x12&.aperio.v1.ListSiemDestinationsRequest\x1a'.aperio.v1.ListSiemDestinationsResponse\x12j\n" +
 	"\x15ListShadowItOauthApps\x12'.aperio.v1.ListShadowItOauthAppsRequest\x1a(.aperio.v1.ListShadowItOauthAppsResponse\x12y\n" +
 	"\x1aListShadowItOauthAppGrants\x12,.aperio.v1.ListShadowItOauthAppGrantsRequest\x1a-.aperio.v1.ListShadowItOauthAppGrantsResponse\x12a\n" +
-	"\x12ListSecurityAssets\x12$.aperio.v1.ListSecurityAssetsRequest\x1a%.aperio.v1.ListSecurityAssetsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
+	"\x12ListSecurityAssets\x12$.aperio.v1.ListSecurityAssetsRequest\x1a%.aperio.v1.ListSecurityAssetsResponse\x12a\n" +
+	"\x12ListRiskExceptions\x12$.aperio.v1.ListRiskExceptionsRequest\x1a%.aperio.v1.ListRiskExceptionsResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
 
 var (
 	file_aperio_v1_api_proto_rawDescOnce sync.Once
@@ -2340,7 +2722,7 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_aperio_v1_api_proto_goTypes = []any{
 	(*CheckHealthRequest)(nil),                 // 0: aperio.v1.CheckHealthRequest
 	(*CheckHealthResponse)(nil),                // 1: aperio.v1.CheckHealthResponse
@@ -2373,10 +2755,15 @@ var file_aperio_v1_api_proto_goTypes = []any{
 	(*ListSecurityAssetsResponse)(nil),         // 28: aperio.v1.ListSecurityAssetsResponse
 	(*SecurityAsset)(nil),                      // 29: aperio.v1.SecurityAsset
 	(*SecurityPrincipal)(nil),                  // 30: aperio.v1.SecurityPrincipal
-	(*timestamppb.Timestamp)(nil),              // 31: google.protobuf.Timestamp
+	(*ListRiskExceptionsRequest)(nil),          // 31: aperio.v1.ListRiskExceptionsRequest
+	(*ListRiskExceptionsResponse)(nil),         // 32: aperio.v1.ListRiskExceptionsResponse
+	(*RiskException)(nil),                      // 33: aperio.v1.RiskException
+	(*RiskExceptionAsset)(nil),                 // 34: aperio.v1.RiskExceptionAsset
+	(*RiskExceptionFinding)(nil),               // 35: aperio.v1.RiskExceptionFinding
+	(*timestamppb.Timestamp)(nil),              // 36: google.protobuf.Timestamp
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
-	31, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
+	36, // 0: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
 	2,  // 1: aperio.v1.CheckHealthResponse.components:type_name -> aperio.v1.HealthComponent
 	5,  // 2: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
 	10, // 3: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
@@ -2394,29 +2781,36 @@ var file_aperio_v1_api_proto_depIdxs = []int32{
 	11, // 15: aperio.v1.SecurityAsset.integration:type_name -> aperio.v1.FindingIntegration
 	30, // 16: aperio.v1.SecurityAsset.owner:type_name -> aperio.v1.SecurityPrincipal
 	30, // 17: aperio.v1.SecurityAsset.business_owner:type_name -> aperio.v1.SecurityPrincipal
-	0,  // 18: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	3,  // 19: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	6,  // 20: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
-	8,  // 21: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
-	13, // 22: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
-	16, // 23: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
-	19, // 24: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
-	22, // 25: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
-	27, // 26: aperio.v1.AperioService.ListSecurityAssets:input_type -> aperio.v1.ListSecurityAssetsRequest
-	1,  // 27: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	4,  // 28: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	7,  // 29: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
-	9,  // 30: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
-	14, // 31: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
-	17, // 32: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
-	20, // 33: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
-	23, // 34: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
-	28, // 35: aperio.v1.AperioService.ListSecurityAssets:output_type -> aperio.v1.ListSecurityAssetsResponse
-	27, // [27:36] is the sub-list for method output_type
-	18, // [18:27] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	33, // 18: aperio.v1.ListRiskExceptionsResponse.data:type_name -> aperio.v1.RiskException
+	34, // 19: aperio.v1.RiskException.asset:type_name -> aperio.v1.RiskExceptionAsset
+	35, // 20: aperio.v1.RiskException.finding:type_name -> aperio.v1.RiskExceptionFinding
+	30, // 21: aperio.v1.RiskException.created_by:type_name -> aperio.v1.SecurityPrincipal
+	30, // 22: aperio.v1.RiskException.approved_by:type_name -> aperio.v1.SecurityPrincipal
+	0,  // 23: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	3,  // 24: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	6,  // 25: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	8,  // 26: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	13, // 27: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
+	16, // 28: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
+	19, // 29: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
+	22, // 30: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
+	27, // 31: aperio.v1.AperioService.ListSecurityAssets:input_type -> aperio.v1.ListSecurityAssetsRequest
+	31, // 32: aperio.v1.AperioService.ListRiskExceptions:input_type -> aperio.v1.ListRiskExceptionsRequest
+	1,  // 33: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	4,  // 34: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	7,  // 35: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	9,  // 36: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	14, // 37: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
+	17, // 38: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
+	20, // 39: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
+	23, // 40: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
+	28, // 41: aperio.v1.AperioService.ListSecurityAssets:output_type -> aperio.v1.ListSecurityAssetsResponse
+	32, // 42: aperio.v1.AperioService.ListRiskExceptions:output_type -> aperio.v1.ListRiskExceptionsResponse
+	33, // [33:43] is the sub-list for method output_type
+	23, // [23:33] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -2430,7 +2824,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

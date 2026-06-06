@@ -164,6 +164,31 @@ type securityAssetRow struct {
 	ActiveExceptionCount  int32
 }
 
+type riskExceptionRow struct {
+	ID                   string
+	Title                string
+	Rationale            string
+	CompensatingControls []string
+	Status               string
+	ExpiresAt            sql.NullTime
+	ApprovedAt           sql.NullTime
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	AssetID              string
+	AssetName            string
+	AssetType            string
+	FindingID            string
+	FindingTitle         string
+	FindingSeverity      string
+	FindingStatus        string
+	CreatedByID          string
+	CreatedByEmail       string
+	CreatedByName        string
+	ApprovedByID         string
+	ApprovedByEmail      string
+	ApprovedByName       string
+}
+
 // NewApp wires routes but does not open network sockets. Tests can mount the
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
@@ -535,6 +560,25 @@ func (a *App) ListSecurityAssets(
 		return nil, connect.NewError(connect.CodeInternal, errors.New("security assets unavailable"))
 	}
 	response := &aperiov1.ListSecurityAssetsResponse{Data: make([]*aperiov1.SecurityAsset, 0, len(rows))}
+	for _, row := range rows {
+		response.Data = append(response.Data, row.toProto())
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (a *App) ListRiskExceptions(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListRiskExceptionsRequest],
+) (*connect.Response[aperiov1.ListRiskExceptionsResponse], error) {
+	organizationID, err := a.authenticatedOrganization(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.listRiskExceptions(ctx, organizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("risk exceptions unavailable"))
+	}
+	response := &aperiov1.ListRiskExceptionsResponse{Data: make([]*aperiov1.RiskException, 0, len(rows))}
 	for _, row := range rows {
 		response.Data = append(response.Data, row.toProto())
 	}
@@ -1394,6 +1438,127 @@ func (row securityAssetRow) toProto() *aperiov1.SecurityAsset {
 		}
 	}
 	return asset
+}
+
+func (a *App) listRiskExceptions(ctx context.Context, organizationID string) ([]riskExceptionRow, error) {
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT
+			re.id,
+			re.title,
+			re.rationale,
+			array_to_json(re.compensating_controls)::text,
+			CASE
+				WHEN re.status = 'ACTIVE' AND re.expires_at IS NOT NULL AND re.expires_at <= NOW()
+					THEN 'EXPIRED'
+				ELSE re.status::text
+			END,
+			re.expires_at,
+			re.approved_at,
+			re.created_at,
+			re.updated_at,
+			COALESCE(sa.id, ''),
+			COALESCE(sa.name, ''),
+			COALESCE(sa.type::text, ''),
+			COALESCE(sf.id, ''),
+			COALESCE(sf.title, ''),
+			COALESCE(sf.severity::text, ''),
+			COALESCE(sf.status::text, ''),
+			COALESCE(created_by.id, ''),
+			COALESCE(created_by.email, ''),
+			COALESCE(created_by.display_name, ''),
+			COALESCE(approved_by.id, ''),
+			COALESCE(approved_by.email, ''),
+			COALESCE(approved_by.display_name, '')
+		FROM risk_exceptions re
+		LEFT JOIN security_assets sa ON sa.id = re.asset_id
+		LEFT JOIN security_findings sf ON sf.id = re.finding_id
+		LEFT JOIN users created_by ON created_by.id = re.created_by_user_id
+		LEFT JOIN users approved_by ON approved_by.id = re.approved_by_user_id
+		WHERE re.organization_id = $1
+		ORDER BY re.created_at DESC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var exceptions []riskExceptionRow
+	for rows.Next() {
+		var row riskExceptionRow
+		var controlsJSON string
+		if err := rows.Scan(
+			&row.ID,
+			&row.Title,
+			&row.Rationale,
+			&controlsJSON,
+			&row.Status,
+			&row.ExpiresAt,
+			&row.ApprovedAt,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+			&row.AssetID,
+			&row.AssetName,
+			&row.AssetType,
+			&row.FindingID,
+			&row.FindingTitle,
+			&row.FindingSeverity,
+			&row.FindingStatus,
+			&row.CreatedByID,
+			&row.CreatedByEmail,
+			&row.CreatedByName,
+			&row.ApprovedByID,
+			&row.ApprovedByEmail,
+			&row.ApprovedByName,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(controlsJSON), &row.CompensatingControls)
+		exceptions = append(exceptions, row)
+	}
+	return exceptions, rows.Err()
+}
+
+func (row riskExceptionRow) toProto() *aperiov1.RiskException {
+	exception := &aperiov1.RiskException{
+		Id:                   row.ID,
+		Title:                row.Title,
+		Rationale:            row.Rationale,
+		CompensatingControls: row.CompensatingControls,
+		Status:               row.Status,
+		ExpiresAt:            nullTimeString(row.ExpiresAt),
+		ApprovedAt:           nullTimeString(row.ApprovedAt),
+		CreatedAt:            row.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:            row.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	if row.AssetID != "" {
+		exception.Asset = &aperiov1.RiskExceptionAsset{
+			Id:   row.AssetID,
+			Name: row.AssetName,
+			Type: row.AssetType,
+		}
+	}
+	if row.FindingID != "" {
+		exception.Finding = &aperiov1.RiskExceptionFinding{
+			Id:       row.FindingID,
+			Title:    row.FindingTitle,
+			Severity: row.FindingSeverity,
+			Status:   row.FindingStatus,
+		}
+	}
+	if row.CreatedByID != "" {
+		exception.CreatedBy = &aperiov1.SecurityPrincipal{
+			Id:          row.CreatedByID,
+			Email:       row.CreatedByEmail,
+			DisplayName: row.CreatedByName,
+		}
+	}
+	if row.ApprovedByID != "" {
+		exception.ApprovedBy = &aperiov1.SecurityPrincipal{
+			Id:          row.ApprovedByID,
+			Email:       row.ApprovedByEmail,
+			DisplayName: row.ApprovedByName,
+		}
+	}
+	return exception
 }
 
 // openFindings loads the same finding fields used by the TypeScript risk

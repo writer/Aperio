@@ -60,6 +60,9 @@ const (
 	// AperioServiceListSecurityAssetsProcedure is the fully-qualified name of the AperioService's
 	// ListSecurityAssets RPC.
 	AperioServiceListSecurityAssetsProcedure = "/aperio.v1.AperioService/ListSecurityAssets"
+	// AperioServiceListRiskExceptionsProcedure is the fully-qualified name of the AperioService's
+	// ListRiskExceptions RPC.
+	AperioServiceListRiskExceptionsProcedure = "/aperio.v1.AperioService/ListRiskExceptions"
 )
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
@@ -73,6 +76,7 @@ type AperioServiceClient interface {
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
+	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
 }
 
 // NewAperioServiceClient constructs a client for the aperio.v1.AperioService service. By default,
@@ -140,6 +144,12 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("ListSecurityAssets")),
 			connect.WithClientOptions(opts...),
 		),
+		listRiskExceptions: connect.NewClient[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse](
+			httpClient,
+			baseURL+AperioServiceListRiskExceptionsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListRiskExceptions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -154,6 +164,7 @@ type aperioServiceClient struct {
 	listShadowItOauthApps      *connect.Client[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse]
 	listShadowItOauthAppGrants *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
 	listSecurityAssets         *connect.Client[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse]
+	listRiskExceptions         *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
 }
 
 // CheckHealth calls aperio.v1.AperioService.CheckHealth.
@@ -201,6 +212,11 @@ func (c *aperioServiceClient) ListSecurityAssets(ctx context.Context, req *conne
 	return c.listSecurityAssets.CallUnary(ctx, req)
 }
 
+// ListRiskExceptions calls aperio.v1.AperioService.ListRiskExceptions.
+func (c *aperioServiceClient) ListRiskExceptions(ctx context.Context, req *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error) {
+	return c.listRiskExceptions.CallUnary(ctx, req)
+}
+
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
@@ -212,6 +228,7 @@ type AperioServiceHandler interface {
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
+	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
 }
 
 // NewAperioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -275,6 +292,12 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("ListSecurityAssets")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceListRiskExceptionsHandler := connect.NewUnaryHandler(
+		AperioServiceListRiskExceptionsProcedure,
+		svc.ListRiskExceptions,
+		connect.WithSchema(aperioServiceMethods.ByName("ListRiskExceptions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AperioServiceCheckHealthProcedure:
@@ -295,6 +318,8 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceListShadowItOauthAppGrantsHandler.ServeHTTP(w, r)
 		case AperioServiceListSecurityAssetsProcedure:
 			aperioServiceListSecurityAssetsHandler.ServeHTTP(w, r)
+		case AperioServiceListRiskExceptionsProcedure:
+			aperioServiceListRiskExceptionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -338,4 +363,8 @@ func (UnimplementedAperioServiceHandler) ListShadowItOauthAppGrants(context.Cont
 
 func (UnimplementedAperioServiceHandler) ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListSecurityAssets is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListRiskExceptions is not implemented"))
 }
