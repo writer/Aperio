@@ -32,6 +32,19 @@ test("Okta admin role grant opens critical finding for privileged roles", () => 
   assert.equal(findings[0].severity, "CRITICAL");
   assert.equal(findings[0].target, "new-admin@example.com");
   assert.equal(findings[0].evidence?.grantedRole, "SUPER_ADMIN");
+
+  const spelledOut = evaluateSecurityRules(
+    oktaPayload("user.account.privilege.grant", {
+      actor: { alternateId: "admin@example.com", type: "User" },
+      target: [
+        { alternateId: "new-admin@example.com", type: "User" },
+        { displayName: "Organization Administrator", type: "Role" }
+      ]
+    })
+  );
+  assert.equal(spelledOut.length, 1);
+  assert.equal(spelledOut[0].ruleId, "okta.admin_role_assigned");
+  assert.equal(spelledOut[0].evidence?.grantedRole, "Organization Administrator");
 });
 
 test("Okta admin role grant ignores non-privileged roles and disabled checks", () => {
@@ -106,6 +119,15 @@ test("Okta password policy weakening detects reduced length and ignores stronger
     })
   );
   assert.equal(stronger.length, 0);
+
+  const nonPasswordPolicy = evaluateSecurityRules(
+    oktaPayload("policy.lifecycle.update", {
+      target: [{ displayName: "Default Sign-On Policy", type: "Policy" }],
+      debugContext: { debugData: { policyType: "SIGN_ON" } },
+      changeDetails: [{ field: "maxSessionLifetime", oldValue: 8, newValue: 12 }]
+    })
+  );
+  assert.equal(nonPasswordPolicy.length, 0);
 });
 
 test("Okta suspicious sign-in is available but respects default-disabled check", () => {

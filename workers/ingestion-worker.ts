@@ -528,8 +528,11 @@ function isPrivilegedOktaRole(role: string) {
   const normalized = role.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   return (
     normalized.includes("SUPER_ADMIN") ||
+    normalized.includes("SUPER_ADMINISTRATOR") ||
     normalized.includes("ORG_ADMIN") ||
-    normalized.includes("APP_ADMIN")
+    normalized.includes("ORGANIZATION_ADMINISTRATOR") ||
+    normalized.includes("APP_ADMIN") ||
+    normalized.includes("APPLICATION_ADMINISTRATOR")
   );
 }
 
@@ -540,6 +543,24 @@ function oktaPasswordPolicyName(payload: IngestionPayload) {
     nestedString(debugData, ["policy"]) ??
     oktaEntityLabel(oktaTargetByType(payload, ["policy"])) ??
     "Okta password policy"
+  );
+}
+
+function oktaIsPasswordPolicy(payload: IngestionPayload) {
+  const debugData = oktaDebugData(payload);
+  const candidates = [
+    nestedString(debugData, ["policyType"]),
+    nestedString(debugData, ["type"]),
+    nestedString(debugData, ["policyName"]),
+    nestedString(debugData, ["policy"]),
+    ...oktaTargets(payload).flatMap((target) => [
+      stringValue(target.type),
+      stringValue(target.displayName),
+      stringValue(target.name)
+    ])
+  ];
+  return candidates.some(
+    (candidate) => typeof candidate === "string" && /password/i.test(candidate)
   );
 }
 
@@ -774,6 +795,7 @@ export function evaluateSecurityRules(
     payload.provider === "OKTA" &&
     (normalizedEvent === "POLICY_LIFECYCLE_UPDATE" ||
       normalizedEvent === "PASSWORD_POLICY_UPDATED") &&
+    oktaIsPasswordPolicy(payload) &&
     oktaPasswordPolicyWeakened(payload)
   ) {
     const policyName = oktaPasswordPolicyName(payload);
