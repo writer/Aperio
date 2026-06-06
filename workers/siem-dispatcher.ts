@@ -117,7 +117,7 @@ function jsonSafe(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function stableDeliveryKey(
+export function stableDeliveryKey(
   payload: SiemPayload,
   destinationId: string,
   stream: SiemStreamType
@@ -129,6 +129,12 @@ function stableDeliveryKey(
     stringValue(record.dedupeKey) ??
     stringValue(record.sourceEventId) ??
     JSON.stringify(record);
+  const findingOccurrence =
+    payload.kind === "finding"
+      ? (stringValue(record.sourceEventId) ??
+        stringValue(record.detectedAt) ??
+        payload.occurredAt)
+      : undefined;
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -136,7 +142,13 @@ function stableDeliveryKey(
         destinationId,
         stream,
         kind: payload.kind,
-        stableRecordId
+        stableRecordId,
+        ...(findingOccurrence
+          ? {
+              findingOccurrence,
+              findingStatus: stringValue(record.status)
+            }
+          : {})
       })
     )
     .digest("hex");
