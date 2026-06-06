@@ -183,6 +183,8 @@ func computeSecurityOverview(
 	now := time.Now()
 
 	sortedAssets := append([]securityAssetRow{}, assets...)
+	// Sort once by risk so all downstream sections use the same deterministic
+	// ordering for top assets, graph traversal, and attack-path entry selection.
 	sort.SliceStable(sortedAssets, func(i, j int) bool {
 		if sortedAssets[i].RiskScore != sortedAssets[j].RiskScore {
 			return sortedAssets[i].RiskScore > sortedAssets[j].RiskScore
@@ -195,9 +197,9 @@ func computeSecurityOverview(
 	for _, asset := range sortedAssets {
 		assetMap[asset.ID] = asset
 		if asset.Type == "APPLICATION" && asset.IntegrationID != "" {
-			if _, exists := applicationByIntegration[asset.IntegrationID]; !exists {
-				applicationByIntegration[asset.IntegrationID] = asset
-			}
+			// The application asset represents the SaaS control plane for a
+			// provider connection; child assets and identities route through it.
+			applicationByIntegration[asset.IntegrationID] = asset
 		}
 	}
 
@@ -235,6 +237,8 @@ func computeSecurityOverview(
 
 	graphEdges := []any{}
 	for _, identity := range identities {
+		// Preserve linked asset order while removing duplicates so the graph does
+		// not render parallel edges for identities connected by multiple sources.
 		ordered := []string{}
 		seen := map[string]struct{}{}
 		add := func(id string) {
@@ -251,6 +255,9 @@ func computeSecurityOverview(
 			add(assetID)
 		}
 		if identity.integrationID != "" {
+			// Identities discovered from an integration are also connected to the
+			// integration's application asset, even when no explicit asset link row
+			// exists yet.
 			if app, ok := applicationByIntegration[identity.integrationID]; ok {
 				add(app.ID)
 			}
@@ -277,6 +284,8 @@ func computeSecurityOverview(
 			continue
 		}
 		if asset.Type == "OAUTH_APP" || asset.Type == "SERVICE_ACCOUNT" {
+			// OAuth apps and service accounts are modeled as automation entry
+			// points into the owning application.
 			relationship := "automation_access"
 			if asset.Type == "OAUTH_APP" {
 				relationship = "admin_scopes"
@@ -289,6 +298,8 @@ func computeSecurityOverview(
 			})
 		}
 		if _, isData := dataAssetTypes[asset.Type]; isData {
+			// Data assets hang under the application control plane to make blast
+			// radius paths readable in the UI graph.
 			graphEdges = append(graphEdges, map[string]any{
 				"id":               "contains:" + application.ID + ":" + asset.ID,
 				"sourceId":         "asset:" + application.ID,
@@ -321,6 +332,8 @@ func computeSecurityOverview(
 	activeExceptions := []any{}
 	for _, exception := range exceptions {
 		if effectiveExceptionActive(exception, now) {
+			// Only active, unexpired exceptions should influence the current
+			// security overview; historical exceptions stay in audit/log views.
 			activeExceptions = append(activeExceptions, protoJSON(exception.toProto()))
 		}
 	}
@@ -393,6 +406,8 @@ func computeIdentity(row overviewIdentity, assetMap map[string]securityAssetRow,
 	}
 	linkedSet := map[string]struct{}{}
 	if application != nil {
+		// Count the provider application as a linked asset for identities observed
+		// through an integration, even if discovery has not attached explicit rows.
 		linkedSet[application.ID] = struct{}{}
 	}
 	for _, assetID := range row.LinkedAssetIDs {
@@ -409,6 +424,8 @@ func computeIdentity(row overviewIdentity, assetMap map[string]securityAssetRow,
 	dormant := row.Status == "DORMANT" || (row.LastObservedAt.Valid && now.Sub(row.LastObservedAt.Time) > dormantIdentityWindow)
 
 	baseRisk := row.RiskScore
+	// Identity risk blends privilege, exposure, MFA state, dormant access, and
+	// fanout breadth. The score is intentionally explainable to support UI labels.
 	if baseRisk <= 0 {
 		score := 20
 		if row.IsPrivileged {
@@ -514,6 +531,9 @@ func computeAttackPaths(
 		if findingAsset != nil {
 			targets = []securityAssetRow{*findingAsset}
 		} else {
+			// Findings without a direct asset are projected onto assets in the same
+			// integration; this keeps provider-level signals visible in blast-radius
+			// analysis instead of dropping them from the overview.
 			for _, asset := range sortedAssets {
 				if asset.IntegrationID == finding.IntegrationID && asset.Type != "APPLICATION" {
 					targets = append(targets, asset)
@@ -539,12 +559,16 @@ func computeAttackPaths(
 					continue
 				}
 				if exception.FindingID == finding.ID || (exception.AssetID != "" && exception.AssetID == target.ID) {
+					// Exceptions reduce prioritization but do not remove the path,
+					// because accepted risk can still matter to graph context.
 					penalty = -5
 					break
 				}
 			}
 
 			score := finding.RiskScore + int(math.Round(float64(target.RiskScore)*0.5))
+			// Path score composes the detector's risk with target criticality and
+			// propagation hints. Caps keep the UI scale comparable to finding risk.
 			if entryAsset != nil && entryAsset.IsPrivileged {
 				score += 10
 			}
@@ -615,6 +639,8 @@ func computeAttackPaths(
 		return paths[i]["score"].(int) > paths[j]["score"].(int)
 	})
 	if len(paths) > 8 {
+		// The overview page is a triage surface, so return the highest-signal paths
+		// rather than every possible finding/asset combination.
 		paths = paths[:8]
 	}
 	return paths
@@ -630,6 +656,8 @@ func computeDomainWideDelegations(googleIntegrations []overviewGoogleIntegration
 
 	delegations := []map[string]any{}
 	for _, integration := range googleIntegrations {
+		// Show configured DWD integrations and integrations with mailbox-state
+		// findings; omit quiet unconfigured integrations to reduce dashboard noise.
 		enabled := integration.MailboxClientEmail != "" && integration.HasMailboxKey
 		openMailboxFindings := openMailboxByIntegration[integration.ID]
 		if !enabled && openMailboxFindings == 0 {

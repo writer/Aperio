@@ -78,9 +78,13 @@ type OutboxDrainResult = {
 };
 
 const WORKER_LEASE_MS = 5 * 60 * 1000;
+// Lease owner must be unique per process so concurrent dispatchers can safely
+// claim and finish outbox rows without releasing each other's work.
 const WORKER_LEASE_OWNER = `${hostname()}:${process.pid}:${randomUUID()}`;
 
 function boundedDrainLimit(limit: number) {
+  // Bound ad-hoc drain requests; outbox rows can carry large payloads and every
+  // claimed row may trigger network I/O.
   const normalized = Number.isFinite(limit) ? Math.trunc(limit) : 25;
   return Math.max(1, Math.min(normalized, 1000));
 }
@@ -101,6 +105,8 @@ function buildEnvelope(
   destination: SiemDestination,
   payload: SiemPayload
 ): SiemDispatchEnvelope {
+  // Every destination receives the same canonical envelope so downstream parsers
+  // can rely on stable schema, source, tenant, stream, and record fields.
   return {
     schema_version: schemaVersion(payload.kind),
     source: "aperio",
@@ -114,6 +120,8 @@ function buildEnvelope(
 }
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
+  // Persist only plain JSON in the outbox payload, stripping undefined values and
+  // prototype-bearing objects before Prisma serializes the row.
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
@@ -123,6 +131,8 @@ export function stableDeliveryKey(
   stream: SiemStreamType
 ) {
   const record = payload.record ?? {};
+  // Prefer durable record identifiers over the full JSON blob. The fallback keeps
+  // arbitrary audit/event payloads deduplicated even when no domain id exists.
   const stableRecordId =
     stringValue(record.findingId) ??
     stringValue(record.id) ??
@@ -135,6 +145,9 @@ export function stableDeliveryKey(
         stringValue(record.detectedAt) ??
         payload.occurredAt)
       : undefined;
+  // Finding status changes for the same logical record should be delivered as
+  // distinct outbox entries, but duplicate enqueues of the same observation
+  // collapse via createMany(skipDuplicates).
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -156,6 +169,8 @@ export function stableDeliveryKey(
 
 function decryptToken(destination: SiemDestination): string | undefined {
   if (!destination.encryptedToken) return undefined;
+  // SIEM tokens are bound to destination id and organization so ciphertext copied
+  // between rows cannot authenticate under the wrong sink.
   const aad = `${destination.organizationId}:siem:${destination.id}:token`;
   return decryptString(destination.encryptedToken, aad);
 }
@@ -181,6 +196,8 @@ async function sendJsonFile(
       };
     }
 
+    // The file exporter appends newline-delimited JSON for tail-friendly local
+    // testing while still using the same envelope as network destinations.
     await mkdir(dirname(normalizedFilePath.absolutePath), { recursive: true });
     await appendFile(
       normalizedFilePath.absolutePath,
@@ -209,6 +226,8 @@ async function postJson(
   body: string,
   timeoutMs = 4000
 ): Promise<{ ok: boolean; status: number; message: string }> {
+  // Validate immediately before each request so stale or DNS-rebound destination
+  // hostnames cannot turn a saved SIEM URL into an SSRF primitive.
   const endpointError = await assertSafeSiemEndpointUrl(url);
   if (endpointError) {
     return {
@@ -324,6 +343,8 @@ function entityRef(
   externalId: string,
   label: string
 ): CerebroEntityRef {
+  // URNs are deterministic across deliveries so Cerebro can merge repeated
+  // observations into the same graph entities.
   const encodedExternalId = encodeURIComponent(externalId).replace(/%20/g, "-");
   return {
     urn: [
@@ -414,6 +435,8 @@ export function buildCerebroClaims(
   const findingId =
     stringValue(record.dedupeKey) ??
     stringValue(record.sourceEventId) ??
+    // Fallback hashing uses the organization id as HMAC key so opaque records do
+    // not produce globally correlatable entity ids across tenants.
     createHmac("sha256", destination.organizationId)
       .update(JSON.stringify(record))
       .digest("hex");
@@ -450,6 +473,8 @@ export function buildCerebroClaims(
   }
 
   const claims: CerebroClaim[] = [
+    // Claim fanout models each Aperio finding as a graph node, the affected
+    // asset as another node, and the integration as the observation source.
     existsClaim(finding, payload, attributes),
     existsClaim(target, payload, { provider }),
     existsClaim(integration, payload, { provider }),
@@ -492,6 +517,8 @@ async function sendCerebroClaims(
 
   const runtimePath = `/source-runtimes/${encodeURIComponent(destination.index)}`;
   const headers = { authorization: `Bearer ${token}` };
+  // Verify the runtime first so missing Cerebro configuration fails with a clear
+  // destination error before attempting to write claims.
   const runtime = await getJson(joinUrl(destination.endpointUrl, runtimePath), headers);
   if (!runtime.ok) {
     return {
@@ -680,6 +707,8 @@ async function sendWebhook(
   const headers: Record<string, string> = {};
   const token = decryptToken(destination);
   if (token) {
+    // Generic webhooks receive an HMAC over the exact JSON body so receivers can
+    // authenticate payload integrity without sharing Aperio's internal token.
     headers["x-aperio-signature"] = createHmac("sha256", token)
       .update(body)
       .digest("hex");
@@ -720,6 +749,8 @@ async function sendOne(
 
 async function recordResult(result: DispatcherResult): Promise<void> {
   try {
+    // Destination health is best-effort telemetry. Delivery state is already
+    // recorded in the outbox row, so bookkeeping failures must not retry sends.
     await prisma.siemDestination.update({
       where: { id: result.destinationId },
       data: result.ok
@@ -741,6 +772,8 @@ async function recordResult(result: DispatcherResult): Promise<void> {
 }
 
 function parseDeliveryPayload(value: unknown): SiemPayload | null {
+  // Outbox rows are JSON; validate the minimum envelope shape before allowing a
+  // row to reach destination-specific code.
   if (!value || typeof value !== "object") return null;
   const candidate = value as SiemPayload;
   if (
@@ -759,6 +792,8 @@ function parseDeliveryPayload(value: unknown): SiemPayload | null {
 
 function nextRetryAt(attempt: number): Date {
   const delaySeconds = Math.min(60 * 30, 2 ** Math.max(0, attempt - 1) * 30);
+  // Exponential backoff is capped at 30 minutes and jittered to avoid retry
+  // spikes after destination or network outages.
   const jitter = 0.8 + Math.random() * 0.4;
   return new Date(Date.now() + Math.round(delaySeconds * jitter) * 1000);
 }
@@ -770,6 +805,8 @@ async function finishDelivery(
   const attempts = delivery.attempts + 1;
   if (result.ok) {
     const updated = await prisma.siemDelivery.updateMany({
+      // Only the worker that owns the lease may complete the row; stale workers
+      // that overran their lease cannot overwrite newer attempts.
       where: { id: delivery.id, leaseOwner: WORKER_LEASE_OWNER },
       data: {
         status: "DELIVERED",
@@ -783,6 +820,8 @@ async function finishDelivery(
     return updated.count === 1;
   }
   const updated = await prisma.siemDelivery.updateMany({
+    // Permanent validation/configuration failures go straight to dead letter;
+    // transient errors are scheduled according to retry backoff.
     where: { id: delivery.id, leaseOwner: WORKER_LEASE_OWNER },
     data: {
       status: attempts >= delivery.maxAttempts ? "DEAD_LETTER" : "FAILED",
@@ -811,6 +850,8 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
   }
 
   const destination = await prisma.siemDestination.findFirst({
+    // Re-read the destination at delivery time so disabled or deleted sinks stop
+    // receiving payloads even if older outbox rows still exist.
     where: {
       id: delivery.destinationId,
       organizationId: delivery.organizationId,
@@ -840,6 +881,8 @@ export async function enqueueSiemDeliveries(
   payload: SiemPayload
 ): Promise<number> {
   const targetStream = streamForKind(payload.kind);
+  // Enqueue only destinations subscribed to this stream, including ERROR sinks so
+  // a recovered configuration can resume without recreating the connector.
   const destinations = await prisma.siemDestination.findMany({
     where: {
       organizationId: payload.organizationId,
@@ -859,6 +902,8 @@ export async function enqueueSiemDeliveries(
       dedupeKey: stableDeliveryKey(payload, destination.id, targetStream),
       payload: jsonSafe(payload)
     })),
+    // Stable delivery keys make fanout idempotent across worker retries and
+    // repeated producer calls for the same logical payload.
     skipDuplicates: true
   });
   return created.count;
@@ -869,6 +914,8 @@ export async function drainSiemDeliveries(
 ): Promise<OutboxDrainResult> {
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + WORKER_LEASE_MS);
+  // Retire exhausted rows before claiming new work so old processing leases do
+  // not keep max-attempt failures visible as retryable.
   await prisma.$executeRaw`
     UPDATE "siem_deliveries"
     SET
@@ -886,6 +933,7 @@ export async function drainSiemDeliveries(
       AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
   `;
   const deliveries = await prisma.$queryRaw<SiemDelivery[]>`
+    -- Atomically claim due rows and skip rows locked by sibling dispatchers.
     UPDATE "siem_deliveries"
     SET
       "status" = 'PROCESSING'::"SiemDeliveryStatus",

@@ -81,6 +81,9 @@ function providerFromFinding(finding: RiskScoreFindingLike) {
       ? (finding.evidence as Record<string, unknown>)
       : null;
 
+  // Aggregation accepts both persisted Prisma shapes and worker-built evidence
+  // envelopes, so provider identity is recovered from the richest available
+  // source before cross-provider blast-radius bonuses are applied.
   return (
     finding.integration?.provider ??
     finding.provider ??
@@ -89,6 +92,9 @@ function providerFromFinding(finding: RiskScoreFindingLike) {
 }
 
 function externalEmailCount(evidence: Record<string, unknown>) {
+  // Anchor comparisons on the affected mailbox/user/target domain. This avoids
+  // inflating risk for internal delegation chains while still catching external
+  // forwarders, recovery addresses, send-as aliases, and sharing actors.
   const anchorEmail =
     valueAsString(evidence.mailbox) ??
     valueAsString(evidence.user) ??
@@ -132,6 +138,9 @@ export function calculateFindingRiskScore(input: {
   );
   let bonus = 0;
 
+  // The base score encodes the rule author's default risk; evidence-driven
+  // modifiers then lift or lower that score using tenant-specific context that
+  // comes from the detector payload.
   const grantedRole = (
     valueAsString(evidence.grantedRole) ?? valueAsString(evidence.role) ?? ""
   ).toLowerCase();
@@ -174,6 +183,8 @@ export function calculateFindingRiskScore(input: {
 
   const scopeCount =
     valueAsNumber(evidence.scopeCount) ?? valueAsStringArray(evidence.scopes).length;
+  // Additional OAuth scopes increase blast radius, but the cap prevents broad
+  // low-risk scope lists from overwhelming more direct privilege indicators.
   bonus += Math.min(8, Math.max(0, scopeCount - 1));
 
   const delegateCount =
@@ -193,6 +204,8 @@ export function calculateFindingRiskScore(input: {
   const detectedAt = parseDetectedAt(input.detectedAt);
   if (detectedAt) {
     const ageMs = Date.now() - detectedAt.getTime();
+    // Fresh findings are operationally urgent; stale findings still matter but
+    // should not dominate current tenant risk unless other evidence is severe.
     if (ageMs <= 24 * 60 * 60 * 1000) {
       bonus += 4;
     } else if (ageMs <= 7 * 24 * 60 * 60 * 1000) {
@@ -209,6 +222,8 @@ export function calculateFindingRiskScore(input: {
 }
 
 export function aggregateRiskScore(findings: RiskScoreFindingLike[]) {
+  // Muted and resolved findings are removed from aggregate posture because they
+  // either have accepted risk or a remediation record elsewhere in the product.
   const activeFindings = findings.filter((finding) => finding.status !== "RESOLVED" && finding.status !== "MUTED");
 
   if (activeFindings.length === 0) {
@@ -219,6 +234,8 @@ export function aggregateRiskScore(findings: RiskScoreFindingLike[]) {
     .map((finding) => clamp(Math.round(finding.riskScore), 0, 100))
     .sort((left, right) => right - left);
   const highest = sortedScores[0] ?? 0;
+  // A tenant's top finding drives the posture score, while the residual series
+  // accounts for breadth without letting many small findings sum past critical.
   const residual = sortedScores
     .slice(1)
     .reduce(
@@ -250,6 +267,8 @@ export function aggregateRiskScore(findings: RiskScoreFindingLike[]) {
     Math.round(
       highest * 0.72 +
         residual +
+        // Explicit severity counts, provider spread, and recent high-risk items
+        // model concentration risk that is not visible in a single finding score.
         Math.min(14, criticalCount * 6 + highCount * 2) +
         Math.min(8, Math.max(0, providerCount - 1) * 2) +
         Math.min(8, recentHighCount * 2)

@@ -34,9 +34,10 @@ var errInvalidSession = errors.New("invalid session")
 // infrastructural dependencies here so endpoint implementations stay easy to
 // move from the current TypeScript API into Go one route at a time.
 type App struct {
-	cfg config.Config
-	db  *sql.DB
-	mux *http.ServeMux
+	cfg      config.Config
+	db       *sql.DB
+	mux      *http.ServeMux
+	eventBus *aperioEventBus
 }
 
 // dashboardMetrics mirrors the existing web dashboard response shape. Keeping
@@ -194,9 +195,10 @@ type riskExceptionRow struct {
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
 	app := &App{
-		cfg: cfg,
-		db:  db,
-		mux: http.NewServeMux(),
+		cfg:      cfg,
+		db:       db,
+		mux:      http.NewServeMux(),
+		eventBus: &aperioEventBus{},
 	}
 	app.routes()
 	return app
@@ -466,6 +468,81 @@ func (a *App) GetFinding(
 	return connect.NewResponse(&aperiov1.GetFindingResponse{Data: finding.toProto()}), nil
 }
 
+func (a *App) UpdateFindingStatus(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateFindingStatusRequest],
+) (*connect.Response[aperiov1.UpdateFindingStatusResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	body := map[string]any{
+		"status":         req.Msg.Status,
+		"resolutionNote": req.Msg.ResolutionNote,
+	}
+	result, err := a.compatUpdateFinding(ctx, strings.TrimSpace(req.Msg.Id), body, auth)
+	if err != nil {
+		return nil, err
+	}
+	data, ok := result.(map[string]any)["data"].(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("finding update failed"))
+	}
+	return connect.NewResponse(&aperiov1.UpdateFindingStatusResponse{
+		Data: &aperiov1.FindingStatusUpdate{
+			Id:     stringFromAny(data["id"]),
+			Status: stringFromAny(data["status"]),
+		},
+	}), nil
+}
+
+func (a *App) RemediateFinding(
+	ctx context.Context,
+	req *connect.Request[aperiov1.RemediateFindingRequest],
+) (*connect.Response[aperiov1.RemediateFindingResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	id := strings.TrimSpace(req.Msg.FindingId)
+	body := map[string]any{
+		"action":           req.Msg.Action,
+		"targetIdentifier": req.Msg.TargetIdentifier,
+		"note":             req.Msg.Note,
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/findings/"+url.PathEscape(id)+"/remediate", typedRateLimitSubjectBody(auth)); err != nil {
+		return nil, err
+	}
+	result, err := a.compatRemediateFinding(ctx, id, body, auth)
+	if err != nil {
+		return nil, err
+	}
+	data, ok := result.(map[string]any)["data"].(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("remediation failed"))
+	}
+	return connect.NewResponse(&aperiov1.RemediateFindingResponse{
+		Data: &aperiov1.RemediationResult{
+			FindingId:         stringFromAny(data["findingId"]),
+			Action:            stringFromAny(data["action"]),
+			Success:           boolFromAny(data["success"]),
+			Message:           stringFromAny(data["message"]),
+			ProviderRequestId: stringFromAny(data["providerRequestId"]),
+			Effects:           stringSlice(data["effects"]),
+		},
+	}), nil
+}
+
+func (a *App) ListConnectorCatalog(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListConnectorCatalogRequest],
+) (*connect.Response[aperiov1.ListConnectorCatalogResponse], error) {
+	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.ListConnectorCatalogResponse{Data: connectorCatalogProto()}), nil
+}
+
 func (a *App) ListIntegrations(
 	ctx context.Context,
 	req *connect.Request[aperiov1.ListIntegrationsRequest],
@@ -485,6 +562,184 @@ func (a *App) ListIntegrations(
 	return connect.NewResponse(response), nil
 }
 
+func (a *App) CreateIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CreateIntegrationRequest],
+) (*connect.Response[aperiov1.CreateIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	result, err := a.compatCreateIntegration(ctx, map[string]any{
+		"provider":          req.Msg.Provider,
+		"displayName":       req.Msg.DisplayName,
+		"externalAccountId": req.Msg.ExternalAccountId,
+		"mode":              req.Msg.Mode,
+		"credentials": map[string]any{
+			"accessToken":   req.Msg.GetCredentials().GetAccessToken(),
+			"refreshToken":  req.Msg.GetCredentials().GetRefreshToken(),
+			"webhookSecret": req.Msg.GetCredentials().GetWebhookSecret(),
+		},
+	}, auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.CreateIntegrationResponse{Data: integrationConnectionFromMap(asMap(asMap(result)["data"]))}), nil
+}
+
+func (a *App) DeleteIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.DeleteIntegrationRequest],
+) (*connect.Response[aperiov1.DeleteIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if _, err := a.compatDeleteIntegration(ctx, strings.TrimSpace(req.Msg.Id), auth); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.DeleteIntegrationResponse{Data: &aperiov1.DeleteResult{Ok: true}}), nil
+}
+
+func (a *App) GetIntegrationChecks(
+	ctx context.Context,
+	req *connect.Request[aperiov1.GetIntegrationChecksRequest],
+) (*connect.Response[aperiov1.GetIntegrationChecksResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	state, err := a.integrationChecksProto(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.GetIntegrationChecksResponse{Data: state}), nil
+}
+
+func (a *App) UpdateIntegrationChecks(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateIntegrationChecksRequest],
+) (*connect.Response[aperiov1.UpdateIntegrationChecksResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	result, err := a.compatUpdateIntegrationChecks(ctx, id, map[string]any{"disabledChecks": req.Msg.DisabledChecks}, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: &aperiov1.IntegrationCheckState{
+		IntegrationId:  stringFromAny(data["integrationId"]),
+		DisabledChecks: stringSlice(data["disabledChecks"]),
+		Checks:         findingCheckStatusesProto(findingCheckStatusesFromAny(data["checks"])),
+	}}), nil
+}
+
+func (a *App) GetGoogleMailboxScanConfig(
+	ctx context.Context,
+	req *connect.Request[aperiov1.GetGoogleMailboxScanConfigRequest],
+) (*connect.Response[aperiov1.GetGoogleMailboxScanConfigResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	config, err := a.googleMailboxScanConfigProto(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.GetGoogleMailboxScanConfigResponse{Data: config}), nil
+}
+
+func (a *App) UpdateGoogleMailboxScanConfig(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateGoogleMailboxScanConfigRequest],
+) (*connect.Response[aperiov1.UpdateGoogleMailboxScanConfigResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	result, err := a.compatUpdateGoogleMailboxConfig(ctx, strings.TrimSpace(req.Msg.IntegrationId), map[string]any{
+		"enabled":                   req.Msg.Enabled,
+		"serviceAccountClientEmail": req.Msg.ServiceAccountClientEmail,
+		"privateKey":                req.Msg.PrivateKey,
+	}, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.UpdateGoogleMailboxScanConfigResponse{Data: googleMailboxScanConfigFromMap(data)}), nil
+}
+
+func (a *App) StartGoogleWorkspaceOAuth(
+	ctx context.Context,
+	req *connect.Request[aperiov1.StartGoogleWorkspaceOAuthRequest],
+) (*connect.Response[aperiov1.StartGoogleWorkspaceOAuthResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	result, err := a.compatGoogleOAuthStart(map[string]any{"mode": req.Msg.Mode}, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.StartGoogleWorkspaceOAuthResponse{Data: &aperiov1.OAuthStart{Url: stringFromAny(data["url"])}}), nil
+}
+
+func (a *App) ForceSyncIntegration(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ForceSyncIntegrationRequest],
+) (*connect.Response[aperiov1.ForceSyncIntegrationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/integrations/"+url.PathEscape(id)+"/force-sync", typedRateLimitSubjectBody(auth)); err != nil {
+		return nil, err
+	}
+	result, err := a.compatForceSync(ctx, id, auth)
+	if err != nil {
+		return nil, err
+	}
+	payload, ok := result.(map[string]any)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("force sync failed"))
+	}
+	data, _ := payload["data"].(*aperiov1.IntegrationConnection)
+	sync := asMap(payload["sync"])
+	return connect.NewResponse(&aperiov1.ForceSyncIntegrationResponse{
+		Data: data,
+		Sync: &aperiov1.SyncSummary{
+			SampleCount:    int32(intValue(sync["sampleCount"])),
+			EventsIngested: int32(intValue(sync["eventsIngested"])),
+			FindingsOpened: int32(intValue(sync["findingsOpened"])),
+			Sources:        stringSlice(sync["sources"]),
+		},
+	}), nil
+}
+
+func (a *App) ListSiemCatalog(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListSiemCatalogRequest],
+) (*connect.Response[aperiov1.ListSiemCatalogResponse], error) {
+	if _, err := a.authenticatedOrganization(ctx, req.Header()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.ListSiemCatalogResponse{Data: siemCatalogProto()}), nil
+}
+
 func (a *App) ListSiemDestinations(
 	ctx context.Context,
 	req *connect.Request[aperiov1.ListSiemDestinationsRequest],
@@ -502,6 +757,311 @@ func (a *App) ListSiemDestinations(
 		response.Data = append(response.Data, row.toProto())
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (a *App) CreateSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CreateSiemDestinationRequest],
+) (*connect.Response[aperiov1.CreateSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	result, err := a.compatCreateSiem(ctx, map[string]any{
+		"kind":        req.Msg.Kind,
+		"name":        req.Msg.Name,
+		"endpointUrl": req.Msg.EndpointUrl,
+		"filePath":    req.Msg.FilePath,
+		"index":       req.Msg.Index,
+		"streams":     req.Msg.Streams,
+		"token":       req.Msg.Token,
+	}, auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.CreateSiemDestinationResponse{Data: siemDestinationFromMap(asMap(asMap(result)["data"]))}), nil
+}
+
+func (a *App) DeleteSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.DeleteSiemDestinationRequest],
+) (*connect.Response[aperiov1.DeleteSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if _, err := a.compatDeleteSiem(ctx, strings.TrimSpace(req.Msg.Id), auth); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.DeleteSiemDestinationResponse{Data: &aperiov1.DeleteResult{Ok: true}}), nil
+}
+
+func (a *App) TestSiemDestination(
+	ctx context.Context,
+	req *connect.Request[aperiov1.TestSiemDestinationRequest],
+) (*connect.Response[aperiov1.TestSiemDestinationResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.Id)
+	result, err := a.compatTestSiem(ctx, id, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.TestSiemDestinationResponse{Data: &aperiov1.SiemTestResult{
+		DestinationId: stringFromAny(data["destinationId"]),
+		Ok:            boolFromAny(data["ok"]),
+		Message:       stringFromAny(data["message"]),
+	}}), nil
+}
+
+func (a *App) integrationChecksProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.IntegrationCheckState, error) {
+	var provider string
+	var disabledJSON string
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &disabledJSON); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	}
+	disabled := []string{}
+	_ = json.Unmarshal([]byte(disabledJSON), &disabled)
+	return integrationCheckStateProto(id, provider, disabled), nil
+}
+
+func integrationCheckStateProto(id string, provider string, disabled []string) *aperiov1.IntegrationCheckState {
+	return &aperiov1.IntegrationCheckState{
+		IntegrationId:  id,
+		DisabledChecks: disabled,
+		Checks:         findingCheckStatusesProto(compatFindingCheckStatuses(provider, disabled)),
+	}
+}
+
+func (a *App) googleMailboxScanConfigProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.GoogleMailboxScanConfig, error) {
+	result, err := a.compatGoogleMailboxConfig(ctx, id, auth)
+	if err != nil {
+		return nil, err
+	}
+	return googleMailboxScanConfigFromMap(asMap(asMap(result)["data"])), nil
+}
+
+func googleMailboxScanConfigFromMap(data map[string]any) *aperiov1.GoogleMailboxScanConfig {
+	return &aperiov1.GoogleMailboxScanConfig{
+		Enabled:                   boolFromAny(data["enabled"]),
+		ServiceAccountClientEmail: optionalStringFromAny(data["serviceAccountClientEmail"]),
+	}
+}
+
+func connectorCatalogProto() []*aperiov1.ConnectorDefinition {
+	catalog := compatConnectorCatalog()
+	out := make([]*aperiov1.ConnectorDefinition, 0, len(catalog))
+	for _, definition := range catalog {
+		out = append(out, connectorDefinitionProto(definition))
+	}
+	return out
+}
+
+func siemCatalogProto() []*aperiov1.SiemDestinationDefinition {
+	catalog := compatSiemCatalog()
+	out := make([]*aperiov1.SiemDestinationDefinition, 0, len(catalog))
+	for _, definition := range catalog {
+		out = append(out, siemDestinationDefinitionProto(definition))
+	}
+	return out
+}
+
+func connectorDefinitionProto(definition connectorDefinition) *aperiov1.ConnectorDefinition {
+	return &aperiov1.ConnectorDefinition{
+		Provider:           definition.Provider,
+		Name:               definition.Name,
+		Category:           definition.Category,
+		Availability:       definition.Availability,
+		ReadinessNote:      definition.ReadinessNote,
+		Description:        definition.Description,
+		ReadScopes:         append([]string{}, definition.ReadScopes...),
+		RemediationScopes:  append([]string{}, definition.RemediationScopes...),
+		RemediationActions: remediationActionsProto(definition.RemediationActions),
+		FindingChecks:      findingChecksProto(definition.FindingChecks),
+		DocsUrl:            definition.DocsURL,
+		Fields:             connectorFieldsProto(definition.Fields),
+	}
+}
+
+func connectorFieldsProto(fields []connectorField) []*aperiov1.ConnectorField {
+	out := make([]*aperiov1.ConnectorField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, &aperiov1.ConnectorField{
+			Key:         field.Key,
+			Label:       field.Label,
+			Placeholder: field.Placeholder,
+			Helper:      field.Helper,
+			Type:        field.Type,
+			Required:    field.Required,
+			Secret:      field.Secret,
+		})
+	}
+	return out
+}
+
+func remediationActionsProto(actions []remediationAction) []*aperiov1.RemediationAction {
+	out := make([]*aperiov1.RemediationAction, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, &aperiov1.RemediationAction{
+			Key:          action.Key,
+			Label:        action.Label,
+			Description:  action.Description,
+			SeverityHint: action.SeverityHint,
+		})
+	}
+	return out
+}
+
+func findingChecksProto(checks []findingCheck) []*aperiov1.FindingCheck {
+	out := make([]*aperiov1.FindingCheck, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, &aperiov1.FindingCheck{
+			Key:            check.Key,
+			Title:          check.Title,
+			Description:    check.Description,
+			SeverityHint:   check.SeverityHint,
+			DefaultEnabled: check.DefaultEnabled,
+		})
+	}
+	return out
+}
+
+func findingCheckStatusesProto(statuses []findingCheckStatus) []*aperiov1.FindingCheckStatus {
+	out := make([]*aperiov1.FindingCheckStatus, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, &aperiov1.FindingCheckStatus{
+			Key:            status.Key,
+			Title:          status.Title,
+			Description:    status.Description,
+			SeverityHint:   status.SeverityHint,
+			DefaultEnabled: status.DefaultEnabled,
+			Enabled:        status.Enabled,
+		})
+	}
+	return out
+}
+
+func findingCheckStatusesFromAny(value any) []findingCheckStatus {
+	switch typed := value.(type) {
+	case []findingCheckStatus:
+		return typed
+	case []any:
+		statuses := make([]findingCheckStatus, 0, len(typed))
+		for _, item := range typed {
+			data := asMap(item)
+			statuses = append(statuses, findingCheckStatus{
+				findingCheck: findingCheck{
+					Key:            stringFromAny(data["key"]),
+					Title:          stringFromAny(data["title"]),
+					Description:    stringFromAny(data["description"]),
+					SeverityHint:   stringFromAny(data["severityHint"]),
+					DefaultEnabled: boolFromAny(data["defaultEnabled"]),
+				},
+				Enabled: boolFromAny(data["enabled"]),
+			})
+		}
+		return statuses
+	}
+	return []findingCheckStatus{}
+}
+
+func integrationConnectionFromMap(data map[string]any) *aperiov1.IntegrationConnection {
+	return &aperiov1.IntegrationConnection{
+		Id:                           stringFromAny(data["id"]),
+		Provider:                     stringFromAny(data["provider"]),
+		DisplayName:                  stringFromAny(data["displayName"]),
+		ExternalAccountId:            stringFromAny(data["externalAccountId"]),
+		Status:                       stringFromAny(data["status"]),
+		Mode:                         stringFromAny(data["mode"]),
+		Scopes:                       stringSlice(data["scopes"]),
+		DisabledChecks:               stringSlice(data["disabledChecks"]),
+		GoogleMailboxScanEnabled:     boolFromAny(data["googleMailboxScanEnabled"]),
+		GoogleMailboxScanClientEmail: optionalStringFromAny(data["googleMailboxScanClientEmail"]),
+		LastSyncAt:                   optionalStringFromAny(data["lastSyncAt"]),
+		CreatedAt:                    stringFromAny(data["createdAt"]),
+	}
+}
+
+func siemDestinationFromMap(data map[string]any) *aperiov1.SiemDestination {
+	return &aperiov1.SiemDestination{
+		Id:             stringFromAny(data["id"]),
+		Kind:           stringFromAny(data["kind"]),
+		Name:           stringFromAny(data["name"]),
+		EndpointUrl:    optionalStringFromAny(data["endpointUrl"]),
+		FilePath:       optionalStringFromAny(data["filePath"]),
+		Index:          optionalStringFromAny(data["index"]),
+		Streams:        stringSlice(data["streams"]),
+		Status:         stringFromAny(data["status"]),
+		LastDeliveryAt: optionalStringFromAny(data["lastDeliveryAt"]),
+		LastError:      optionalStringFromAny(data["lastError"]),
+		DeliveriesOk:   int32(intValue(data["deliveriesOk"])),
+		DeliveriesFail: int32(intValue(data["deliveriesFail"])),
+		CreatedAt:      stringFromAny(data["createdAt"]),
+	}
+}
+
+func siemDestinationDefinitionProto(definition siemDestinationDefinition) *aperiov1.SiemDestinationDefinition {
+	return &aperiov1.SiemDestinationDefinition{
+		Kind:           definition.Kind,
+		Name:           definition.Name,
+		Vendor:         definition.Vendor,
+		Description:    definition.Description,
+		Category:       definition.Category,
+		DocsUrl:        definition.DocsURL,
+		DefaultStreams: append([]string{}, definition.DefaultStreams...),
+		Fields:         siemFieldsProto(definition.Fields),
+	}
+}
+
+func siemFieldsProto(fields []siemField) []*aperiov1.SiemField {
+	out := make([]*aperiov1.SiemField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, &aperiov1.SiemField{
+			Key:         field.Key,
+			Label:       field.Label,
+			Placeholder: field.Placeholder,
+			Helper:      field.Helper,
+			Type:        field.Type,
+			Required:    field.Required,
+			Secret:      field.Secret,
+		})
+	}
+	return out
+}
+
+func stringFromAny(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func optionalStringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case *string:
+		if typed != nil {
+			return *typed
+		}
+	}
+	return ""
+}
+
+func boolFromAny(value any) bool {
+	typed, _ := value.(bool)
+	return typed
+}
+
+func typedRateLimitSubjectBody(auth compatAuth) map[string]any {
+	return map[string]any{"email": auth.Email}
 }
 
 func (a *App) ListShadowItOauthApps(

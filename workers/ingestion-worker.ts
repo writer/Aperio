@@ -83,13 +83,19 @@ type ProcessResult = {
 };
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
+  // Prisma JSON columns cannot store undefined, Dates, or class instances; the
+  // stringify round-trip converts detector payloads into plain JSON values.
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 const WORKER_LEASE_MS = 5 * 60 * 1000;
+// Include hostname, pid, and a UUID so concurrent workers on the same host do
+// not accidentally release or finish each other's leased jobs.
 const WORKER_LEASE_OWNER = `${hostname()}:${process.pid}:${randomUUID()}`;
 
 function boundedDrainLimit(limit: number) {
+  // Clamp caller-provided limits to keep accidental CLI/API input from creating
+  // huge SKIP LOCKED batches that starve other workers.
   const normalized = Number.isFinite(limit) ? Math.trunc(limit) : 25;
   return Math.max(1, Math.min(normalized, 1000));
 }
@@ -105,6 +111,8 @@ async function publishIngestionJobEvent(
   status: "queued" | "running" | "succeeded" | "failed",
   attempts = job.attempts
 ) {
+  // Event bus publication mirrors the persisted job state so downstream systems
+  // can observe ingestion progress without reading the queue table directly.
   await publishAperioEvent(
     await encodeIngestionJobEvent({
       jobId: job.id,
@@ -232,6 +240,8 @@ function flattenRecordStrings(value: Record<string, unknown>) {
 
 function googleOauthGrantRisk(scopes: string[]) {
   const normalized = scopes.map((scope) => scope.toLowerCase());
+  // Gmail full-access and settings scopes are treated as critical because they
+  // enable mailbox exfiltration or persistence changes without admin console use.
   const criticalScopes = normalized.filter((scope) =>
     [
       "https://mail.google.com/",
@@ -279,6 +289,8 @@ function googleOauthGrantRisk(scopes: string[]) {
     riskScore: 82,
     title: "High-risk Google OAuth grant",
     riskReason: "Granted high-value Google Workspace scopes",
+    // Keep the fallback broad for newly added Google admin/Drive scopes; the
+    // exact matched scopes are retained in evidence for analyst review.
     matchedScopes: normalized.filter((scope) =>
       scope.includes("admin") || scope.includes("drive") || scope.includes("directory")
     )
@@ -340,6 +352,8 @@ function extractExternalRecipient(input: {
   sharerEmail: string | null;
 }): string | null {
   const candidates: string[] = [];
+  // Google audit parameters are inconsistent across event families: a recipient
+  // may be a string field, nested in a list, or embedded under a generic key.
   const visit = (value: unknown) => {
     if (typeof value === "string") {
       candidates.push(value);
@@ -366,6 +380,8 @@ function extractExternalRecipient(input: {
       return trimmed;
     }
   }
+  // Returning only the first external recipient keeps the finding dedupe target
+  // stable while still surfacing the highest-value external actor in evidence.
   return null;
 }
 
@@ -409,6 +425,8 @@ function scoreFinding(
   payload: IngestionPayload,
   finding: RuleFinding
 ): RuleFinding {
+  // Rule defaults are intentionally passed through shared risk scoring so UI,
+  // worker, and API paths all use the same severity floors and evidence bonuses.
   return {
     ...finding,
     riskScore: calculateFindingRiskScore({
@@ -428,6 +446,9 @@ function evaluateSecurityRules(
   payload: IngestionPayload,
   disabledChecks: string[] = []
 ): RuleFinding[] {
+  // Detectors are intentionally pure: they inspect one normalized provider event
+  // and return candidate findings, leaving persistence, dedupe, and lifecycle
+  // decisions to IngestionWorker.process.
   const normalizedEvent = normalizeEventType(payload.eventType);
   const findings: RuleFinding[] = [];
   const disabled = new Set(disabledChecks);
@@ -977,6 +998,8 @@ function evaluateSecurityRules(
 }
 
 function dedupeKey(payload: IngestionPayload, finding: RuleFinding): string {
+  // Dedupe intentionally excludes eventId/time so repeat observations update or
+  // reopen the same logical finding instead of flooding analysts with duplicates.
   return createHash("sha256")
     .update(
       [
@@ -999,6 +1022,8 @@ function decryptIntegrationSecret(
   },
   suffix: string
 ) {
+  // Older rows used externalAccountId in AAD while newer writes may use the
+  // integration id. Trying both preserves access during rolling migrations.
   const aadCandidates = [
     `${integration.organizationId}:${integration.provider}:${integration.externalAccountId}:${suffix}`,
     `${integration.organizationId}:${integration.id}:${suffix}`
@@ -1021,6 +1046,8 @@ function decryptIntegrationSecret(
 
 export class IngestionWorker {
   async process(payload: IngestionPayload): Promise<ProcessResult> {
+    // Re-read the integration inside processing so queued jobs cannot run after
+    // an admin disconnects or changes the provider binding.
     const integration = await prisma.integrationConnection.findFirst({
       where: {
         id: payload.integrationId,
@@ -1040,6 +1067,9 @@ export class IngestionWorker {
       "access_token"
     );
 
+    // The current worker does not call upstream APIs, but decrypting the token
+    // here validates that credentials are still recoverable before marking the
+    // event as processed or emitting findings.
     if (accessToken.length < 8) {
       throw new Error("Integration token failed minimum integrity validation");
     }
@@ -1051,6 +1081,8 @@ export class IngestionWorker {
     let eventId = "";
 
     await prisma.$transaction(async (tx) => {
+      // If this payload came from the durable queue, upsert by job id so a retry
+      // updates the same ingested event instead of creating duplicate source rows.
       const eventData = {
         organizationId: payload.organizationId,
         integrationId: integration.id,
@@ -1079,6 +1111,8 @@ export class IngestionWorker {
 
       for (const finding of findings) {
         const currentDedupeKey = dedupeKey(payload, finding);
+        // Fetch existing lifecycle state before upsert so muted findings stay
+        // muted and resolved findings can be explicitly reopened on observation.
         const existingFinding = await tx.securityFinding.findUnique({
           where: {
             organizationId_dedupeKey: {
@@ -1095,6 +1129,8 @@ export class IngestionWorker {
         });
 
         const nextStatus = existingFinding?.status === "MUTED" ? "MUTED" : "OPEN";
+        // "accepted" means a muted risk was re-observed and refreshed, not that
+        // the worker remediated it.
         const outcome = !existingFinding
           ? "created"
           : existingFinding.status === "MUTED"
@@ -1172,6 +1208,8 @@ export class IngestionWorker {
       processedFindings
         .filter(
           (finding) =>
+            // Lifecycle events are emitted only for creations or status changes;
+            // routine evidence refreshes would otherwise spam downstream consumers.
             finding.previousStatus === "NEW" ||
             finding.previousStatus !== finding.status
         )
@@ -1195,6 +1233,8 @@ export class IngestionWorker {
     );
 
     if (findings.length > 0) {
+      // SIEM fanout is enqueued after the transaction commits so external
+      // destinations never see a finding that failed to persist locally.
       const occurredIso =
         payload.occurredAt instanceof Date
           ? payload.occurredAt.toISOString()
@@ -1236,6 +1276,8 @@ export class IngestionWorker {
 
 function nextRetryAt(attempt: number): Date {
   const delaySeconds = Math.min(60 * 30, 2 ** Math.max(0, attempt - 1) * 30);
+  // Add bounded jitter so a database or provider outage does not cause every
+  // failed job to retry in the same second.
   const jitter = 0.8 + Math.random() * 0.4;
   return new Date(Date.now() + Math.round(delaySeconds * jitter) * 1000);
 }
@@ -1273,6 +1315,8 @@ async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown ingestion error";
 
   await prisma.ingestionJob.updateMany({
+    // The lease guard ensures only the worker that claimed the job can record
+    // failure or release it back to the queue.
     where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
     data: {
       status: retryable ? "FAILED" : "DEAD_LETTER",
@@ -1336,6 +1380,8 @@ export async function drainIngestionJobs(
 ): Promise<IngestionQueueDrainResult> {
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + WORKER_LEASE_MS);
+  // First retire exhausted jobs whose leases have expired; otherwise a crashed
+  // worker could leave an over-attempted row in RUNNING forever.
   await prisma.$executeRaw`
     UPDATE "ingestion_jobs"
     SET
@@ -1353,6 +1399,8 @@ export async function drainIngestionJobs(
       AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ${now})
   `;
   const jobs = await prisma.$queryRaw<PersistedIngestionJob[]>`
+    -- Atomically claim eligible rows and return them to this worker. SKIP LOCKED
+    -- lets multiple workers drain the queue concurrently without duplicate work.
     UPDATE "ingestion_jobs"
     SET
       "status" = 'RUNNING'::"IngestionJobStatus",
