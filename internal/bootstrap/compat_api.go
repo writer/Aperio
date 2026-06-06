@@ -670,11 +670,12 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 		return nil, connect.NewError(connect.CodeInternal, errors.New("integration webhook secret encryption failed"))
 	}
 	scopes := compatScopesForMode(provider, mode)
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,ARRAY[]::text[],NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, encryptedAccessToken, refreshToken, webhookSecret, mode, scopes); err != nil {
+	disabledChecks := compatDefaultDisabledChecks(provider)
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,$11,NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, encryptedAccessToken, refreshToken, webhookSecret, mode, scopes, disabledChecks); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
-	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": []string{}, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": disabledChecks, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
 func (a *App) compatDeleteIntegration(ctx context.Context, id string, auth compatAuth) (any, error) {
@@ -689,13 +690,14 @@ func (a *App) compatDeleteIntegration(ctx context.Context, id string, auth compa
 }
 
 func (a *App) compatIntegrationChecks(ctx context.Context, id string, auth compatAuth) (any, error) {
+	var provider string
 	var disabledJSON string
-	if err := a.db.QueryRowContext(ctx, `SELECT array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&disabledJSON); err != nil {
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &disabledJSON); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
 	}
 	disabled := []string{}
 	_ = json.Unmarshal([]byte(disabledJSON), &disabled)
-	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": []any{}}}, nil
+	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": compatFindingCheckStatuses(provider, disabled)}}, nil
 }
 
 func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
@@ -703,11 +705,14 @@ func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body
 		return nil, err
 	}
 	disabled := stringSlice(body["disabledChecks"])
-	_, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID)
-	if err != nil {
+	var provider string
+	if err := a.db.QueryRowContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3 RETURNING provider::text`, disabled, id, auth.OrganizationID).Scan(&provider); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": []any{}}}, nil
+	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": compatFindingCheckStatuses(provider, disabled)}}, nil
 }
 
 func compatGoogleOAuthStart(body map[string]any) any {
@@ -1106,24 +1111,6 @@ func (a *App) compatUpdateRiskException(ctx context.Context, id string, body map
 		}
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("exception not found"))
-}
-
-func compatConnectorCatalog() []map[string]any {
-	providers := []string{"GITHUB", "SLACK", "GOOGLE_WORKSPACE", "ONE_PASSWORD", "OKTA", "MICROSOFT_365", "ATLASSIAN"}
-	out := make([]map[string]any, 0, len(providers))
-	for _, provider := range providers {
-		out = append(out, map[string]any{"provider": provider, "name": strings.ReplaceAll(provider, "_", " "), "category": "Productivity", "availability": "preview", "description": "Go-managed connector", "readScopes": []string{}, "remediationScopes": []string{}, "remediationActions": []any{}, "findingChecks": []any{}, "docsUrl": "", "fields": []any{map[string]any{"key": "accessToken", "label": "Access token", "type": "password", "required": true, "secret": true}}})
-	}
-	return out
-}
-
-func compatSiemCatalog() []map[string]any {
-	kinds := []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE"}
-	out := make([]map[string]any, 0, len(kinds))
-	for _, kind := range kinds {
-		out = append(out, map[string]any{"kind": kind, "name": strings.ReplaceAll(kind, "_", " "), "vendor": strings.ReplaceAll(kind, "_", " "), "description": "Go-managed SIEM destination", "category": "Generic", "docsUrl": "", "defaultStreams": []string{"FINDINGS"}, "fields": []any{}})
-	}
-	return out
 }
 
 // Utility helpers.
@@ -1597,23 +1584,6 @@ func asMap(value any) map[string]any {
 
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
 	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
-}
-
-func compatScopesForMode(provider string, mode string) []string {
-	base := map[string][]string{
-		"GITHUB":           {"repo:read", "audit_log:read"},
-		"SLACK":            {"team:read", "users:read"},
-		"GOOGLE_WORKSPACE": {"admin.directory.user.readonly", "admin.reports.audit.readonly"},
-		"OKTA":             {"okta.users.read", "okta.logs.read"},
-		"ONE_PASSWORD":     {"scim:read"},
-		"MICROSOFT_365":    {"AuditLog.Read.All", "Directory.Read.All"},
-		"ATLASSIAN":        {"read:audit-log:jira", "read:confluence-content.summary"},
-	}
-	scopes := append([]string{}, base[provider]...)
-	if strings.EqualFold(mode, "REMEDIATION") {
-		scopes = append(scopes, "remediation:write")
-	}
-	return scopes
 }
 
 func encryptedOptionalSecret(body map[string]any, key string, aad string) (*string, error) {
