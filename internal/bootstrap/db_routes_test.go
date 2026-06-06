@@ -107,7 +107,7 @@ func TestDBIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("checks integrationId = %v", checks["integrationId"])
 	}
 
-	const disabledCheck = "slack.legacy_token_present"
+	const disabledCheck = "slack.mfa_disabled"
 	updated := dataMap(t, mustCall(t, func() (any, error) {
 		return app.compatUpdateIntegrationChecks(ctx, integrationID, map[string]any{"disabledChecks": []any{disabledCheck}}, auth)
 	}))
@@ -127,15 +127,8 @@ func TestDBIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("persisted disabled checks = %v", persistedDisabled)
 	}
 
-	if _, err := app.compatForceSync(ctx, integrationID, auth); err != nil {
-		t.Fatalf("force sync: %v", err)
-	}
-	var jobCount int
-	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ingestion_jobs WHERE integration_id = $1 AND status = 'QUEUED'`, integrationID).Scan(&jobCount); err != nil {
-		t.Fatalf("query ingestion jobs: %v", err)
-	}
-	if jobCount != 1 {
-		t.Fatalf("expected 1 queued ingestion job, got %d", jobCount)
+	if _, err := app.compatForceSync(ctx, integrationID, auth); err == nil {
+		t.Fatal("expected Slack force sync to be unsupported")
 	}
 
 	if _, err := app.compatDeleteIntegration(ctx, integrationID, auth); err != nil {
@@ -158,7 +151,7 @@ func TestDBSiemLifecycle(t *testing.T) {
 	created, err := app.compatCreateSiem(ctx, map[string]any{
 		"kind":        "SPLUNK_HEC",
 		"name":        "Splunk",
-		"endpointUrl": "https://splunk.example.com/services/collector",
+		"endpointUrl": "https://8.8.8.8/services/collector",
 		"streams":     []any{"FINDINGS"},
 		"token":       plaintextToken,
 	}, auth)

@@ -276,7 +276,7 @@ func TestCompatSiemEndpointRejectsPrivateHosts(t *testing.T) {
 	if err := validateCompatSiemEndpoint(&loopback); err == nil {
 		t.Fatal("expected loopback SIEM endpoint to be rejected")
 	}
-	public := "https://siem.example.com/events"
+	public := "https://8.8.8.8/events"
 	if err := validateCompatSiemEndpoint(&public); err != nil {
 		t.Fatalf("expected public SIEM endpoint to pass, got %v", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -648,14 +649,35 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 		return nil, err
 	}
 	id := compatID("int")
-	provider, displayName, external := requiredString(body, "provider"), requiredString(body, "displayName"), requiredString(body, "externalAccountId")
+	provider, displayName, external := strings.ToUpper(requiredString(body, "provider")), requiredString(body, "displayName"), requiredString(body, "externalAccountId")
+	connector := findConnectorDefinition(provider)
+	if connector == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("unsupported connector"))
+	}
+	if connector.Availability != "production_ready" && os.Getenv("APERIO_ALLOW_PREVIEW_CONNECTORS") != "true" {
+		message := connector.ReadinessNote
+		if message == "" {
+			message = connector.Name + " is still in preview and is not enabled for real customer data."
+		}
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New(message))
+	}
 	if err := validateCompatExternalAccount(provider, external); err != nil {
 		return nil, err
 	}
-	mode := stringDefault(body, "mode", "READ_ONLY")
+	mode := strings.ToUpper(stringDefault(body, "mode", "READ_ONLY"))
+	if mode != "READ_ONLY" && mode != "REMEDIATION" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid integration mode"))
+	}
 	accessToken := nestedString(body, "credentials", "accessToken")
 	if len(accessToken) < 8 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("integration access token is required"))
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM integration_connections WHERE organization_id = $1 AND provider = $2 AND external_account_id = $3)`, auth.OrganizationID, provider, external).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if exists {
+		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("connector already registered for this account"))
 	}
 	encryptedAccessToken, err := compatEncryptString(accessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, external, "access_token"))
 	if err != nil {
@@ -674,7 +696,13 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,$11,NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, encryptedAccessToken, refreshToken, webhookSecret, mode, scopes, disabledChecks); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
+	isPrivileged := mode == "REMEDIATION"
+	riskScore := 35
+	if isPrivileged {
+		riskScore = 55
+	}
+	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,$6,$7,$8,'HIGH','INTERNAL','ASSIGNED',false,$9,$10,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName, strings.ReplaceAll(provider, "_", " ")+" control plane", external, []string{"integration", strings.ToLower(mode)}, isPrivileged, riskScore)
+	a.writeCompatAudit(ctx, auth, "integration.connect", "integration_connection", id, map[string]any{"provider": provider, "displayName": displayName, "externalAccountId": external, "mode": mode})
 	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": disabledChecks, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
@@ -701,21 +729,31 @@ func (a *App) compatIntegrationChecks(ctx context.Context, id string, auth compa
 }
 
 func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
-	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	disabled := stringSlice(body["disabledChecks"])
 	var provider string
-	if err := a.db.QueryRowContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3 RETURNING provider::text`, disabled, id, auth.OrganizationID).Scan(&provider); err != nil {
+	var previousJSON string
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, array_to_json(disabled_checks)::text FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &previousJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	previous := []string{}
+	_ = json.Unmarshal([]byte(previousJSON), &previous)
+	disabled := validCompatDisabledChecks(provider, stringSlice(body["disabledChecks"]))
+	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	a.writeCompatAudit(ctx, auth, "integration.checks.update", "integration_connection", id, map[string]any{"previousDisabled": previous, "nextDisabled": disabled})
 	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": compatFindingCheckStatuses(provider, disabled)}}, nil
 }
 
 func (a *App) compatGoogleMailboxConfig(ctx context.Context, id string, auth compatAuth) (any, error) {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
+		return nil, err
+	}
 	var provider string
 	var email sql.NullString
 	var key sql.NullString
@@ -805,7 +843,7 @@ func (a *App) writeCompatAudit(ctx context.Context, auth compatAuth, action, tar
 }
 
 func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (any, error) {
-	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
 	var provider string
@@ -816,6 +854,9 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if provider != "GOOGLE_WORKSPACE" {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("force sync is not implemented for %s yet", strings.ReplaceAll(provider, "_", " ")))
 	}
 	jobID := compatID("job")
 	payload := map[string]any{
@@ -830,6 +871,7 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	a.writeCompatAudit(ctx, auth, "integration.force_sync", "integration_connection", id, map[string]any{"provider": provider, "sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}})
 	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
 	if err != nil {
@@ -858,9 +900,11 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	filePath := optionalStringPtr(body, "filePath")
-	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
+	normalizedFilePath, err := normalizeCompatSiemFilePath(filePath)
+	if err != nil {
+		return nil, err
 	}
+	filePath = normalizedFilePath
 	encryptedToken, err := encryptedOptionalSecret(body, "token", auth.OrganizationID+":siem:"+id+":token")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
@@ -869,6 +913,7 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	a.writeCompatAudit(ctx, auth, "siem.destination.create", "siem_destination", id, map[string]any{"kind": kind, "name": name, "streams": streams})
 	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": optionalStringPtr(body, "index"), "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
@@ -1611,19 +1656,116 @@ func validateCompatSiemEndpoint(raw *string) error {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM endpoint URL"))
 	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL must use HTTP or HTTPS"))
+	if parsed.Scheme != "https" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL must use HTTPS"))
 	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+	host := normalizeCompatHostname(parsed.Hostname())
+	if host == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL hostname is required"))
+	}
+	if isBlockedCompatHostname(host) {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint cannot target private hosts"))
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		if isPrivateCompatIP(ip) {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint cannot target private addresses"))
 		}
+		*raw = parsed.String()
+		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addresses) == 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint hostname could not be resolved"))
+	}
+	for _, address := range addresses {
+		if isPrivateCompatIP(address.IP) {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint cannot resolve to private addresses"))
+		}
+	}
+	*raw = parsed.String()
 	return nil
+}
+
+func normalizeCompatHostname(hostname string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hostname)), ".")
+}
+
+func isBlockedCompatHostname(host string) bool {
+	if host == "localhost" || host == "0.0.0.0" {
+		return true
+	}
+	if !strings.Contains(host, ".") && net.ParseIP(host) == nil {
+		return true
+	}
+	for _, suffix := range []string{".internal", ".local", ".localhost", ".localdomain", ".home.arpa"} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPrivateCompatIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		first, second, third := int(v4[0]), int(v4[1]), int(v4[2])
+		return first == 0 ||
+			first == 10 ||
+			first == 127 ||
+			(first == 100 && second >= 64 && second <= 127) ||
+			(first == 169 && second == 254) ||
+			(first == 172 && second >= 16 && second <= 31) ||
+			(first == 192 && second == 0 && third == 0) ||
+			(first == 192 && second == 0 && third == 2) ||
+			(first == 192 && second == 168) ||
+			(first == 198 && (second == 18 || second == 19)) ||
+			(first == 198 && second == 51 && third == 100) ||
+			(first == 203 && second == 0 && third == 113) ||
+			first >= 224
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast() ||
+		strings.HasPrefix(strings.ToLower(ip.String()), "2001:db8")
+}
+
+func normalizeCompatSiemFilePath(raw *string) (*string, error) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil, nil
+	}
+	root := strings.TrimSpace(os.Getenv("APERIO_SIEM_EXPORT_DIR"))
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		root = filepath.Join(cwd, "var", "siem-exports")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(*raw)
+	candidate := trimmed
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || relative == ".." || filepath.IsAbs(relative) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file path must stay within %s", root))
+	}
+	return &candidate, nil
 }
 
 func compatResolveEncryptionKey() ([]byte, error) {

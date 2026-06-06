@@ -571,56 +571,21 @@ func (a *App) CreateIntegration(
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	provider := strings.TrimSpace(req.Msg.Provider)
-	displayName := strings.TrimSpace(req.Msg.DisplayName)
-	externalAccountID := strings.TrimSpace(req.Msg.ExternalAccountId)
-	mode := firstNonEmpty(req.Msg.Mode, "READ_ONLY")
-	if provider == "" || displayName == "" || externalAccountID == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("provider, display_name, and external_account_id are required"))
-	}
-	if err := validateCompatExternalAccount(provider, externalAccountID); err != nil {
+	result, err := a.compatCreateIntegration(ctx, map[string]any{
+		"provider":          req.Msg.Provider,
+		"displayName":       req.Msg.DisplayName,
+		"externalAccountId": req.Msg.ExternalAccountId,
+		"mode":              req.Msg.Mode,
+		"credentials": map[string]any{
+			"accessToken":   req.Msg.GetCredentials().GetAccessToken(),
+			"refreshToken":  req.Msg.GetCredentials().GetRefreshToken(),
+			"webhookSecret": req.Msg.GetCredentials().GetWebhookSecret(),
+		},
+	}, auth)
+	if err != nil {
 		return nil, err
 	}
-	accessToken := strings.TrimSpace(req.Msg.GetCredentials().GetAccessToken())
-	if len(accessToken) < 8 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("integration access token is required"))
-	}
-	encryptedAccessToken, err := compatEncryptString(accessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "access_token"))
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("integration credential encryption failed"))
-	}
-	credentials := map[string]any{
-		"refreshToken":  req.Msg.GetCredentials().GetRefreshToken(),
-		"webhookSecret": req.Msg.GetCredentials().GetWebhookSecret(),
-	}
-	encryptedRefreshToken, err := encryptedOptionalSecret(credentials, "refreshToken", compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "refresh_token"))
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("integration refresh token encryption failed"))
-	}
-	encryptedWebhookSecret, err := encryptedOptionalSecret(credentials, "webhookSecret", compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccountID, "webhook_secret"))
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("integration webhook secret encryption failed"))
-	}
-	scopes := compatScopesForMode(provider, mode)
-	disabledChecks := compatDefaultDisabledChecks(provider)
-	id := compatID("int")
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,$11,NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, mode, scopes, disabledChecks); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, labels, criticality, exposure_level, ownership_status, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,ARRAY[]::text[],'MEDIUM','INTERNAL','UNASSIGNED',0,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName)
-	return connect.NewResponse(&aperiov1.CreateIntegrationResponse{
-		Data: &aperiov1.IntegrationConnection{
-			Id:                id,
-			Provider:          provider,
-			DisplayName:       displayName,
-			ExternalAccountId: externalAccountID,
-			Status:            "CONNECTED",
-			Mode:              mode,
-			Scopes:            scopes,
-			DisabledChecks:    disabledChecks,
-			CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
-		},
-	}), nil
+	return connect.NewResponse(&aperiov1.CreateIntegrationResponse{Data: integrationConnectionFromMap(asMap(asMap(result)["data"]))}), nil
 }
 
 func (a *App) DeleteIntegration(
@@ -660,19 +625,17 @@ func (a *App) UpdateIntegrationChecks(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
+	id := strings.TrimSpace(req.Msg.IntegrationId)
+	result, err := a.compatUpdateIntegrationChecks(ctx, id, map[string]any{"disabledChecks": req.Msg.DisabledChecks}, auth)
+	if err != nil {
 		return nil, err
 	}
-	id := strings.TrimSpace(req.Msg.IntegrationId)
-	disabled := req.Msg.DisabledChecks
-	var provider string
-	if err := a.db.QueryRowContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3 RETURNING provider::text`, disabled, id, auth.OrganizationID).Scan(&provider); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: integrationCheckStateProto(id, provider, disabled)}), nil
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.UpdateIntegrationChecksResponse{Data: &aperiov1.IntegrationCheckState{
+		IntegrationId:  stringFromAny(data["integrationId"]),
+		DisabledChecks: stringSlice(data["disabledChecks"]),
+		Checks:         findingCheckStatusesProto(findingCheckStatusesFromAny(data["checks"])),
+	}}), nil
 }
 
 func (a *App) GetGoogleMailboxScanConfig(
@@ -805,39 +768,19 @@ func (a *App) CreateSiemDestination(
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	kind := strings.TrimSpace(req.Msg.Kind)
-	name := strings.TrimSpace(req.Msg.Name)
-	streams := req.Msg.Streams
-	if len(streams) == 0 {
-		streams = []string{"FINDINGS"}
-	}
-	endpointURL := optionalStringFromProto(req.Msg.EndpointUrl)
-	if err := validateCompatSiemEndpoint(endpointURL); err != nil {
+	result, err := a.compatCreateSiem(ctx, map[string]any{
+		"kind":        req.Msg.Kind,
+		"name":        req.Msg.Name,
+		"endpointUrl": req.Msg.EndpointUrl,
+		"filePath":    req.Msg.FilePath,
+		"index":       req.Msg.Index,
+		"streams":     req.Msg.Streams,
+		"token":       req.Msg.Token,
+	}, auth)
+	if err != nil {
 		return nil, err
 	}
-	filePath := optionalStringFromProto(req.Msg.FilePath)
-	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
-	}
-	id := compatID("siem")
-	encryptedToken, err := encryptedOptionalSecret(map[string]any{"token": req.Msg.Token}, "token", auth.OrganizationID+":siem:"+id+":token")
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
-	}
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringFromProto(req.Msg.Index), encryptedToken, streams); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&aperiov1.CreateSiemDestinationResponse{Data: &aperiov1.SiemDestination{
-		Id:          id,
-		Kind:        kind,
-		Name:        name,
-		EndpointUrl: stringPtrValue(endpointURL),
-		FilePath:    stringPtrValue(filePath),
-		Index:       req.Msg.Index,
-		Streams:     streams,
-		Status:      "ACTIVE",
-		CreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-	}}), nil
+	return connect.NewResponse(&aperiov1.CreateSiemDestinationResponse{Data: siemDestinationFromMap(asMap(asMap(result)["data"]))}), nil
 }
 
 func (a *App) DeleteSiemDestination(
@@ -1003,6 +946,65 @@ func findingCheckStatusesProto(statuses []findingCheckStatus) []*aperiov1.Findin
 		})
 	}
 	return out
+}
+
+func findingCheckStatusesFromAny(value any) []findingCheckStatus {
+	switch typed := value.(type) {
+	case []findingCheckStatus:
+		return typed
+	case []any:
+		statuses := make([]findingCheckStatus, 0, len(typed))
+		for _, item := range typed {
+			data := asMap(item)
+			statuses = append(statuses, findingCheckStatus{
+				findingCheck: findingCheck{
+					Key:            stringFromAny(data["key"]),
+					Title:          stringFromAny(data["title"]),
+					Description:    stringFromAny(data["description"]),
+					SeverityHint:   stringFromAny(data["severityHint"]),
+					DefaultEnabled: boolFromAny(data["defaultEnabled"]),
+				},
+				Enabled: boolFromAny(data["enabled"]),
+			})
+		}
+		return statuses
+	}
+	return []findingCheckStatus{}
+}
+
+func integrationConnectionFromMap(data map[string]any) *aperiov1.IntegrationConnection {
+	return &aperiov1.IntegrationConnection{
+		Id:                           stringFromAny(data["id"]),
+		Provider:                     stringFromAny(data["provider"]),
+		DisplayName:                  stringFromAny(data["displayName"]),
+		ExternalAccountId:            stringFromAny(data["externalAccountId"]),
+		Status:                       stringFromAny(data["status"]),
+		Mode:                         stringFromAny(data["mode"]),
+		Scopes:                       stringSlice(data["scopes"]),
+		DisabledChecks:               stringSlice(data["disabledChecks"]),
+		GoogleMailboxScanEnabled:     boolFromAny(data["googleMailboxScanEnabled"]),
+		GoogleMailboxScanClientEmail: optionalStringFromAny(data["googleMailboxScanClientEmail"]),
+		LastSyncAt:                   optionalStringFromAny(data["lastSyncAt"]),
+		CreatedAt:                    stringFromAny(data["createdAt"]),
+	}
+}
+
+func siemDestinationFromMap(data map[string]any) *aperiov1.SiemDestination {
+	return &aperiov1.SiemDestination{
+		Id:             stringFromAny(data["id"]),
+		Kind:           stringFromAny(data["kind"]),
+		Name:           stringFromAny(data["name"]),
+		EndpointUrl:    optionalStringFromAny(data["endpointUrl"]),
+		FilePath:       optionalStringFromAny(data["filePath"]),
+		Index:          optionalStringFromAny(data["index"]),
+		Streams:        stringSlice(data["streams"]),
+		Status:         stringFromAny(data["status"]),
+		LastDeliveryAt: optionalStringFromAny(data["lastDeliveryAt"]),
+		LastError:      optionalStringFromAny(data["lastError"]),
+		DeliveriesOk:   int32(intValue(data["deliveriesOk"])),
+		DeliveriesFail: int32(intValue(data["deliveriesFail"])),
+		CreatedAt:      stringFromAny(data["createdAt"]),
+	}
 }
 
 func siemDestinationDefinitionProto(definition siemDestinationDefinition) *aperiov1.SiemDestinationDefinition {
