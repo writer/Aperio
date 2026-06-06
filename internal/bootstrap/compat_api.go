@@ -542,7 +542,7 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, u.id, u.email, r.name::text, us.last_seen_at
 		FROM user_sessions us
-		JOIN users u ON u.id = us.user_id
+		JOIN users u ON u.id = us.user_id AND u.organization_id = us.organization_id
 		JOIN roles r ON r.id = u.role_id
 		WHERE us.id = $1
 		  AND us.token_hash = $2
@@ -769,7 +769,7 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	var displayName sql.NullString
 	err := a.db.QueryRowContext(ctx, `
 		SELECT o.id, o.name, o.slug, u.id, u.email, u.display_name, r.name::text
-		FROM auth_tokens at JOIN users u ON u.id = at.user_id JOIN organizations o ON o.id = at.organization_id JOIN roles r ON r.id = u.role_id
+		FROM auth_tokens at JOIN users u ON u.id = at.user_id AND u.organization_id = at.organization_id JOIN organizations o ON o.id = at.organization_id JOIN roles r ON r.id = u.role_id
 		WHERE at.token_hash = $1 AND at.purpose = $2 AND at.consumed_at IS NULL AND at.expires_at > NOW()
 	`, hashOpaqueToken(token), purpose).Scan(&orgID, &orgName, &orgSlug, &userID, &email, &displayName, &role)
 	if err != nil {
@@ -777,7 +777,7 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	}
 	tx, _ := a.db.BeginTx(ctx, nil)
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2`, compatHashPassword(password), userID)
+	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID)
 	_, _ = tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token))
 	_, _ = tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
@@ -1202,11 +1202,15 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	if mode != "REMEDIATION" {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("this connection is read-only. Reconnect with remediation scopes to enable write actions."))
 	}
-	if _, err := compatDecryptIntegrationSecret(encryptedAccessToken, auth.OrganizationID, integrationID, provider, externalAccount, "access_token"); err != nil {
+	accessToken, err := compatDecryptIntegrationSecret(encryptedAccessToken, auth.OrganizationID, integrationID, provider, externalAccount, "access_token")
+	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("integration credential is unavailable"))
 	}
 
 	targetIdentifier := targetOverride
+	if action == "slack.revoke_app_install" && targetIdentifier == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("slack.revoke_app_install requires targetIdentifier to be the Slack app id"))
+	}
 	if targetIdentifier == "" {
 		// Prefer the finding's subject/actor evidence when the UI does not supply
 		// a target override; falling back to the external account keeps legacy
@@ -1222,7 +1226,19 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		}
 	}
 
-	result := executeRemediation(provider, action, externalAccount, targetIdentifier)
+	if action == "slack.revoke_app_install" {
+		if err := a.recordRemediationRequested(ctx, auth, id, provider, integrationID, action, targetIdentifier, note); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+
+	result := a.executeRemediation(ctx, remediationRequest{
+		Provider:          provider,
+		Action:            action,
+		ExternalAccountID: externalAccount,
+		TargetIdentifier:  targetIdentifier,
+		IntegrationToken:  accessToken,
+	})
 
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1297,6 +1313,45 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	}}, nil
 }
 
+func (a *App) recordRemediationRequested(ctx context.Context, auth compatAuth, findingID, provider, integrationID, action, targetIdentifier string, note *string) error {
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	var noteValue any
+	if note != nil {
+		noteValue = *note
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"provider":         provider,
+		"integrationId":    integrationID,
+		"actionKey":        action,
+		"targetIdentifier": targetIdentifier,
+		"note":             noteValue,
+	})
+	if err != nil {
+		return err
+	}
+	var actor any
+	if auth.UserID != "" {
+		actor = auth.UserID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,'finding.remediate.requested','security_finding',$4,$5,NOW())`, compatID("aud"), auth.OrganizationID, actor, findingID, metadata); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func (a *App) compatTenantSettings(ctx context.Context, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
@@ -1367,6 +1422,13 @@ func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth 
 func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND organization_id = $2)`, userID, auth.OrganizationID).Scan(&exists); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("member not found"))
 	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)

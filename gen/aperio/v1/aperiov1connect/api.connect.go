@@ -35,6 +35,39 @@ const (
 const (
 	// AperioServiceCallApiProcedure is the fully-qualified name of the AperioService's CallApi RPC.
 	AperioServiceCallApiProcedure = "/aperio.v1.AperioService/CallApi"
+	// AperioServiceSignupProcedure is the fully-qualified name of the AperioService's Signup RPC.
+	AperioServiceSignupProcedure = "/aperio.v1.AperioService/Signup"
+	// AperioServiceLoginProcedure is the fully-qualified name of the AperioService's Login RPC.
+	AperioServiceLoginProcedure = "/aperio.v1.AperioService/Login"
+	// AperioServiceGetCurrentSessionProcedure is the fully-qualified name of the AperioService's
+	// GetCurrentSession RPC.
+	AperioServiceGetCurrentSessionProcedure = "/aperio.v1.AperioService/GetCurrentSession"
+	// AperioServiceLogoutCurrentSessionProcedure is the fully-qualified name of the AperioService's
+	// LogoutCurrentSession RPC.
+	AperioServiceLogoutCurrentSessionProcedure = "/aperio.v1.AperioService/LogoutCurrentSession"
+	// AperioServiceListWorkspacesProcedure is the fully-qualified name of the AperioService's
+	// ListWorkspaces RPC.
+	AperioServiceListWorkspacesProcedure = "/aperio.v1.AperioService/ListWorkspaces"
+	// AperioServiceSwitchWorkspaceProcedure is the fully-qualified name of the AperioService's
+	// SwitchWorkspace RPC.
+	AperioServiceSwitchWorkspaceProcedure = "/aperio.v1.AperioService/SwitchWorkspace"
+	// AperioServiceRequestPasswordResetProcedure is the fully-qualified name of the AperioService's
+	// RequestPasswordReset RPC.
+	AperioServiceRequestPasswordResetProcedure = "/aperio.v1.AperioService/RequestPasswordReset"
+	// AperioServiceResetPasswordProcedure is the fully-qualified name of the AperioService's
+	// ResetPassword RPC.
+	AperioServiceResetPasswordProcedure = "/aperio.v1.AperioService/ResetPassword"
+	// AperioServiceAcceptInviteProcedure is the fully-qualified name of the AperioService's
+	// AcceptInvite RPC.
+	AperioServiceAcceptInviteProcedure = "/aperio.v1.AperioService/AcceptInvite"
+	// AperioServiceBeginMfaEnrollmentProcedure is the fully-qualified name of the AperioService's
+	// BeginMfaEnrollment RPC.
+	AperioServiceBeginMfaEnrollmentProcedure = "/aperio.v1.AperioService/BeginMfaEnrollment"
+	// AperioServiceEnableMfaProcedure is the fully-qualified name of the AperioService's EnableMfa RPC.
+	AperioServiceEnableMfaProcedure = "/aperio.v1.AperioService/EnableMfa"
+	// AperioServiceDisableMfaProcedure is the fully-qualified name of the AperioService's DisableMfa
+	// RPC.
+	AperioServiceDisableMfaProcedure = "/aperio.v1.AperioService/DisableMfa"
 	// AperioServiceCheckHealthProcedure is the fully-qualified name of the AperioService's CheckHealth
 	// RPC.
 	AperioServiceCheckHealthProcedure = "/aperio.v1.AperioService/CheckHealth"
@@ -104,17 +137,65 @@ const (
 	// AperioServiceListShadowItOauthAppGrantsProcedure is the fully-qualified name of the
 	// AperioService's ListShadowItOauthAppGrants RPC.
 	AperioServiceListShadowItOauthAppGrantsProcedure = "/aperio.v1.AperioService/ListShadowItOauthAppGrants"
+	// AperioServiceGetTenantSettingsProcedure is the fully-qualified name of the AperioService's
+	// GetTenantSettings RPC.
+	AperioServiceGetTenantSettingsProcedure = "/aperio.v1.AperioService/GetTenantSettings"
+	// AperioServiceUpdateTenantSettingsProcedure is the fully-qualified name of the AperioService's
+	// UpdateTenantSettings RPC.
+	AperioServiceUpdateTenantSettingsProcedure = "/aperio.v1.AperioService/UpdateTenantSettings"
+	// AperioServiceListTenantMembersProcedure is the fully-qualified name of the AperioService's
+	// ListTenantMembers RPC.
+	AperioServiceListTenantMembersProcedure = "/aperio.v1.AperioService/ListTenantMembers"
+	// AperioServiceCreateTenantMemberProcedure is the fully-qualified name of the AperioService's
+	// CreateTenantMember RPC.
+	AperioServiceCreateTenantMemberProcedure = "/aperio.v1.AperioService/CreateTenantMember"
+	// AperioServiceCreateMemberResetLinkProcedure is the fully-qualified name of the AperioService's
+	// CreateMemberResetLink RPC.
+	AperioServiceCreateMemberResetLinkProcedure = "/aperio.v1.AperioService/CreateMemberResetLink"
+	// AperioServiceUpdateMemberRoleProcedure is the fully-qualified name of the AperioService's
+	// UpdateMemberRole RPC.
+	AperioServiceUpdateMemberRoleProcedure = "/aperio.v1.AperioService/UpdateMemberRole"
+	// AperioServiceListAuditLogsProcedure is the fully-qualified name of the AperioService's
+	// ListAuditLogs RPC.
+	AperioServiceListAuditLogsProcedure = "/aperio.v1.AperioService/ListAuditLogs"
+	// AperioServiceGetSecurityOverviewProcedure is the fully-qualified name of the AperioService's
+	// GetSecurityOverview RPC.
+	AperioServiceGetSecurityOverviewProcedure = "/aperio.v1.AperioService/GetSecurityOverview"
 	// AperioServiceListSecurityAssetsProcedure is the fully-qualified name of the AperioService's
 	// ListSecurityAssets RPC.
 	AperioServiceListSecurityAssetsProcedure = "/aperio.v1.AperioService/ListSecurityAssets"
+	// AperioServiceCreateSecurityAssetProcedure is the fully-qualified name of the AperioService's
+	// CreateSecurityAsset RPC.
+	AperioServiceCreateSecurityAssetProcedure = "/aperio.v1.AperioService/CreateSecurityAsset"
+	// AperioServiceUpdateSecurityAssetProcedure is the fully-qualified name of the AperioService's
+	// UpdateSecurityAsset RPC.
+	AperioServiceUpdateSecurityAssetProcedure = "/aperio.v1.AperioService/UpdateSecurityAsset"
 	// AperioServiceListRiskExceptionsProcedure is the fully-qualified name of the AperioService's
 	// ListRiskExceptions RPC.
 	AperioServiceListRiskExceptionsProcedure = "/aperio.v1.AperioService/ListRiskExceptions"
+	// AperioServiceCreateRiskExceptionProcedure is the fully-qualified name of the AperioService's
+	// CreateRiskException RPC.
+	AperioServiceCreateRiskExceptionProcedure = "/aperio.v1.AperioService/CreateRiskException"
+	// AperioServiceUpdateRiskExceptionProcedure is the fully-qualified name of the AperioService's
+	// UpdateRiskException RPC.
+	AperioServiceUpdateRiskExceptionProcedure = "/aperio.v1.AperioService/UpdateRiskException"
 )
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
 type AperioServiceClient interface {
 	CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error)
+	Signup(context.Context, *connect.Request[v1.SignupRequest]) (*connect.Response[v1.SignupResponse], error)
+	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	GetCurrentSession(context.Context, *connect.Request[v1.GetCurrentSessionRequest]) (*connect.Response[v1.GetCurrentSessionResponse], error)
+	LogoutCurrentSession(context.Context, *connect.Request[v1.LogoutCurrentSessionRequest]) (*connect.Response[v1.LogoutCurrentSessionResponse], error)
+	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
+	SwitchWorkspace(context.Context, *connect.Request[v1.SwitchWorkspaceRequest]) (*connect.Response[v1.SwitchWorkspaceResponse], error)
+	RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error)
+	ResetPassword(context.Context, *connect.Request[v1.ResetPasswordRequest]) (*connect.Response[v1.ResetPasswordResponse], error)
+	AcceptInvite(context.Context, *connect.Request[v1.AcceptInviteRequest]) (*connect.Response[v1.AcceptInviteResponse], error)
+	BeginMfaEnrollment(context.Context, *connect.Request[v1.BeginMfaEnrollmentRequest]) (*connect.Response[v1.BeginMfaEnrollmentResponse], error)
+	EnableMfa(context.Context, *connect.Request[v1.EnableMfaRequest]) (*connect.Response[v1.EnableMfaResponse], error)
+	DisableMfa(context.Context, *connect.Request[v1.DisableMfaRequest]) (*connect.Response[v1.DisableMfaResponse], error)
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
@@ -138,8 +219,20 @@ type AperioServiceClient interface {
 	TestSiemDestination(context.Context, *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error)
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
+	GetTenantSettings(context.Context, *connect.Request[v1.GetTenantSettingsRequest]) (*connect.Response[v1.GetTenantSettingsResponse], error)
+	UpdateTenantSettings(context.Context, *connect.Request[v1.UpdateTenantSettingsRequest]) (*connect.Response[v1.UpdateTenantSettingsResponse], error)
+	ListTenantMembers(context.Context, *connect.Request[v1.ListTenantMembersRequest]) (*connect.Response[v1.ListTenantMembersResponse], error)
+	CreateTenantMember(context.Context, *connect.Request[v1.CreateTenantMemberRequest]) (*connect.Response[v1.CreateTenantMemberResponse], error)
+	CreateMemberResetLink(context.Context, *connect.Request[v1.CreateMemberResetLinkRequest]) (*connect.Response[v1.CreateMemberResetLinkResponse], error)
+	UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error)
+	ListAuditLogs(context.Context, *connect.Request[v1.ListAuditLogsRequest]) (*connect.Response[v1.ListAuditLogsResponse], error)
+	GetSecurityOverview(context.Context, *connect.Request[v1.GetSecurityOverviewRequest]) (*connect.Response[v1.GetSecurityOverviewResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
+	CreateSecurityAsset(context.Context, *connect.Request[v1.CreateSecurityAssetRequest]) (*connect.Response[v1.CreateSecurityAssetResponse], error)
+	UpdateSecurityAsset(context.Context, *connect.Request[v1.UpdateSecurityAssetRequest]) (*connect.Response[v1.UpdateSecurityAssetResponse], error)
 	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
+	CreateRiskException(context.Context, *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error)
+	UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error)
 }
 
 // NewAperioServiceClient constructs a client for the aperio.v1.AperioService service. By default,
@@ -157,6 +250,78 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			httpClient,
 			baseURL+AperioServiceCallApiProcedure,
 			connect.WithSchema(aperioServiceMethods.ByName("CallApi")),
+			connect.WithClientOptions(opts...),
+		),
+		signup: connect.NewClient[v1.SignupRequest, v1.SignupResponse](
+			httpClient,
+			baseURL+AperioServiceSignupProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("Signup")),
+			connect.WithClientOptions(opts...),
+		),
+		login: connect.NewClient[v1.LoginRequest, v1.LoginResponse](
+			httpClient,
+			baseURL+AperioServiceLoginProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("Login")),
+			connect.WithClientOptions(opts...),
+		),
+		getCurrentSession: connect.NewClient[v1.GetCurrentSessionRequest, v1.GetCurrentSessionResponse](
+			httpClient,
+			baseURL+AperioServiceGetCurrentSessionProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetCurrentSession")),
+			connect.WithClientOptions(opts...),
+		),
+		logoutCurrentSession: connect.NewClient[v1.LogoutCurrentSessionRequest, v1.LogoutCurrentSessionResponse](
+			httpClient,
+			baseURL+AperioServiceLogoutCurrentSessionProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("LogoutCurrentSession")),
+			connect.WithClientOptions(opts...),
+		),
+		listWorkspaces: connect.NewClient[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse](
+			httpClient,
+			baseURL+AperioServiceListWorkspacesProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListWorkspaces")),
+			connect.WithClientOptions(opts...),
+		),
+		switchWorkspace: connect.NewClient[v1.SwitchWorkspaceRequest, v1.SwitchWorkspaceResponse](
+			httpClient,
+			baseURL+AperioServiceSwitchWorkspaceProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("SwitchWorkspace")),
+			connect.WithClientOptions(opts...),
+		),
+		requestPasswordReset: connect.NewClient[v1.RequestPasswordResetRequest, v1.RequestPasswordResetResponse](
+			httpClient,
+			baseURL+AperioServiceRequestPasswordResetProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("RequestPasswordReset")),
+			connect.WithClientOptions(opts...),
+		),
+		resetPassword: connect.NewClient[v1.ResetPasswordRequest, v1.ResetPasswordResponse](
+			httpClient,
+			baseURL+AperioServiceResetPasswordProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ResetPassword")),
+			connect.WithClientOptions(opts...),
+		),
+		acceptInvite: connect.NewClient[v1.AcceptInviteRequest, v1.AcceptInviteResponse](
+			httpClient,
+			baseURL+AperioServiceAcceptInviteProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("AcceptInvite")),
+			connect.WithClientOptions(opts...),
+		),
+		beginMfaEnrollment: connect.NewClient[v1.BeginMfaEnrollmentRequest, v1.BeginMfaEnrollmentResponse](
+			httpClient,
+			baseURL+AperioServiceBeginMfaEnrollmentProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("BeginMfaEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
+		enableMfa: connect.NewClient[v1.EnableMfaRequest, v1.EnableMfaResponse](
+			httpClient,
+			baseURL+AperioServiceEnableMfaProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("EnableMfa")),
+			connect.WithClientOptions(opts...),
+		),
+		disableMfa: connect.NewClient[v1.DisableMfaRequest, v1.DisableMfaResponse](
+			httpClient,
+			baseURL+AperioServiceDisableMfaProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("DisableMfa")),
 			connect.WithClientOptions(opts...),
 		),
 		checkHealth: connect.NewClient[v1.CheckHealthRequest, v1.CheckHealthResponse](
@@ -297,10 +462,70 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthAppGrants")),
 			connect.WithClientOptions(opts...),
 		),
+		getTenantSettings: connect.NewClient[v1.GetTenantSettingsRequest, v1.GetTenantSettingsResponse](
+			httpClient,
+			baseURL+AperioServiceGetTenantSettingsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetTenantSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		updateTenantSettings: connect.NewClient[v1.UpdateTenantSettingsRequest, v1.UpdateTenantSettingsResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateTenantSettingsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateTenantSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		listTenantMembers: connect.NewClient[v1.ListTenantMembersRequest, v1.ListTenantMembersResponse](
+			httpClient,
+			baseURL+AperioServiceListTenantMembersProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListTenantMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		createTenantMember: connect.NewClient[v1.CreateTenantMemberRequest, v1.CreateTenantMemberResponse](
+			httpClient,
+			baseURL+AperioServiceCreateTenantMemberProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateTenantMember")),
+			connect.WithClientOptions(opts...),
+		),
+		createMemberResetLink: connect.NewClient[v1.CreateMemberResetLinkRequest, v1.CreateMemberResetLinkResponse](
+			httpClient,
+			baseURL+AperioServiceCreateMemberResetLinkProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateMemberResetLink")),
+			connect.WithClientOptions(opts...),
+		),
+		updateMemberRole: connect.NewClient[v1.UpdateMemberRoleRequest, v1.UpdateMemberRoleResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateMemberRoleProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateMemberRole")),
+			connect.WithClientOptions(opts...),
+		),
+		listAuditLogs: connect.NewClient[v1.ListAuditLogsRequest, v1.ListAuditLogsResponse](
+			httpClient,
+			baseURL+AperioServiceListAuditLogsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListAuditLogs")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityOverview: connect.NewClient[v1.GetSecurityOverviewRequest, v1.GetSecurityOverviewResponse](
+			httpClient,
+			baseURL+AperioServiceGetSecurityOverviewProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetSecurityOverview")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityAssets: connect.NewClient[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse](
 			httpClient,
 			baseURL+AperioServiceListSecurityAssetsProcedure,
 			connect.WithSchema(aperioServiceMethods.ByName("ListSecurityAssets")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityAsset: connect.NewClient[v1.CreateSecurityAssetRequest, v1.CreateSecurityAssetResponse](
+			httpClient,
+			baseURL+AperioServiceCreateSecurityAssetProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateSecurityAsset")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSecurityAsset: connect.NewClient[v1.UpdateSecurityAssetRequest, v1.UpdateSecurityAssetResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateSecurityAssetProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateSecurityAsset")),
 			connect.WithClientOptions(opts...),
 		),
 		listRiskExceptions: connect.NewClient[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse](
@@ -309,12 +534,36 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("ListRiskExceptions")),
 			connect.WithClientOptions(opts...),
 		),
+		createRiskException: connect.NewClient[v1.CreateRiskExceptionRequest, v1.CreateRiskExceptionResponse](
+			httpClient,
+			baseURL+AperioServiceCreateRiskExceptionProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateRiskException")),
+			connect.WithClientOptions(opts...),
+		),
+		updateRiskException: connect.NewClient[v1.UpdateRiskExceptionRequest, v1.UpdateRiskExceptionResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateRiskExceptionProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateRiskException")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // aperioServiceClient implements AperioServiceClient.
 type aperioServiceClient struct {
 	callApi                       *connect.Client[v1.CallApiRequest, v1.CallApiResponse]
+	signup                        *connect.Client[v1.SignupRequest, v1.SignupResponse]
+	login                         *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	getCurrentSession             *connect.Client[v1.GetCurrentSessionRequest, v1.GetCurrentSessionResponse]
+	logoutCurrentSession          *connect.Client[v1.LogoutCurrentSessionRequest, v1.LogoutCurrentSessionResponse]
+	listWorkspaces                *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
+	switchWorkspace               *connect.Client[v1.SwitchWorkspaceRequest, v1.SwitchWorkspaceResponse]
+	requestPasswordReset          *connect.Client[v1.RequestPasswordResetRequest, v1.RequestPasswordResetResponse]
+	resetPassword                 *connect.Client[v1.ResetPasswordRequest, v1.ResetPasswordResponse]
+	acceptInvite                  *connect.Client[v1.AcceptInviteRequest, v1.AcceptInviteResponse]
+	beginMfaEnrollment            *connect.Client[v1.BeginMfaEnrollmentRequest, v1.BeginMfaEnrollmentResponse]
+	enableMfa                     *connect.Client[v1.EnableMfaRequest, v1.EnableMfaResponse]
+	disableMfa                    *connect.Client[v1.DisableMfaRequest, v1.DisableMfaResponse]
 	checkHealth                   *connect.Client[v1.CheckHealthRequest, v1.CheckHealthResponse]
 	getDashboardMetrics           *connect.Client[v1.GetDashboardMetricsRequest, v1.GetDashboardMetricsResponse]
 	listFindings                  *connect.Client[v1.ListFindingsRequest, v1.ListFindingsResponse]
@@ -338,13 +587,85 @@ type aperioServiceClient struct {
 	testSiemDestination           *connect.Client[v1.TestSiemDestinationRequest, v1.TestSiemDestinationResponse]
 	listShadowItOauthApps         *connect.Client[v1.ListShadowItOauthAppsRequest, v1.ListShadowItOauthAppsResponse]
 	listShadowItOauthAppGrants    *connect.Client[v1.ListShadowItOauthAppGrantsRequest, v1.ListShadowItOauthAppGrantsResponse]
+	getTenantSettings             *connect.Client[v1.GetTenantSettingsRequest, v1.GetTenantSettingsResponse]
+	updateTenantSettings          *connect.Client[v1.UpdateTenantSettingsRequest, v1.UpdateTenantSettingsResponse]
+	listTenantMembers             *connect.Client[v1.ListTenantMembersRequest, v1.ListTenantMembersResponse]
+	createTenantMember            *connect.Client[v1.CreateTenantMemberRequest, v1.CreateTenantMemberResponse]
+	createMemberResetLink         *connect.Client[v1.CreateMemberResetLinkRequest, v1.CreateMemberResetLinkResponse]
+	updateMemberRole              *connect.Client[v1.UpdateMemberRoleRequest, v1.UpdateMemberRoleResponse]
+	listAuditLogs                 *connect.Client[v1.ListAuditLogsRequest, v1.ListAuditLogsResponse]
+	getSecurityOverview           *connect.Client[v1.GetSecurityOverviewRequest, v1.GetSecurityOverviewResponse]
 	listSecurityAssets            *connect.Client[v1.ListSecurityAssetsRequest, v1.ListSecurityAssetsResponse]
+	createSecurityAsset           *connect.Client[v1.CreateSecurityAssetRequest, v1.CreateSecurityAssetResponse]
+	updateSecurityAsset           *connect.Client[v1.UpdateSecurityAssetRequest, v1.UpdateSecurityAssetResponse]
 	listRiskExceptions            *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
+	createRiskException           *connect.Client[v1.CreateRiskExceptionRequest, v1.CreateRiskExceptionResponse]
+	updateRiskException           *connect.Client[v1.UpdateRiskExceptionRequest, v1.UpdateRiskExceptionResponse]
 }
 
 // CallApi calls aperio.v1.AperioService.CallApi.
 func (c *aperioServiceClient) CallApi(ctx context.Context, req *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error) {
 	return c.callApi.CallUnary(ctx, req)
+}
+
+// Signup calls aperio.v1.AperioService.Signup.
+func (c *aperioServiceClient) Signup(ctx context.Context, req *connect.Request[v1.SignupRequest]) (*connect.Response[v1.SignupResponse], error) {
+	return c.signup.CallUnary(ctx, req)
+}
+
+// Login calls aperio.v1.AperioService.Login.
+func (c *aperioServiceClient) Login(ctx context.Context, req *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
+	return c.login.CallUnary(ctx, req)
+}
+
+// GetCurrentSession calls aperio.v1.AperioService.GetCurrentSession.
+func (c *aperioServiceClient) GetCurrentSession(ctx context.Context, req *connect.Request[v1.GetCurrentSessionRequest]) (*connect.Response[v1.GetCurrentSessionResponse], error) {
+	return c.getCurrentSession.CallUnary(ctx, req)
+}
+
+// LogoutCurrentSession calls aperio.v1.AperioService.LogoutCurrentSession.
+func (c *aperioServiceClient) LogoutCurrentSession(ctx context.Context, req *connect.Request[v1.LogoutCurrentSessionRequest]) (*connect.Response[v1.LogoutCurrentSessionResponse], error) {
+	return c.logoutCurrentSession.CallUnary(ctx, req)
+}
+
+// ListWorkspaces calls aperio.v1.AperioService.ListWorkspaces.
+func (c *aperioServiceClient) ListWorkspaces(ctx context.Context, req *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error) {
+	return c.listWorkspaces.CallUnary(ctx, req)
+}
+
+// SwitchWorkspace calls aperio.v1.AperioService.SwitchWorkspace.
+func (c *aperioServiceClient) SwitchWorkspace(ctx context.Context, req *connect.Request[v1.SwitchWorkspaceRequest]) (*connect.Response[v1.SwitchWorkspaceResponse], error) {
+	return c.switchWorkspace.CallUnary(ctx, req)
+}
+
+// RequestPasswordReset calls aperio.v1.AperioService.RequestPasswordReset.
+func (c *aperioServiceClient) RequestPasswordReset(ctx context.Context, req *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error) {
+	return c.requestPasswordReset.CallUnary(ctx, req)
+}
+
+// ResetPassword calls aperio.v1.AperioService.ResetPassword.
+func (c *aperioServiceClient) ResetPassword(ctx context.Context, req *connect.Request[v1.ResetPasswordRequest]) (*connect.Response[v1.ResetPasswordResponse], error) {
+	return c.resetPassword.CallUnary(ctx, req)
+}
+
+// AcceptInvite calls aperio.v1.AperioService.AcceptInvite.
+func (c *aperioServiceClient) AcceptInvite(ctx context.Context, req *connect.Request[v1.AcceptInviteRequest]) (*connect.Response[v1.AcceptInviteResponse], error) {
+	return c.acceptInvite.CallUnary(ctx, req)
+}
+
+// BeginMfaEnrollment calls aperio.v1.AperioService.BeginMfaEnrollment.
+func (c *aperioServiceClient) BeginMfaEnrollment(ctx context.Context, req *connect.Request[v1.BeginMfaEnrollmentRequest]) (*connect.Response[v1.BeginMfaEnrollmentResponse], error) {
+	return c.beginMfaEnrollment.CallUnary(ctx, req)
+}
+
+// EnableMfa calls aperio.v1.AperioService.EnableMfa.
+func (c *aperioServiceClient) EnableMfa(ctx context.Context, req *connect.Request[v1.EnableMfaRequest]) (*connect.Response[v1.EnableMfaResponse], error) {
+	return c.enableMfa.CallUnary(ctx, req)
+}
+
+// DisableMfa calls aperio.v1.AperioService.DisableMfa.
+func (c *aperioServiceClient) DisableMfa(ctx context.Context, req *connect.Request[v1.DisableMfaRequest]) (*connect.Response[v1.DisableMfaResponse], error) {
+	return c.disableMfa.CallUnary(ctx, req)
 }
 
 // CheckHealth calls aperio.v1.AperioService.CheckHealth.
@@ -462,9 +783,59 @@ func (c *aperioServiceClient) ListShadowItOauthAppGrants(ctx context.Context, re
 	return c.listShadowItOauthAppGrants.CallUnary(ctx, req)
 }
 
+// GetTenantSettings calls aperio.v1.AperioService.GetTenantSettings.
+func (c *aperioServiceClient) GetTenantSettings(ctx context.Context, req *connect.Request[v1.GetTenantSettingsRequest]) (*connect.Response[v1.GetTenantSettingsResponse], error) {
+	return c.getTenantSettings.CallUnary(ctx, req)
+}
+
+// UpdateTenantSettings calls aperio.v1.AperioService.UpdateTenantSettings.
+func (c *aperioServiceClient) UpdateTenantSettings(ctx context.Context, req *connect.Request[v1.UpdateTenantSettingsRequest]) (*connect.Response[v1.UpdateTenantSettingsResponse], error) {
+	return c.updateTenantSettings.CallUnary(ctx, req)
+}
+
+// ListTenantMembers calls aperio.v1.AperioService.ListTenantMembers.
+func (c *aperioServiceClient) ListTenantMembers(ctx context.Context, req *connect.Request[v1.ListTenantMembersRequest]) (*connect.Response[v1.ListTenantMembersResponse], error) {
+	return c.listTenantMembers.CallUnary(ctx, req)
+}
+
+// CreateTenantMember calls aperio.v1.AperioService.CreateTenantMember.
+func (c *aperioServiceClient) CreateTenantMember(ctx context.Context, req *connect.Request[v1.CreateTenantMemberRequest]) (*connect.Response[v1.CreateTenantMemberResponse], error) {
+	return c.createTenantMember.CallUnary(ctx, req)
+}
+
+// CreateMemberResetLink calls aperio.v1.AperioService.CreateMemberResetLink.
+func (c *aperioServiceClient) CreateMemberResetLink(ctx context.Context, req *connect.Request[v1.CreateMemberResetLinkRequest]) (*connect.Response[v1.CreateMemberResetLinkResponse], error) {
+	return c.createMemberResetLink.CallUnary(ctx, req)
+}
+
+// UpdateMemberRole calls aperio.v1.AperioService.UpdateMemberRole.
+func (c *aperioServiceClient) UpdateMemberRole(ctx context.Context, req *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error) {
+	return c.updateMemberRole.CallUnary(ctx, req)
+}
+
+// ListAuditLogs calls aperio.v1.AperioService.ListAuditLogs.
+func (c *aperioServiceClient) ListAuditLogs(ctx context.Context, req *connect.Request[v1.ListAuditLogsRequest]) (*connect.Response[v1.ListAuditLogsResponse], error) {
+	return c.listAuditLogs.CallUnary(ctx, req)
+}
+
+// GetSecurityOverview calls aperio.v1.AperioService.GetSecurityOverview.
+func (c *aperioServiceClient) GetSecurityOverview(ctx context.Context, req *connect.Request[v1.GetSecurityOverviewRequest]) (*connect.Response[v1.GetSecurityOverviewResponse], error) {
+	return c.getSecurityOverview.CallUnary(ctx, req)
+}
+
 // ListSecurityAssets calls aperio.v1.AperioService.ListSecurityAssets.
 func (c *aperioServiceClient) ListSecurityAssets(ctx context.Context, req *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error) {
 	return c.listSecurityAssets.CallUnary(ctx, req)
+}
+
+// CreateSecurityAsset calls aperio.v1.AperioService.CreateSecurityAsset.
+func (c *aperioServiceClient) CreateSecurityAsset(ctx context.Context, req *connect.Request[v1.CreateSecurityAssetRequest]) (*connect.Response[v1.CreateSecurityAssetResponse], error) {
+	return c.createSecurityAsset.CallUnary(ctx, req)
+}
+
+// UpdateSecurityAsset calls aperio.v1.AperioService.UpdateSecurityAsset.
+func (c *aperioServiceClient) UpdateSecurityAsset(ctx context.Context, req *connect.Request[v1.UpdateSecurityAssetRequest]) (*connect.Response[v1.UpdateSecurityAssetResponse], error) {
+	return c.updateSecurityAsset.CallUnary(ctx, req)
 }
 
 // ListRiskExceptions calls aperio.v1.AperioService.ListRiskExceptions.
@@ -472,9 +843,31 @@ func (c *aperioServiceClient) ListRiskExceptions(ctx context.Context, req *conne
 	return c.listRiskExceptions.CallUnary(ctx, req)
 }
 
+// CreateRiskException calls aperio.v1.AperioService.CreateRiskException.
+func (c *aperioServiceClient) CreateRiskException(ctx context.Context, req *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error) {
+	return c.createRiskException.CallUnary(ctx, req)
+}
+
+// UpdateRiskException calls aperio.v1.AperioService.UpdateRiskException.
+func (c *aperioServiceClient) UpdateRiskException(ctx context.Context, req *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error) {
+	return c.updateRiskException.CallUnary(ctx, req)
+}
+
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
 	CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error)
+	Signup(context.Context, *connect.Request[v1.SignupRequest]) (*connect.Response[v1.SignupResponse], error)
+	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	GetCurrentSession(context.Context, *connect.Request[v1.GetCurrentSessionRequest]) (*connect.Response[v1.GetCurrentSessionResponse], error)
+	LogoutCurrentSession(context.Context, *connect.Request[v1.LogoutCurrentSessionRequest]) (*connect.Response[v1.LogoutCurrentSessionResponse], error)
+	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
+	SwitchWorkspace(context.Context, *connect.Request[v1.SwitchWorkspaceRequest]) (*connect.Response[v1.SwitchWorkspaceResponse], error)
+	RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error)
+	ResetPassword(context.Context, *connect.Request[v1.ResetPasswordRequest]) (*connect.Response[v1.ResetPasswordResponse], error)
+	AcceptInvite(context.Context, *connect.Request[v1.AcceptInviteRequest]) (*connect.Response[v1.AcceptInviteResponse], error)
+	BeginMfaEnrollment(context.Context, *connect.Request[v1.BeginMfaEnrollmentRequest]) (*connect.Response[v1.BeginMfaEnrollmentResponse], error)
+	EnableMfa(context.Context, *connect.Request[v1.EnableMfaRequest]) (*connect.Response[v1.EnableMfaResponse], error)
+	DisableMfa(context.Context, *connect.Request[v1.DisableMfaRequest]) (*connect.Response[v1.DisableMfaResponse], error)
 	CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error)
 	GetDashboardMetrics(context.Context, *connect.Request[v1.GetDashboardMetricsRequest]) (*connect.Response[v1.GetDashboardMetricsResponse], error)
 	ListFindings(context.Context, *connect.Request[v1.ListFindingsRequest]) (*connect.Response[v1.ListFindingsResponse], error)
@@ -498,8 +891,20 @@ type AperioServiceHandler interface {
 	TestSiemDestination(context.Context, *connect.Request[v1.TestSiemDestinationRequest]) (*connect.Response[v1.TestSiemDestinationResponse], error)
 	ListShadowItOauthApps(context.Context, *connect.Request[v1.ListShadowItOauthAppsRequest]) (*connect.Response[v1.ListShadowItOauthAppsResponse], error)
 	ListShadowItOauthAppGrants(context.Context, *connect.Request[v1.ListShadowItOauthAppGrantsRequest]) (*connect.Response[v1.ListShadowItOauthAppGrantsResponse], error)
+	GetTenantSettings(context.Context, *connect.Request[v1.GetTenantSettingsRequest]) (*connect.Response[v1.GetTenantSettingsResponse], error)
+	UpdateTenantSettings(context.Context, *connect.Request[v1.UpdateTenantSettingsRequest]) (*connect.Response[v1.UpdateTenantSettingsResponse], error)
+	ListTenantMembers(context.Context, *connect.Request[v1.ListTenantMembersRequest]) (*connect.Response[v1.ListTenantMembersResponse], error)
+	CreateTenantMember(context.Context, *connect.Request[v1.CreateTenantMemberRequest]) (*connect.Response[v1.CreateTenantMemberResponse], error)
+	CreateMemberResetLink(context.Context, *connect.Request[v1.CreateMemberResetLinkRequest]) (*connect.Response[v1.CreateMemberResetLinkResponse], error)
+	UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error)
+	ListAuditLogs(context.Context, *connect.Request[v1.ListAuditLogsRequest]) (*connect.Response[v1.ListAuditLogsResponse], error)
+	GetSecurityOverview(context.Context, *connect.Request[v1.GetSecurityOverviewRequest]) (*connect.Response[v1.GetSecurityOverviewResponse], error)
 	ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error)
+	CreateSecurityAsset(context.Context, *connect.Request[v1.CreateSecurityAssetRequest]) (*connect.Response[v1.CreateSecurityAssetResponse], error)
+	UpdateSecurityAsset(context.Context, *connect.Request[v1.UpdateSecurityAssetRequest]) (*connect.Response[v1.UpdateSecurityAssetResponse], error)
 	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
+	CreateRiskException(context.Context, *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error)
+	UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error)
 }
 
 // NewAperioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -513,6 +918,78 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		AperioServiceCallApiProcedure,
 		svc.CallApi,
 		connect.WithSchema(aperioServiceMethods.ByName("CallApi")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceSignupHandler := connect.NewUnaryHandler(
+		AperioServiceSignupProcedure,
+		svc.Signup,
+		connect.WithSchema(aperioServiceMethods.ByName("Signup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceLoginHandler := connect.NewUnaryHandler(
+		AperioServiceLoginProcedure,
+		svc.Login,
+		connect.WithSchema(aperioServiceMethods.ByName("Login")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetCurrentSessionHandler := connect.NewUnaryHandler(
+		AperioServiceGetCurrentSessionProcedure,
+		svc.GetCurrentSession,
+		connect.WithSchema(aperioServiceMethods.ByName("GetCurrentSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceLogoutCurrentSessionHandler := connect.NewUnaryHandler(
+		AperioServiceLogoutCurrentSessionProcedure,
+		svc.LogoutCurrentSession,
+		connect.WithSchema(aperioServiceMethods.ByName("LogoutCurrentSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListWorkspacesHandler := connect.NewUnaryHandler(
+		AperioServiceListWorkspacesProcedure,
+		svc.ListWorkspaces,
+		connect.WithSchema(aperioServiceMethods.ByName("ListWorkspaces")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceSwitchWorkspaceHandler := connect.NewUnaryHandler(
+		AperioServiceSwitchWorkspaceProcedure,
+		svc.SwitchWorkspace,
+		connect.WithSchema(aperioServiceMethods.ByName("SwitchWorkspace")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceRequestPasswordResetHandler := connect.NewUnaryHandler(
+		AperioServiceRequestPasswordResetProcedure,
+		svc.RequestPasswordReset,
+		connect.WithSchema(aperioServiceMethods.ByName("RequestPasswordReset")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceResetPasswordHandler := connect.NewUnaryHandler(
+		AperioServiceResetPasswordProcedure,
+		svc.ResetPassword,
+		connect.WithSchema(aperioServiceMethods.ByName("ResetPassword")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceAcceptInviteHandler := connect.NewUnaryHandler(
+		AperioServiceAcceptInviteProcedure,
+		svc.AcceptInvite,
+		connect.WithSchema(aperioServiceMethods.ByName("AcceptInvite")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceBeginMfaEnrollmentHandler := connect.NewUnaryHandler(
+		AperioServiceBeginMfaEnrollmentProcedure,
+		svc.BeginMfaEnrollment,
+		connect.WithSchema(aperioServiceMethods.ByName("BeginMfaEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceEnableMfaHandler := connect.NewUnaryHandler(
+		AperioServiceEnableMfaProcedure,
+		svc.EnableMfa,
+		connect.WithSchema(aperioServiceMethods.ByName("EnableMfa")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceDisableMfaHandler := connect.NewUnaryHandler(
+		AperioServiceDisableMfaProcedure,
+		svc.DisableMfa,
+		connect.WithSchema(aperioServiceMethods.ByName("DisableMfa")),
 		connect.WithHandlerOptions(opts...),
 	)
 	aperioServiceCheckHealthHandler := connect.NewUnaryHandler(
@@ -653,10 +1130,70 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("ListShadowItOauthAppGrants")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceGetTenantSettingsHandler := connect.NewUnaryHandler(
+		AperioServiceGetTenantSettingsProcedure,
+		svc.GetTenantSettings,
+		connect.WithSchema(aperioServiceMethods.ByName("GetTenantSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateTenantSettingsHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateTenantSettingsProcedure,
+		svc.UpdateTenantSettings,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateTenantSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListTenantMembersHandler := connect.NewUnaryHandler(
+		AperioServiceListTenantMembersProcedure,
+		svc.ListTenantMembers,
+		connect.WithSchema(aperioServiceMethods.ByName("ListTenantMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateTenantMemberHandler := connect.NewUnaryHandler(
+		AperioServiceCreateTenantMemberProcedure,
+		svc.CreateTenantMember,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateTenantMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateMemberResetLinkHandler := connect.NewUnaryHandler(
+		AperioServiceCreateMemberResetLinkProcedure,
+		svc.CreateMemberResetLink,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateMemberResetLink")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateMemberRoleHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateMemberRoleProcedure,
+		svc.UpdateMemberRole,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateMemberRole")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListAuditLogsHandler := connect.NewUnaryHandler(
+		AperioServiceListAuditLogsProcedure,
+		svc.ListAuditLogs,
+		connect.WithSchema(aperioServiceMethods.ByName("ListAuditLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetSecurityOverviewHandler := connect.NewUnaryHandler(
+		AperioServiceGetSecurityOverviewProcedure,
+		svc.GetSecurityOverview,
+		connect.WithSchema(aperioServiceMethods.ByName("GetSecurityOverview")),
+		connect.WithHandlerOptions(opts...),
+	)
 	aperioServiceListSecurityAssetsHandler := connect.NewUnaryHandler(
 		AperioServiceListSecurityAssetsProcedure,
 		svc.ListSecurityAssets,
 		connect.WithSchema(aperioServiceMethods.ByName("ListSecurityAssets")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateSecurityAssetHandler := connect.NewUnaryHandler(
+		AperioServiceCreateSecurityAssetProcedure,
+		svc.CreateSecurityAsset,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateSecurityAsset")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateSecurityAssetHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateSecurityAssetProcedure,
+		svc.UpdateSecurityAsset,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateSecurityAsset")),
 		connect.WithHandlerOptions(opts...),
 	)
 	aperioServiceListRiskExceptionsHandler := connect.NewUnaryHandler(
@@ -665,10 +1202,46 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("ListRiskExceptions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceCreateRiskExceptionHandler := connect.NewUnaryHandler(
+		AperioServiceCreateRiskExceptionProcedure,
+		svc.CreateRiskException,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateRiskException")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateRiskExceptionHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateRiskExceptionProcedure,
+		svc.UpdateRiskException,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateRiskException")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AperioServiceCallApiProcedure:
 			aperioServiceCallApiHandler.ServeHTTP(w, r)
+		case AperioServiceSignupProcedure:
+			aperioServiceSignupHandler.ServeHTTP(w, r)
+		case AperioServiceLoginProcedure:
+			aperioServiceLoginHandler.ServeHTTP(w, r)
+		case AperioServiceGetCurrentSessionProcedure:
+			aperioServiceGetCurrentSessionHandler.ServeHTTP(w, r)
+		case AperioServiceLogoutCurrentSessionProcedure:
+			aperioServiceLogoutCurrentSessionHandler.ServeHTTP(w, r)
+		case AperioServiceListWorkspacesProcedure:
+			aperioServiceListWorkspacesHandler.ServeHTTP(w, r)
+		case AperioServiceSwitchWorkspaceProcedure:
+			aperioServiceSwitchWorkspaceHandler.ServeHTTP(w, r)
+		case AperioServiceRequestPasswordResetProcedure:
+			aperioServiceRequestPasswordResetHandler.ServeHTTP(w, r)
+		case AperioServiceResetPasswordProcedure:
+			aperioServiceResetPasswordHandler.ServeHTTP(w, r)
+		case AperioServiceAcceptInviteProcedure:
+			aperioServiceAcceptInviteHandler.ServeHTTP(w, r)
+		case AperioServiceBeginMfaEnrollmentProcedure:
+			aperioServiceBeginMfaEnrollmentHandler.ServeHTTP(w, r)
+		case AperioServiceEnableMfaProcedure:
+			aperioServiceEnableMfaHandler.ServeHTTP(w, r)
+		case AperioServiceDisableMfaProcedure:
+			aperioServiceDisableMfaHandler.ServeHTTP(w, r)
 		case AperioServiceCheckHealthProcedure:
 			aperioServiceCheckHealthHandler.ServeHTTP(w, r)
 		case AperioServiceGetDashboardMetricsProcedure:
@@ -715,10 +1288,34 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceListShadowItOauthAppsHandler.ServeHTTP(w, r)
 		case AperioServiceListShadowItOauthAppGrantsProcedure:
 			aperioServiceListShadowItOauthAppGrantsHandler.ServeHTTP(w, r)
+		case AperioServiceGetTenantSettingsProcedure:
+			aperioServiceGetTenantSettingsHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateTenantSettingsProcedure:
+			aperioServiceUpdateTenantSettingsHandler.ServeHTTP(w, r)
+		case AperioServiceListTenantMembersProcedure:
+			aperioServiceListTenantMembersHandler.ServeHTTP(w, r)
+		case AperioServiceCreateTenantMemberProcedure:
+			aperioServiceCreateTenantMemberHandler.ServeHTTP(w, r)
+		case AperioServiceCreateMemberResetLinkProcedure:
+			aperioServiceCreateMemberResetLinkHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateMemberRoleProcedure:
+			aperioServiceUpdateMemberRoleHandler.ServeHTTP(w, r)
+		case AperioServiceListAuditLogsProcedure:
+			aperioServiceListAuditLogsHandler.ServeHTTP(w, r)
+		case AperioServiceGetSecurityOverviewProcedure:
+			aperioServiceGetSecurityOverviewHandler.ServeHTTP(w, r)
 		case AperioServiceListSecurityAssetsProcedure:
 			aperioServiceListSecurityAssetsHandler.ServeHTTP(w, r)
+		case AperioServiceCreateSecurityAssetProcedure:
+			aperioServiceCreateSecurityAssetHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateSecurityAssetProcedure:
+			aperioServiceUpdateSecurityAssetHandler.ServeHTTP(w, r)
 		case AperioServiceListRiskExceptionsProcedure:
 			aperioServiceListRiskExceptionsHandler.ServeHTTP(w, r)
+		case AperioServiceCreateRiskExceptionProcedure:
+			aperioServiceCreateRiskExceptionHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateRiskExceptionProcedure:
+			aperioServiceUpdateRiskExceptionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -730,6 +1327,54 @@ type UnimplementedAperioServiceHandler struct{}
 
 func (UnimplementedAperioServiceHandler) CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CallApi is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) Signup(context.Context, *connect.Request[v1.SignupRequest]) (*connect.Response[v1.SignupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.Signup is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.Login is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetCurrentSession(context.Context, *connect.Request[v1.GetCurrentSessionRequest]) (*connect.Response[v1.GetCurrentSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetCurrentSession is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) LogoutCurrentSession(context.Context, *connect.Request[v1.LogoutCurrentSessionRequest]) (*connect.Response[v1.LogoutCurrentSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.LogoutCurrentSession is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListWorkspaces is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) SwitchWorkspace(context.Context, *connect.Request[v1.SwitchWorkspaceRequest]) (*connect.Response[v1.SwitchWorkspaceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.SwitchWorkspace is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.RequestPasswordReset is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ResetPassword(context.Context, *connect.Request[v1.ResetPasswordRequest]) (*connect.Response[v1.ResetPasswordResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ResetPassword is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) AcceptInvite(context.Context, *connect.Request[v1.AcceptInviteRequest]) (*connect.Response[v1.AcceptInviteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.AcceptInvite is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) BeginMfaEnrollment(context.Context, *connect.Request[v1.BeginMfaEnrollmentRequest]) (*connect.Response[v1.BeginMfaEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.BeginMfaEnrollment is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) EnableMfa(context.Context, *connect.Request[v1.EnableMfaRequest]) (*connect.Response[v1.EnableMfaResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.EnableMfa is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) DisableMfa(context.Context, *connect.Request[v1.DisableMfaRequest]) (*connect.Response[v1.DisableMfaResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.DisableMfa is not implemented"))
 }
 
 func (UnimplementedAperioServiceHandler) CheckHealth(context.Context, *connect.Request[v1.CheckHealthRequest]) (*connect.Response[v1.CheckHealthResponse], error) {
@@ -824,10 +1469,58 @@ func (UnimplementedAperioServiceHandler) ListShadowItOauthAppGrants(context.Cont
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListShadowItOauthAppGrants is not implemented"))
 }
 
+func (UnimplementedAperioServiceHandler) GetTenantSettings(context.Context, *connect.Request[v1.GetTenantSettingsRequest]) (*connect.Response[v1.GetTenantSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetTenantSettings is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateTenantSettings(context.Context, *connect.Request[v1.UpdateTenantSettingsRequest]) (*connect.Response[v1.UpdateTenantSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateTenantSettings is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListTenantMembers(context.Context, *connect.Request[v1.ListTenantMembersRequest]) (*connect.Response[v1.ListTenantMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListTenantMembers is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateTenantMember(context.Context, *connect.Request[v1.CreateTenantMemberRequest]) (*connect.Response[v1.CreateTenantMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateTenantMember is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateMemberResetLink(context.Context, *connect.Request[v1.CreateMemberResetLinkRequest]) (*connect.Response[v1.CreateMemberResetLinkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateMemberResetLink is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateMemberRole is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListAuditLogs(context.Context, *connect.Request[v1.ListAuditLogsRequest]) (*connect.Response[v1.ListAuditLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListAuditLogs is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetSecurityOverview(context.Context, *connect.Request[v1.GetSecurityOverviewRequest]) (*connect.Response[v1.GetSecurityOverviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetSecurityOverview is not implemented"))
+}
+
 func (UnimplementedAperioServiceHandler) ListSecurityAssets(context.Context, *connect.Request[v1.ListSecurityAssetsRequest]) (*connect.Response[v1.ListSecurityAssetsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListSecurityAssets is not implemented"))
 }
 
+func (UnimplementedAperioServiceHandler) CreateSecurityAsset(context.Context, *connect.Request[v1.CreateSecurityAssetRequest]) (*connect.Response[v1.CreateSecurityAssetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateSecurityAsset is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateSecurityAsset(context.Context, *connect.Request[v1.UpdateSecurityAssetRequest]) (*connect.Response[v1.UpdateSecurityAssetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateSecurityAsset is not implemented"))
+}
+
 func (UnimplementedAperioServiceHandler) ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListRiskExceptions is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateRiskException(context.Context, *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateRiskException is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateRiskException is not implemented"))
 }

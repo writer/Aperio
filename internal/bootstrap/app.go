@@ -34,10 +34,12 @@ var errInvalidSession = errors.New("invalid session")
 // infrastructural dependencies here so endpoint implementations stay easy to
 // move from the current TypeScript API into Go one route at a time.
 type App struct {
-	cfg      config.Config
-	db       *sql.DB
-	mux      *http.ServeMux
-	eventBus *aperioEventBus
+	cfg                   config.Config
+	db                    *sql.DB
+	mux                   *http.ServeMux
+	eventBus              *aperioEventBus
+	remediationHTTPClient remediationHTTPDoer
+	slackAPIBaseURL       string
 }
 
 // dashboardMetrics mirrors the existing web dashboard response shape. Keeping
@@ -195,10 +197,12 @@ type riskExceptionRow struct {
 // returned handler directly, while cmd/aperio decides how to listen in runtime.
 func NewApp(cfg config.Config, db *sql.DB) *App {
 	app := &App{
-		cfg:      cfg,
-		db:       db,
-		mux:      http.NewServeMux(),
-		eventBus: &aperioEventBus{},
+		cfg:                   cfg,
+		db:                    db,
+		mux:                   http.NewServeMux(),
+		eventBus:              &aperioEventBus{},
+		remediationHTTPClient: &http.Client{Timeout: 10 * time.Second},
+		slackAPIBaseURL:       "https://slack.com/api",
 	}
 	app.routes()
 	return app
@@ -1266,7 +1270,7 @@ func (a *App) organizationIDFromSession(ctx context.Context, header http.Header)
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, us.last_seen_at
 		FROM user_sessions us
-		JOIN users u ON u.id = us.user_id
+		JOIN users u ON u.id = us.user_id AND u.organization_id = us.organization_id
 		WHERE us.id = $1
 		  AND us.token_hash = $2
 		  AND us.revoked_at IS NULL

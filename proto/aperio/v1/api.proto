@@ -8,6 +8,18 @@ import "google/protobuf/timestamp.proto";
 
 service AperioService {
   rpc CallApi(CallApiRequest) returns (CallApiResponse);
+  rpc Signup(SignupRequest) returns (SignupResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc GetCurrentSession(GetCurrentSessionRequest) returns (GetCurrentSessionResponse);
+  rpc LogoutCurrentSession(LogoutCurrentSessionRequest) returns (LogoutCurrentSessionResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc SwitchWorkspace(SwitchWorkspaceRequest) returns (SwitchWorkspaceResponse);
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc AcceptInvite(AcceptInviteRequest) returns (AcceptInviteResponse);
+  rpc BeginMfaEnrollment(BeginMfaEnrollmentRequest) returns (BeginMfaEnrollmentResponse);
+  rpc EnableMfa(EnableMfaRequest) returns (EnableMfaResponse);
+  rpc DisableMfa(DisableMfaRequest) returns (DisableMfaResponse);
   rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
   rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
   rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
@@ -31,8 +43,20 @@ service AperioService {
   rpc TestSiemDestination(TestSiemDestinationRequest) returns (TestSiemDestinationResponse);
   rpc ListShadowItOauthApps(ListShadowItOauthAppsRequest) returns (ListShadowItOauthAppsResponse);
   rpc ListShadowItOauthAppGrants(ListShadowItOauthAppGrantsRequest) returns (ListShadowItOauthAppGrantsResponse);
+  rpc GetTenantSettings(GetTenantSettingsRequest) returns (GetTenantSettingsResponse);
+  rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (UpdateTenantSettingsResponse);
+  rpc ListTenantMembers(ListTenantMembersRequest) returns (ListTenantMembersResponse);
+  rpc CreateTenantMember(CreateTenantMemberRequest) returns (CreateTenantMemberResponse);
+  rpc CreateMemberResetLink(CreateMemberResetLinkRequest) returns (CreateMemberResetLinkResponse);
+  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+  rpc ListAuditLogs(ListAuditLogsRequest) returns (ListAuditLogsResponse);
+  rpc GetSecurityOverview(GetSecurityOverviewRequest) returns (GetSecurityOverviewResponse);
   rpc ListSecurityAssets(ListSecurityAssetsRequest) returns (ListSecurityAssetsResponse);
+  rpc CreateSecurityAsset(CreateSecurityAssetRequest) returns (CreateSecurityAssetResponse);
+  rpc UpdateSecurityAsset(UpdateSecurityAssetRequest) returns (UpdateSecurityAssetResponse);
   rpc ListRiskExceptions(ListRiskExceptionsRequest) returns (ListRiskExceptionsResponse);
+  rpc CreateRiskException(CreateRiskExceptionRequest) returns (CreateRiskExceptionResponse);
+  rpc UpdateRiskException(UpdateRiskExceptionRequest) returns (UpdateRiskExceptionResponse);
 }
 
 message CallApiRequest {
@@ -43,6 +67,149 @@ message CallApiRequest {
 
 message CallApiResponse {
   string body_json = 1;
+}
+
+message SignupRequest {
+  string organization_name = 1;
+  string organization_slug = 2;
+  string notification_email = 3;
+  string owner_email = 4;
+  string owner_display_name = 5;
+  string password = 6;
+}
+
+message SignupResponse {
+  AuthSession data = 1;
+}
+
+message LoginRequest {
+  string organization_slug = 1;
+  string email = 2;
+  string password = 3;
+  string totp_code = 4;
+}
+
+message LoginResponse {
+  AuthSession data = 1;
+}
+
+message GetCurrentSessionRequest {}
+
+message GetCurrentSessionResponse {
+  AuthSession data = 1;
+}
+
+message LogoutCurrentSessionRequest {}
+
+message LogoutCurrentSessionResponse {
+  DeleteResult data = 1;
+}
+
+message ListWorkspacesRequest {}
+
+message ListWorkspacesResponse {
+  repeated WorkspaceMembership data = 1;
+}
+
+message SwitchWorkspaceRequest {
+  string organization_slug = 1;
+  string totp_code = 2;
+}
+
+message SwitchWorkspaceResponse {
+  AuthSession data = 1;
+}
+
+message RequestPasswordResetRequest {
+  string organization_slug = 1;
+  string email = 2;
+}
+
+message RequestPasswordResetResponse {
+  PasswordResetResult data = 1;
+}
+
+message ResetPasswordRequest {
+  string token = 1;
+  string password = 2;
+}
+
+message ResetPasswordResponse {
+  AuthSession data = 1;
+}
+
+message AcceptInviteRequest {
+  string token = 1;
+  string display_name = 2;
+  string password = 3;
+}
+
+message AcceptInviteResponse {
+  AuthSession data = 1;
+}
+
+message BeginMfaEnrollmentRequest {}
+
+message BeginMfaEnrollmentResponse {
+  MfaEnrollment data = 1;
+}
+
+message EnableMfaRequest {
+  string code = 1;
+}
+
+message EnableMfaResponse {
+  AuthSession data = 1;
+}
+
+message DisableMfaRequest {
+  string password = 1;
+  string code = 2;
+}
+
+message DisableMfaResponse {
+  AuthSession data = 1;
+}
+
+message AuthSession {
+  string token = 1;
+  AuthUser user = 2;
+  AuthOrganization organization = 3;
+}
+
+message AuthUser {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  bool mfa_enabled = 4;
+  string role = 5;
+}
+
+message AuthOrganization {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+}
+
+message WorkspaceMembership {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string role = 4;
+  bool current = 5;
+}
+
+message PasswordResetResult {
+  bool accepted = 1;
+  string delivery = 2;
+  string reset_url = 3;
+  string expires_at = 4;
+  string organization_name = 5;
+}
+
+message MfaEnrollment {
+  string secret = 1;
+  string otpauth_url = 2;
 }
 
 message CheckHealthRequest {}
@@ -475,6 +642,210 @@ message ShadowItOauthAppGrant {
   string last_observed_at = 8;
 }
 
+message GetTenantSettingsRequest {}
+
+message GetTenantSettingsResponse {
+  TenantSettings data = 1;
+}
+
+message UpdateTenantSettingsRequest {
+  optional string name = 1;
+  optional string notification_email = 2;
+  optional int32 data_retention_days = 3;
+  optional int32 critical_risk_threshold = 4;
+  optional int32 default_sla_hours = 5;
+  optional bool auto_resolve_low_severity = 6;
+  optional bool enforce_sso_only = 7;
+  optional string webhook_alert_url = 8;
+}
+
+message UpdateTenantSettingsResponse {
+  TenantSettings data = 1;
+}
+
+message TenantSettings {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string notification_email = 4;
+  int32 data_retention_days = 5;
+  int32 critical_risk_threshold = 6;
+  int32 default_sla_hours = 7;
+  bool auto_resolve_low_severity = 8;
+  bool enforce_sso_only = 9;
+  string webhook_alert_url = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message ListTenantMembersRequest {}
+
+message ListTenantMembersResponse {
+  repeated TenantMember data = 1;
+}
+
+message CreateTenantMemberRequest {
+  string email = 1;
+  string display_name = 2;
+  string role_name = 3;
+}
+
+message CreateTenantMemberResponse {
+  TenantMember data = 1;
+  InvitationResult invitation = 2;
+}
+
+message CreateMemberResetLinkRequest {
+  string id = 1;
+}
+
+message CreateMemberResetLinkResponse {
+  TenantMember data = 1;
+  InvitationResult reset = 2;
+}
+
+message UpdateMemberRoleRequest {
+  string id = 1;
+  string role_name = 2;
+}
+
+message UpdateMemberRoleResponse {
+  TenantMember data = 1;
+}
+
+message TenantMember {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  bool is_active = 4;
+  bool mfa_enabled = 5;
+  string last_login_at = 6;
+  bool is_break_glass = 7;
+  string role = 8;
+  string auth_state = 9;
+  string pending_action_expires_at = 10;
+  string created_at = 11;
+}
+
+message InvitationResult {
+  string delivery = 1;
+  string url = 2;
+  string expires_at = 3;
+}
+
+message ListAuditLogsRequest {}
+
+message ListAuditLogsResponse {
+  repeated AuditLogEntry data = 1;
+}
+
+message AuditLogEntry {
+  string id = 1;
+  string action = 2;
+  string target_type = 3;
+  string target_id = 4;
+  string actor = 5;
+  string created_at = 6;
+  string metadata_json = 7;
+}
+
+message GetSecurityOverviewRequest {}
+
+message GetSecurityOverviewResponse {
+  SecurityOverview data = 1;
+}
+
+message SecurityOverview {
+  SecurityOverviewSummary summary = 1;
+  repeated SecurityIdentity identities = 2;
+  SecurityGraph graph = 3;
+  repeated SecurityAsset oauth_apps = 4;
+  repeated SecurityAsset data_assets = 5;
+  repeated AttackPath attack_paths = 6;
+  repeated SecurityAsset ownership_gaps = 7;
+  repeated RiskException exceptions = 8;
+  repeated DomainWideDelegation domain_wide_delegations = 9;
+}
+
+message SecurityOverviewSummary {
+  int32 privileged_identities = 1;
+  int32 admin_identities_without_mfa = 2;
+  int32 risky_oauth_apps = 3;
+  int32 exposed_data_assets = 4;
+  int32 unowned_assets = 5;
+  int32 active_exceptions = 6;
+  int32 top_blast_radius_score = 7;
+}
+
+message SecurityIdentity {
+  string id = 1;
+  string entity_id = 2;
+  string kind = 3;
+  string name = 4;
+  string email = 5;
+  string provider = 6;
+  FindingIntegration integration = 7;
+  string role = 8;
+  bool privileged = 9;
+  bool mfa_enabled = 10;
+  string status = 11;
+  bool is_external = 12;
+  string last_observed_at = 13;
+  int32 linked_asset_count = 14;
+  int32 risk_score = 15;
+}
+
+message SecurityGraph {
+  repeated SecurityGraphNode nodes = 1;
+  repeated SecurityGraphEdge edges = 2;
+}
+
+message SecurityGraphNode {
+  string id = 1;
+  string label = 2;
+  string kind = 3;
+  int32 risk_score = 4;
+  bool privileged = 5;
+  string exposure_level = 6;
+  string criticality = 7;
+}
+
+message SecurityGraphEdge {
+  string id = 1;
+  string source_id = 2;
+  string target_id = 3;
+  string relationship_type = 4;
+}
+
+message AttackPath {
+  string id = 1;
+  string title = 2;
+  int32 score = 3;
+  string finding_title = 4;
+  string entry_point = 5;
+  string target = 6;
+  string owner = 7;
+  string exposure_level = 8;
+  string criticality = 9;
+  string reason = 10;
+  repeated string path = 11;
+}
+
+message DomainWideDelegation {
+  string integration_id = 1;
+  string provider = 2;
+  string display_name = 3;
+  string workspace_domain = 4;
+  string service_account_client_email = 5;
+  repeated string scopes = 6;
+  string status = 7;
+  string integration_status = 8;
+  string mode = 9;
+  int32 open_mailbox_findings = 10;
+  string last_sync_at = 11;
+  string configured_at = 12;
+}
+
 message ListSecurityAssetsRequest {
   string type = 1;
   string ownership_status = 2;
@@ -515,6 +886,54 @@ message SecurityPrincipal {
   string display_name = 3;
 }
 
+message CreateSecurityAssetRequest {
+  string integration_id = 1;
+  string owner_user_id = 2;
+  string business_owner_user_id = 3;
+  string type = 4;
+  string provider = 5;
+  string name = 6;
+  string summary = 7;
+  string external_id = 8;
+  repeated string labels = 9;
+  string criticality = 10;
+  string exposure_level = 11;
+  string ownership_status = 12;
+  bool contains_sensitive_data = 13;
+  bool is_privileged = 14;
+  int32 risk_score = 15;
+  string last_observed_at = 16;
+}
+
+message CreateSecurityAssetResponse {
+  SecurityAsset data = 1;
+}
+
+message UpdateSecurityAssetRequest {
+  string id = 1;
+  optional string integration_id = 2;
+  optional string owner_user_id = 3;
+  optional string business_owner_user_id = 4;
+  optional string type = 5;
+  optional string provider = 6;
+  optional string name = 7;
+  optional string summary = 8;
+  optional string external_id = 9;
+  repeated string labels = 10;
+  bool labels_present = 11;
+  optional string criticality = 12;
+  optional string exposure_level = 13;
+  optional string ownership_status = 14;
+  optional bool contains_sensitive_data = 15;
+  optional bool is_privileged = 16;
+  optional int32 risk_score = 17;
+  optional string last_observed_at = 18;
+}
+
+message UpdateSecurityAssetResponse {
+  SecurityAsset data = 1;
+}
+
 message ListRiskExceptionsRequest {}
 
 message ListRiskExceptionsResponse {
@@ -548,4 +967,31 @@ message RiskExceptionFinding {
   string title = 2;
   string severity = 3;
   string status = 4;
+}
+
+message CreateRiskExceptionRequest {
+  string asset_id = 1;
+  string finding_id = 2;
+  string title = 3;
+  string rationale = 4;
+  repeated string compensating_controls = 5;
+  string expires_at = 6;
+}
+
+message CreateRiskExceptionResponse {
+  RiskException data = 1;
+}
+
+message UpdateRiskExceptionRequest {
+  string id = 1;
+  optional string title = 2;
+  optional string rationale = 3;
+  repeated string compensating_controls = 4;
+  bool compensating_controls_present = 5;
+  optional string status = 6;
+  optional string expires_at = 7;
+}
+
+message UpdateRiskExceptionResponse {
+  RiskException data = 1;
 }
