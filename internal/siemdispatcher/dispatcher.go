@@ -192,7 +192,8 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 	}
 	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String)
 	if err != nil {
-		return d.finish(ctx, item, false, true, "destination not active")
+		permanent, message := destinationLoadFailure(err)
+		return d.finish(ctx, item, false, permanent, message)
 	}
 	switch dest.Kind {
 	case "JSON_FILE":
@@ -222,6 +223,13 @@ func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string,
 		WHERE id = $1 AND organization_id = $2 AND status IN ('ACTIVE', 'ERROR')
 	`, id, organizationID).Scan(&dest.ID, &dest.OrganizationID, &dest.Kind, &dest.Name, &dest.EndpointURL, &dest.FilePath, &dest.Index)
 	return dest, err
+}
+
+func destinationLoadFailure(err error) (bool, string) {
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, "destination not active"
+	}
+	return false, err.Error()
 }
 
 func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string) error {

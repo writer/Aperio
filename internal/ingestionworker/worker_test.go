@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -100,10 +101,46 @@ func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
 	}
 }
 
+func TestFindingsForJobHonorsDisabledChecks(t *testing.T) {
+	state := &failureDriverState{disabledChecksJSON: `["github.public_repository_created"]`}
+	driverName := fmt.Sprintf("ingestion_disabled_%d", time.Now().UnixNano())
+	sql.Register(driverName, &failureDriver{state: state})
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	worker := &Worker{db: db}
+	findings, err := worker.findingsForJob(context.Background(), JobPayload{
+		OrganizationID: "org_1",
+		IntegrationID:  "int_1",
+		Provider:       "GITHUB",
+		EventType:      "PUBLIC_REPOSITORY_CREATED",
+		Payload: map[string]any{
+			"repository": map[string]any{
+				"full_name":  "writer/aperio",
+				"visibility": "public",
+			},
+		},
+	}, job{
+		OrganizationID: "org_1",
+		IntegrationID:  "int_1",
+		Provider:       "GITHUB",
+	})
+	if err != nil {
+		t.Fatalf("load disabled checks: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected disabled check to suppress findings, got %#v", findings)
+	}
+}
+
 type failureDriverState struct {
-	mu         sync.Mutex
-	execs      [][]driver.NamedValue
-	rolledBack bool
+	mu                 sync.Mutex
+	execs              [][]driver.NamedValue
+	rolledBack         bool
+	disabledChecksJSON string
 }
 
 func (s *failureDriverState) failureUpdate() (string, string, string) {
@@ -145,6 +182,13 @@ func (c *failureConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, err
 }
 
 func (c *failureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(query, "array_to_json(disabled_checks)") {
+		disabled := c.state.disabledChecksJSON
+		if disabled == "" {
+			disabled = "[]"
+		}
+		return &singleValueRows{columns: []string{"disabled_checks"}, values: [][]driver.Value{{disabled}}}, nil
+	}
 	if strings.Contains(query, "INSERT INTO ingested_events") {
 		return nil, errors.New("ingested event insert failed")
 	}
@@ -173,5 +217,28 @@ func (tx *failureTx) Rollback() error {
 	tx.state.mu.Lock()
 	tx.state.rolledBack = true
 	tx.state.mu.Unlock()
+	return nil
+}
+
+type singleValueRows struct {
+	columns []string
+	values  [][]driver.Value
+	index   int
+}
+
+func (r *singleValueRows) Columns() []string {
+	return r.columns
+}
+
+func (r *singleValueRows) Close() error {
+	return nil
+}
+
+func (r *singleValueRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.values) {
+		return io.EOF
+	}
+	copy(dest, r.values[r.index])
+	r.index++
 	return nil
 }

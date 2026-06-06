@@ -209,7 +209,10 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	if err != nil {
 		return w.finish(ctx, item, false, err.Error())
 	}
-	findings := Evaluate(payload, nil)
+	findings, err := w.findingsForJob(ctx, payload, item)
+	if err != nil {
+		return w.finish(ctx, item, false, err.Error())
+	}
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
 		return w.finish(ctx, item, false, err.Error())
@@ -255,6 +258,30 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	}
 	txDone = true
 	return nil
+}
+
+func (w *Worker) findingsForJob(ctx context.Context, payload JobPayload, item job) ([]Finding, error) {
+	disabledChecks, err := w.loadDisabledChecks(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	return Evaluate(payload, disabledChecks), nil
+}
+
+func (w *Worker) loadDisabledChecks(ctx context.Context, item job) ([]string, error) {
+	var raw string
+	if err := w.db.QueryRowContext(ctx, `
+		SELECT COALESCE(array_to_json(disabled_checks)::text, '[]')
+		FROM integration_connections
+		WHERE id = $1 AND organization_id = $2 AND provider = $3 AND status = 'CONNECTED'
+	`, item.IntegrationID, item.OrganizationID, item.Provider).Scan(&raw); err != nil {
+		return nil, err
+	}
+	disabledChecks := []string{}
+	if err := json.Unmarshal([]byte(raw), &disabledChecks); err != nil {
+		return nil, err
+	}
+	return disabledChecks, nil
 }
 
 func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string) error {

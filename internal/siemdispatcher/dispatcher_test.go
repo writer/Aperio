@@ -1,6 +1,10 @@
 package siemdispatcher
 
-import "testing"
+import (
+	"database/sql"
+	"errors"
+	"testing"
+)
 
 func TestStableDeliveryKeyIncludesFindingOccurrence(t *testing.T) {
 	payload := Payload{
@@ -40,5 +44,20 @@ func TestBuildEnvelopeUsesCanonicalSIEMShape(t *testing.T) {
 	}
 	if envelope.DestinationID != "dst_1" || envelope.OrganizationID != "org_1" {
 		t.Fatalf("unexpected routing fields: %#v", envelope)
+	}
+}
+
+func TestDestinationLoadFailureOnlyPermanentForMissingRows(t *testing.T) {
+	permanent, message := destinationLoadFailure(sql.ErrNoRows)
+	if !permanent || message != "destination not active" {
+		t.Fatalf("expected missing destination to be permanent, got permanent=%v message=%q", permanent, message)
+	}
+
+	permanent, message = destinationLoadFailure(errors.New("statement timeout"))
+	if permanent {
+		t.Fatalf("expected transient load error to retry, got permanent with message %q", message)
+	}
+	if message != "statement timeout" {
+		t.Fatalf("unexpected transient message %q", message)
 	}
 }
