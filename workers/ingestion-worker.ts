@@ -1310,12 +1310,15 @@ function toApiJob(job: PersistedIngestionJob): IngestionJob {
   };
 }
 
-async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
+async function markJobFailure(
+  job: PersistedIngestionJob,
+  error: unknown
+): Promise<boolean> {
   const attempts = job.attempts + 1;
   const retryable = attempts < job.maxAttempts;
   const message = error instanceof Error ? error.message : "Unknown ingestion error";
 
-  await prisma.ingestionJob.updateMany({
+  const updated = await prisma.ingestionJob.updateMany({
     // The lease guard ensures only the worker that claimed the job can record
     // failure or release it back to the queue.
     where: { id: job.id, leaseOwner: WORKER_LEASE_OWNER },
@@ -1328,7 +1331,10 @@ async function markJobFailure(job: PersistedIngestionJob, error: unknown) {
       lastError: message.slice(0, 500)
     }
   });
-  await publishIngestionJobEvent(job, "failed", attempts);
+  if (updated.count === 1) {
+    await publishIngestionJobEvent(job, "failed", attempts);
+  }
+  return updated.count === 1;
 }
 
 // ingestionJobWideEvent builds the per-job wide event. Pure (the caller supplies
@@ -1395,7 +1401,7 @@ async function processJob(job: PersistedIngestionJob): Promise<boolean> {
     );
     return ok;
   } catch (error) {
-    await markJobFailure(job, error);
+    const finalized = await markJobFailure(job, error);
     const attempt = job.attempts + 1;
     emitWideEvent(
       ingestionJobWideEvent({
@@ -1404,7 +1410,11 @@ async function processJob(job: PersistedIngestionJob): Promise<boolean> {
         eventType: job.eventType,
         attempts: job.attempts,
         maxAttempts: job.maxAttempts,
-        outcome: attempt >= job.maxAttempts ? "dead_letter" : "failed",
+        outcome: !finalized
+          ? "lost_lease"
+          : attempt >= job.maxAttempts
+            ? "dead_letter"
+            : "failed",
         durationMs: Date.now() - startedAt,
         errorName: error instanceof Error ? error.name : "unknown"
       })

@@ -849,15 +849,18 @@ export function siemDeliveryWideEvent(input: {
   destinationKind: string;
   payloadKind: string;
   ok: boolean;
+  finalized: boolean;
   permanent?: boolean;
   durationMs: number;
 }): WideEvent {
   const attempt = input.attempts + 1;
-  const outcome = input.ok
-    ? "delivered"
-    : input.permanent || attempt >= input.maxAttempts
-      ? "dead_letter"
-      : "failed";
+  const outcome = !input.finalized
+    ? "lost_lease"
+    : input.ok
+      ? "delivered"
+      : input.permanent || attempt >= input.maxAttempts
+        ? "dead_letter"
+        : "failed";
   return {
     name: "siem.delivery.process",
     service: "siem-dispatcher",
@@ -880,7 +883,12 @@ export function siemDeliveryWideEvent(input: {
 
 async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult> {
   const startedAt = Date.now();
-  const emit = (result: DispatcherResult, destinationKind: string, payloadKind: string) =>
+  const emit = (
+    result: DispatcherResult,
+    destinationKind: string,
+    payloadKind: string,
+    finalized: boolean
+  ) =>
     emitWideEvent(
       siemDeliveryWideEvent({
         organizationId: delivery.organizationId,
@@ -891,6 +899,7 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
         destinationKind,
         payloadKind,
         ok: result.ok,
+        finalized,
         permanent: result.permanent,
         durationMs: Date.now() - startedAt
       })
@@ -903,8 +912,8 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
       message: "invalid delivery payload",
       permanent: true
     };
-    await finishDelivery(delivery, result);
-    emit(result, "unknown", "unknown");
+    const finalized = await finishDelivery(delivery, result);
+    emit(result, "unknown", "unknown", finalized);
     return result;
   }
 
@@ -924,17 +933,18 @@ async function processDelivery(delivery: SiemDelivery): Promise<DispatcherResult
       message: "destination not active",
       permanent: true
     };
-    await finishDelivery(delivery, result);
-    emit(result, "unknown", payload.kind);
+    const finalized = await finishDelivery(delivery, result);
+    emit(result, "unknown", payload.kind, finalized);
     return result;
   }
 
   const result = await sendOne(destination, payload);
-  if (await finishDelivery(delivery, result)) {
+  const finalized = await finishDelivery(delivery, result);
+  if (finalized) {
     await recordResult(result);
     await publishCerebroFanoutEvent(delivery, result, payload);
   }
-  emit(result, destination.kind, payload.kind);
+  emit(result, destination.kind, payload.kind, finalized);
   return result;
 }
 

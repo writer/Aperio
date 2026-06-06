@@ -56,6 +56,7 @@ test("siemDeliveryWideEvent classifies outcome and omits a null destination id",
     maxAttempts: 5,
     destinationKind: "SPLUNK_HEC",
     payloadKind: "finding",
+    finalized: true,
     durationMs: 12
   };
 
@@ -76,6 +77,14 @@ test("siemDeliveryWideEvent classifies outcome and omits a null destination id",
     permanent: true
   });
   assert.equal(permanent.dimensions?.outcome, "dead_letter");
+
+  const lostLease = siemDeliveryWideEvent({
+    ...base,
+    attempts: 0,
+    ok: true,
+    finalized: false
+  });
+  assert.equal(lostLease.dimensions?.outcome, "lost_lease");
 
   // A null destination id must be dropped by the emitter rather than serialized.
   const lines: string[] = [];
@@ -122,4 +131,17 @@ test("ingestionJobWideEvent maps outcome, provider, and error kind", () => {
   assert.equal(dead.dimensions?.outcome, "dead_letter");
   assert.equal(dead.dimensions?.error_kind, "TypeError");
   assert.equal(dead.measurements?.attempt, 3);
+
+  const lostLease = ingestionJobWideEvent({
+    organizationId: "org_1",
+    provider: "GITHUB",
+    eventType: "repository",
+    attempts: 0,
+    maxAttempts: 3,
+    outcome: "lost_lease",
+    durationMs: 5,
+    errorName: "Error"
+  });
+  assert.equal(lostLease.dimensions?.outcome, "lost_lease");
+  assert.equal(lostLease.dimensions?.error_kind, "Error");
 });
