@@ -696,26 +696,16 @@ func (a *App) UpdateGoogleMailboxScanConfig(
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	id := strings.TrimSpace(req.Msg.IntegrationId)
-	var email *string
-	var key *string
-	if req.Msg.Enabled {
-		email = optionalStringFromProto(req.Msg.ServiceAccountClientEmail)
-		if strings.TrimSpace(req.Msg.PrivateKey) != "" {
-			encrypted, err := compatEncryptString(req.Msg.PrivateKey, auth.OrganizationID+":"+id+":google_mailbox_private_key")
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, errors.New("google mailbox private key encryption failed"))
-			}
-			key = &encrypted
-		}
+	result, err := a.compatUpdateGoogleMailboxConfig(ctx, strings.TrimSpace(req.Msg.IntegrationId), map[string]any{
+		"enabled":                   req.Msg.Enabled,
+		"serviceAccountClientEmail": req.Msg.ServiceAccountClientEmail,
+		"privateKey":                req.Msg.PrivateKey,
+	}, auth)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, email, key, id, auth.OrganizationID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&aperiov1.UpdateGoogleMailboxScanConfigResponse{Data: &aperiov1.GoogleMailboxScanConfig{
-		Enabled:                   req.Msg.Enabled,
-		ServiceAccountClientEmail: stringPtrValue(email),
-	}}), nil
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.UpdateGoogleMailboxScanConfigResponse{Data: googleMailboxScanConfigFromMap(data)}), nil
 }
 
 func (a *App) StartGoogleWorkspaceOAuth(
@@ -729,8 +719,12 @@ func (a *App) StartGoogleWorkspaceOAuth(
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	mode := url.QueryEscape(firstNonEmpty(req.Msg.Mode, "READ_ONLY"))
-	return connect.NewResponse(&aperiov1.StartGoogleWorkspaceOAuthResponse{Data: &aperiov1.OAuthStart{Url: "/connectors?googleWorkspaceOAuth=configure&mode=" + mode}}), nil
+	result, err := a.compatGoogleOAuthStart(map[string]any{"mode": req.Msg.Mode}, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.StartGoogleWorkspaceOAuthResponse{Data: &aperiov1.OAuthStart{Url: stringFromAny(data["url"])}}), nil
 }
 
 func (a *App) ForceSyncIntegration(
@@ -863,10 +857,15 @@ func (a *App) TestSiemDestination(
 		return nil, err
 	}
 	id := strings.TrimSpace(req.Msg.Id)
+	result, err := a.compatTestSiem(ctx, id, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
 	return connect.NewResponse(&aperiov1.TestSiemDestinationResponse{Data: &aperiov1.SiemTestResult{
-		DestinationId: id,
-		Ok:            false,
-		Message:       "SIEM test dispatch is not yet available in the Go runtime",
+		DestinationId: stringFromAny(data["destinationId"]),
+		Ok:            boolFromAny(data["ok"]),
+		Message:       stringFromAny(data["message"]),
 	}}), nil
 }
 
@@ -890,15 +889,18 @@ func integrationCheckStateProto(id string, provider string, disabled []string) *
 }
 
 func (a *App) googleMailboxScanConfigProto(ctx context.Context, id string, auth compatAuth) (*aperiov1.GoogleMailboxScanConfig, error) {
-	var email sql.NullString
-	var key sql.NullString
-	if err := a.db.QueryRowContext(ctx, `SELECT google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&email, &key); err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	result, err := a.compatGoogleMailboxConfig(ctx, id, auth)
+	if err != nil {
+		return nil, err
 	}
+	return googleMailboxScanConfigFromMap(asMap(asMap(result)["data"])), nil
+}
+
+func googleMailboxScanConfigFromMap(data map[string]any) *aperiov1.GoogleMailboxScanConfig {
 	return &aperiov1.GoogleMailboxScanConfig{
-		Enabled:                   email.Valid && key.Valid,
-		ServiceAccountClientEmail: nullStringValue(email),
-	}, nil
+		Enabled:                   boolFromAny(data["enabled"]),
+		ServiceAccountClientEmail: optionalStringFromAny(data["serviceAccountClientEmail"]),
+	}
 }
 
 func connectorCatalogProto() []*aperiov1.ConnectorDefinition {
@@ -1048,6 +1050,18 @@ func nullStringValue(value sql.NullString) string {
 func stringFromAny(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func optionalStringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case *string:
+		if typed != nil {
+			return *typed
+		}
+	}
+	return ""
 }
 
 func boolFromAny(value any) bool {

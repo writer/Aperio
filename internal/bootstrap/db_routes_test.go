@@ -205,6 +205,81 @@ func TestDBSiemLifecycle(t *testing.T) {
 	}
 }
 
+func TestDBGoogleMailboxScanConfig(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+
+	created, err := app.compatCreateIntegration(ctx, map[string]any{
+		"provider":          "GOOGLE_WORKSPACE",
+		"displayName":       "Google Workspace",
+		"externalAccountId": "example.com",
+		"mode":              "READ_ONLY",
+		"credentials":       map[string]any{"accessToken": "google-example-access-token-1234567890"},
+	}, auth)
+	if err != nil {
+		t.Fatalf("create google integration: %v", err)
+	}
+	integrationID := dataMap(t, created)["id"].(string)
+
+	auditAuth := auth
+	auditAuth.UserID = ""
+	const clientEmail = "mailbox-scanner@example.com"
+	const privateKey = "example-google-mailbox-private-key-value-1234567890"
+	enabled := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+			"enabled":                   true,
+			"serviceAccountClientEmail": clientEmail,
+			"privateKey":                privateKey,
+		}, auditAuth)
+	}))
+	if enabled["enabled"] != true || enabled["serviceAccountClientEmail"] != clientEmail {
+		t.Fatalf("unexpected enabled config: %v", enabled)
+	}
+
+	var encryptedKey string
+	if err := app.db.QueryRowContext(ctx, `SELECT encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1`, integrationID).Scan(&encryptedKey); err != nil {
+		t.Fatalf("query mailbox key: %v", err)
+	}
+	plaintext, err := compatDecryptString(encryptedKey, compatIntegrationSecretAAD(auth.OrganizationID, "GOOGLE_WORKSPACE", "example.com", "gmail_scan_private_key"))
+	if err != nil {
+		t.Fatalf("decrypt mailbox key with canonical AAD: %v", err)
+	}
+	if plaintext != privateKey {
+		t.Fatalf("decrypted mailbox key mismatch")
+	}
+	if _, err := compatDecryptString(encryptedKey, auth.OrganizationID+":"+integrationID+":google_mailbox_private_key"); err == nil {
+		t.Fatal("expected legacy ad-hoc AAD to fail")
+	}
+
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": clientEmail,
+	}, auditAuth); err != nil {
+		t.Fatalf("reuse existing mailbox key: %v", err)
+	}
+	if _, err := app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{
+		"enabled":                   true,
+		"serviceAccountClientEmail": "other-scanner@example.com",
+	}, auditAuth); err == nil {
+		t.Fatal("expected changing client email without a new key to fail")
+	}
+
+	disabled := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateGoogleMailboxConfig(ctx, integrationID, map[string]any{"enabled": false}, auditAuth)
+	}))
+	if disabled["enabled"] != false || disabled["serviceAccountClientEmail"] != nil {
+		t.Fatalf("unexpected disabled config: %v", disabled)
+	}
+
+	var auditRows int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenant_audit_logs WHERE organization_id = $1 AND target_id = $2 AND action IN ('integration.google_mailbox_scan.enable','integration.google_mailbox_scan.disable')`, auth.OrganizationID, integrationID).Scan(&auditRows); err != nil {
+		t.Fatalf("query audit rows: %v", err)
+	}
+	if auditRows != 3 {
+		t.Fatalf("expected 3 mailbox audit rows, got %d", auditRows)
+	}
+}
+
 func TestDBSecurityOverview(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()

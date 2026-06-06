@@ -716,10 +716,17 @@ func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body
 }
 
 func (a *App) compatGoogleMailboxConfig(ctx context.Context, id string, auth compatAuth) (any, error) {
+	var provider string
 	var email sql.NullString
 	var key sql.NullString
-	if err := a.db.QueryRowContext(ctx, `SELECT google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&email, &key); err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &email, &key); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if provider != "GOOGLE_WORKSPACE" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("Mailbox scan configuration is only supported for Google Workspace"))
 	}
 	return map[string]any{"data": map[string]any{"enabled": email.Valid && key.Valid, "serviceAccountClientEmail": nullStringPtr(email)}}, nil
 }
@@ -728,23 +735,73 @@ func (a *App) compatUpdateGoogleMailboxConfig(ctx context.Context, id string, bo
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
+	var provider, external string
+	var currentEmail sql.NullString
+	var currentKey sql.NullString
+	if err := a.db.QueryRowContext(ctx, `SELECT provider::text, external_account_id, google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key FROM integration_connections WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID).Scan(&provider, &external, &currentEmail, &currentKey); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if provider != "GOOGLE_WORKSPACE" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("Mailbox scan configuration is only supported for Google Workspace"))
+	}
+
 	enabled := boolValue(body["enabled"])
-	email := optionalStringPtr(body, "serviceAccountClientEmail")
-	key := optionalStringPtr(body, "privateKey")
 	if !enabled {
-		email, key = nil, nil
-	} else if key != nil {
-		encrypted, err := compatEncryptString(*key, auth.OrganizationID+":"+id+":google_mailbox_private_key")
+		if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = NULL, encrypted_google_mailbox_scan_private_key = NULL, updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		a.writeCompatAudit(ctx, auth, "integration.google_mailbox_scan.disable", "integration_connection", id, nil)
+		return map[string]any{"data": map[string]any{"enabled": false, "serviceAccountClientEmail": nil}}, nil
+	}
+
+	nextEmail := strings.TrimSpace(currentEmail.String)
+	if emailInput := optionalStringPtr(body, "serviceAccountClientEmail"); emailInput != nil && strings.TrimSpace(*emailInput) != "" {
+		nextEmail = strings.TrimSpace(*emailInput)
+	}
+	if nextEmail == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("Service account client email is required to enable mailbox scanning"))
+	}
+
+	keyInput := optionalStringPtr(body, "privateKey")
+	keyAAD := compatIntegrationSecretAAD(auth.OrganizationID, "GOOGLE_WORKSPACE", external, "gmail_scan_private_key")
+	if keyInput != nil && strings.TrimSpace(*keyInput) != "" {
+		encrypted, err := compatEncryptString(strings.TrimSpace(*keyInput), keyAAD)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("google mailbox private key encryption failed"))
 		}
-		key = &encrypted
+		if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, nextEmail, encrypted, id, auth.OrganizationID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	} else {
+		if !currentKey.Valid || !currentEmail.Valid || strings.TrimSpace(currentEmail.String) != nextEmail {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("Private key is required when enabling mailbox scanning"))
+		}
+		if _, err := compatDecryptString(currentKey.String, keyAAD); err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("google mailbox private key is unavailable"))
+		}
+		if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, nextEmail, id, auth.OrganizationID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
 	}
-	_, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET google_mailbox_scan_client_email = $1, encrypted_google_mailbox_scan_private_key = $2, updated_at = NOW() WHERE id = $3 AND organization_id = $4`, email, key, id, auth.OrganizationID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	a.writeCompatAudit(ctx, auth, "integration.google_mailbox_scan.enable", "integration_connection", id, map[string]any{"serviceAccountClientEmail": nextEmail})
+	return map[string]any{"data": map[string]any{"enabled": true, "serviceAccountClientEmail": nextEmail}}, nil
+}
+
+func (a *App) writeCompatAudit(ctx context.Context, auth compatAuth, action, targetType, targetID string, metadata map[string]any) {
+	var actor any
+	if strings.TrimSpace(auth.UserID) != "" {
+		actor = auth.UserID
 	}
-	return map[string]any{"data": map[string]any{"enabled": enabled, "serviceAccountClientEmail": email}}, nil
+	var meta any
+	if metadata != nil {
+		if encoded, err := json.Marshal(metadata); err == nil {
+			meta = json.RawMessage(encoded)
+		}
+	}
+	_, _ = a.db.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`, compatID("aud"), auth.OrganizationID, actor, action, targetType, targetID, meta)
 }
 
 func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (any, error) {
@@ -869,13 +926,13 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	note := optionalStringPtr(body, "note")
 	targetOverride := strings.TrimSpace(stringDefault(body, "targetIdentifier", ""))
 
-	var integrationID, provider, mode, externalAccount, status, evidenceJSON string
+	var integrationID, provider, mode, externalAccount, status, encryptedAccessToken, evidenceJSON string
 	if err := a.db.QueryRowContext(ctx, `
-		SELECT sf.integration_id, ic.provider::text, ic.mode::text, ic.external_account_id, sf.status::text, COALESCE(sf.evidence::text, '{}')
+		SELECT sf.integration_id, ic.provider::text, ic.mode::text, ic.external_account_id, sf.status::text, ic.encrypted_access_token, COALESCE(sf.evidence::text, '{}')
 		FROM security_findings sf
 		JOIN integration_connections ic ON ic.id = sf.integration_id
 		WHERE sf.id = $1 AND sf.organization_id = $2
-	`, id, auth.OrganizationID).Scan(&integrationID, &provider, &mode, &externalAccount, &status, &evidenceJSON); err != nil {
+	`, id, auth.OrganizationID).Scan(&integrationID, &provider, &mode, &externalAccount, &status, &encryptedAccessToken, &evidenceJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
 		}
@@ -891,6 +948,9 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 	}
 	if mode != "REMEDIATION" {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("this connection is read-only. Reconnect with remediation scopes to enable write actions."))
+	}
+	if _, err := compatDecryptString(encryptedAccessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, externalAccount, "access_token")); err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("integration credential is unavailable"))
 	}
 
 	targetIdentifier := targetOverride
@@ -960,6 +1020,13 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	committed = true
+	if result.Success {
+		resolutionNote := ""
+		if note != nil {
+			resolutionNote = *note
+		}
+		a.publishFindingLifecycleEvent(ctx, id, auth.OrganizationID, integrationID, status, "RESOLVED", auth.UserID, resolutionNote, time.Now().UTC())
+	}
 
 	return map[string]any{"data": map[string]any{
 		"findingId":         id,
@@ -1643,6 +1710,53 @@ func compatEncryptStringWithNonce(plaintext string, additionalAuthenticatedData 
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
+func compatDecryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", err
+	}
+	var envelope compatEncryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return "", err
+	}
+	if envelope.Version != 1 || envelope.Algorithm != compatEncryptionAlgorithm {
+		return "", errors.New("unsupported encrypted value")
+	}
+	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
+	if err != nil {
+		return "", err
+	}
+	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
+	if err != nil {
+		return "", err
+	}
+	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
+	if err != nil {
+		return "", err
+	}
+	key, err := compatResolveEncryptionKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(iv) != gcm.NonceSize() {
+		return "", errors.New("invalid encryption nonce length")
+	}
+	sealed := append(ciphertext, tag...)
+	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
 func nestedString(body map[string]any, objectKey string, key string) string {
 	nested, _ := body[objectKey].(map[string]any)
 	if nested == nil {
@@ -1652,11 +1766,19 @@ func nestedString(body map[string]any, objectKey string, key string) string {
 }
 
 func asMap(value any) map[string]any {
-	out, _ := value.(map[string]any)
-	if out == nil {
-		return map[string]any{}
+	switch typed := value.(type) {
+	case map[string]any:
+		if typed != nil {
+			return typed
+		}
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, value := range typed {
+			out[key] = value
+		}
+		return out
 	}
-	return out
+	return map[string]any{}
 }
 
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
