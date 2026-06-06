@@ -3,7 +3,10 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -339,6 +342,54 @@ func TestCompatPasswordVerifierAcceptsLegacyS1TSHash(t *testing.T) {
 	}, "$")
 	if !compatVerifyPassword(password, hash) {
 		t.Fatal("expected legacy TypeScript s1 hash to verify")
+	}
+}
+
+func TestCompatEncryptStringUsesSharedEnvelope(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	nonce := []byte("123456789012")
+	aad := "org_demo:GITHUB:writer:access_token"
+	encrypted, err := compatEncryptStringWithNonce("demo-provider-token-GITHUB", aad, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const expectedEnvelope = "eyJ2ZXJzaW9uIjoxLCJhbGdvcml0aG0iOiJhZXMtMjU2LWdjbSIsIml2IjoiTVRJek5EVTJOemc1TURFeSIsInRhZyI6Im1sUjJUS1QyMmdsMHBOOTRNa0NYX3ciLCJjaXBoZXJ0ZXh0IjoiN1Qta25Jc0lRakVsOW1XQWRNSjNfUDJQaDE5X3RVellFaDgifQ"
+	if encrypted != expectedEnvelope {
+		t.Fatalf("expected TS-compatible envelope\nwant %s\n got %s", expectedEnvelope, encrypted)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope compatEncryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Version != 1 || envelope.Algorithm != "aes-256-gcm" {
+		t.Fatalf("unexpected envelope metadata: %+v", envelope)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iv, _ := base64.RawURLEncoding.DecodeString(envelope.IV)
+	tag, _ := base64.RawURLEncoding.DecodeString(envelope.Tag)
+	ciphertext, _ := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
+	sealed := append(ciphertext, tag...)
+	plaintext, err := gcm.Open(nil, iv, sealed, []byte(aad))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(plaintext) != "demo-provider-token-GITHUB" {
+		t.Fatalf("unexpected plaintext %q", plaintext)
+	}
+	if _, err := gcm.Open(nil, iv, sealed, []byte("wrong-aad")); err == nil {
+		t.Fatal("expected wrong AAD to fail authentication")
 	}
 }
 
