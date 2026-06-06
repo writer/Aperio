@@ -32,6 +32,8 @@ function resolveKey(rawKey = process.env.APERIO_ENCRYPTION_KEY): Buffer {
   }
 
   const trimmed = rawKey.trim();
+  // Production keys must declare their encoding so deployments cannot silently
+  // derive different vault keys from passphrases or shell-mangled bytes.
   const hasExplicitEncoding =
     trimmed.startsWith("base64:") ||
     trimmed.startsWith("base64url:") ||
@@ -49,6 +51,8 @@ function resolveKey(rawKey = process.env.APERIO_ENCRYPTION_KEY): Buffer {
         ? Buffer.from(trimmed.slice("hex:".length), "hex")
         : scryptSync(trimmed, "aperio-token-vault", KEY_BYTES);
 
+  // AES-256-GCM accepts only 32-byte keys; failing closed here prevents
+  // truncation, padding, or algorithm downgrade behavior in downstream crypto.
   if (key.length !== KEY_BYTES) {
     throw new Error("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes");
   }
@@ -71,12 +75,17 @@ export function encryptString(
   }
 
   const key = resolveKey();
+  // A fresh 96-bit IV is the recommended GCM nonce size and is required to keep
+  // repeated plaintext/token encryptions unlinkable under the same vault key.
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv, {
     authTagLength: AUTH_TAG_BYTES
   });
   const aad = aadBuffer(additionalAuthenticatedData);
 
+  // AAD binds ciphertexts to their database purpose, such as
+  // "org:provider:external_account:access_token", without storing that context
+  // inside the encrypted envelope.
   if (aad) {
     cipher.setAAD(aad);
   }
@@ -114,6 +123,8 @@ export function decryptString(
     throw new Error("Unsupported encrypted value version or algorithm");
   }
 
+  // Decryption intentionally mirrors encryptString: callers must provide the
+  // same AAD context or authentication fails before plaintext is returned.
   const key = resolveKey();
   const decipher = createDecipheriv(
     ALGORITHM,
@@ -155,6 +166,8 @@ export function hashPassword(password: string): string {
 
   const salt = randomBytes(PASSWORD_SALT_BYTES);
   const params = passwordScryptParams();
+  // Hashes store their work factors so verifier behavior remains compatible
+  // after raising defaults for new passwords.
   const derivedKey = scryptSync(password, salt, KEY_BYTES, params);
   return [
     PASSWORD_HASH_VERSION,
@@ -168,6 +181,9 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, passwordHash: string): boolean {
   const [version, ...parts] = passwordHash.split("$");
+  // "s1" hashes predate explicit scrypt work-factor storage. They are still
+  // accepted for login, while newly generated hashes use the self-describing
+  // "s2" format above.
   const legacy = version === "s1";
   const saltPart = legacy ? parts[0] : parts[3];
   const hashPart = legacy ? parts[1] : parts[4];
@@ -242,6 +258,8 @@ function encodeBase32(input: Buffer): string {
 }
 
 function decodeBase32(value: string): Buffer {
+  // Authenticator apps may display padding, spaces, or lower-case secrets; the
+  // decoder is deliberately permissive while preserving the canonical bitstream.
   const normalized = value
     .toUpperCase()
     .replace(/=+$/g, "")
@@ -273,6 +291,8 @@ function hotp(secret: Buffer, counter: number): string {
   const counterBuffer = Buffer.alloc(8);
   counterBuffer.writeBigUInt64BE(BigInt(counter));
   const digest = createHmac("sha1", secret).update(counterBuffer).digest();
+  // RFC 4226 dynamic truncation uses the low nibble of the HMAC as the offset
+  // and masks the sign bit before reducing to the configured decimal width.
   const offset = digest[digest.length - 1]! & 0x0f;
   const code =
     (((digest[offset]! & 0x7f) << 24) |
@@ -332,6 +352,9 @@ export function verifyTotpCodeWithCounter(
   const window = options?.window ?? 1;
   const afterCounter = options?.afterCounter ?? null;
 
+  // Search the small clock-skew window, but never accept a counter at or before
+  // afterCounter so callers can persist the last accepted step and prevent
+  // replay of an otherwise valid TOTP code.
   for (let offset = -window; offset <= window; offset += 1) {
     const candidateCounter = counter + offset;
     if (

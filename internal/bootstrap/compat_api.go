@@ -69,6 +69,9 @@ func (a *App) handleCompatAPI(
 	ctx context.Context,
 	req *connect.Request[aperiov1.CallApiRequest],
 ) (string, http.Header, error) {
+	// The web UI still speaks JSON-over-Connect for legacy REST-shaped routes.
+	// This adapter validates the envelope, applies shared controls, and returns
+	// the JSON body/header pair expected by the generated Connect method.
 	if a.db == nil {
 		return "", nil, connect.NewError(connect.CodeUnavailable, errors.New("database not configured"))
 	}
@@ -92,6 +95,8 @@ func (a *App) handleCompatAPI(
 	public := isPublicCompatPath(path)
 	var auth compatAuth
 	if !public {
+		// Public auth bootstrap routes are rate limited but intentionally unauthenticated;
+		// every other compatibility route resolves a tenant-scoped session first.
 		var err error
 		auth, err = a.compatAuthFromSession(ctx, req.Header())
 		if err != nil {
@@ -119,6 +124,8 @@ func (a *App) dispatchCompatAPI(
 	auth compatAuth,
 	headers http.Header,
 ) (any, error) {
+	// Keep dispatch explicit rather than route-table driven so method, path shape,
+	// auth, and role requirements remain visible next to the handler call.
 	switch {
 	case method == http.MethodPost && path == "/api/v1/auth/signup":
 		return a.compatSignup(ctx, body, headers)
@@ -209,6 +216,8 @@ func (a *App) dispatchCompatAPI(
 }
 
 func isPublicCompatPath(path string) bool {
+	// Only account bootstrap endpoints bypass session auth. Token-bearing reset
+	// and invitation flows do their own one-time-token validation downstream.
 	switch path {
 	case "/api/v1/auth/signup",
 		"/api/v1/auth/login",
@@ -236,6 +245,9 @@ func (a *App) compatRateLimit(
 		return nil
 	}
 	client := compatClientIdentity(header)
+	// Rate limit by both network identity and the submitted subject. This slows
+	// distributed guessing against a single email/token while still bounding one
+	// noisy client that rotates submitted subjects.
 	subject := compatRateLimitSubject([]string{
 		requiredString(body, "organizationSlug"),
 		requiredString(body, "workspaceSlug"),
@@ -260,6 +272,8 @@ func (a *App) compatRateLimit(
 func (a *App) compatConsumeRateLimit(ctx context.Context, key string, max int, window time.Duration, now time.Time) error {
 	resetAt := now.Add(window)
 	var count int
+	// The bucket update is a single UPSERT so concurrent login/reset attempts see
+	// a consistent counter without application-level locks.
 	err := a.db.QueryRowContext(ctx, `
 		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
 		VALUES ($1, 1, $2, NOW(), NOW())
@@ -323,6 +337,8 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 }
 
 func compatClientIdentity(header http.Header) string {
+	// Prefer the right-most forwarded IP, which is normally the closest trusted
+	// proxy hop in deployments that append X-Forwarded-For.
 	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
 	for index := len(forwarded) - 1; index >= 0; index-- {
 		if client := strings.TrimSpace(forwarded[index]); client != "" {
@@ -346,6 +362,9 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 	}
 	var auth compatAuth
 	var lastSeenAt time.Time
+	// Sessions are stored as id plus token hash. MFA-enabled accounts require an
+	// MFA-verified session row, preventing password-only sessions from reaching
+	// protected compatibility APIs.
 	err := a.db.QueryRowContext(ctx, `
 		SELECT us.id, u.organization_id, u.id, u.email, r.name::text, us.last_seen_at
 		FROM user_sessions us
@@ -362,10 +381,14 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 		return compatAuth{}, err
 	}
 	if time.Since(lastSeenAt) > time.Duration(a.cfg.SessionIdleMinutes)*time.Minute {
+		// Idle timeout revokes the session server-side; the client receives only an
+		// unauthenticated error and must re-establish a fresh session.
 		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, auth.SessionID)
 		return compatAuth{}, errors.New("session idle timeout")
 	}
 	if time.Since(lastSeenAt) > time.Minute {
+		// Throttle last_seen_at writes so active sessions do not update on every
+		// UI polling request.
 		_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET last_seen_at = NOW() WHERE id = $1`, auth.SessionID)
 	}
 	return auth, nil
@@ -657,6 +680,8 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	if len(accessToken) < 8 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("integration access token is required"))
 	}
+	// Credential AAD includes the provider account identity so encrypted tokens
+	// cannot be transplanted across organizations, providers, or external tenants.
 	encryptedAccessToken, err := compatEncryptString(accessToken, compatIntegrationSecretAAD(auth.OrganizationID, provider, external, "access_token"))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("integration credential encryption failed"))
@@ -671,6 +696,9 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	}
 	scopes := compatScopesForMode(provider, mode)
 	disabledChecks := compatDefaultDisabledChecks(provider)
+	// The compatibility path creates the integration and its application asset in
+	// one request so the security overview can immediately reason about the new
+	// control plane, even before the first ingestion job runs.
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, scopes, disabled_checks, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CONNECTED',$9,$10,$11,NOW(),NOW())`, id, auth.OrganizationID, provider, displayName, external, encryptedAccessToken, refreshToken, webhookSecret, mode, scopes, disabledChecks); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -769,6 +797,9 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 		"reason":            "manual_force_sync",
 	}
 	payloadJSON, _ := json.Marshal(payload)
+	// Force-sync uses the same durable ingestion queue as provider webhooks. This
+	// preserves retry/dead-letter behavior instead of doing synchronous scanning
+	// from the request handler.
 	_, err = a.db.ExecContext(ctx, `INSERT INTO ingestion_jobs (id, organization_id, integration_id, provider, event_type, source, actor, occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4,'MANUAL_FORCE_SYNC','aperio.force_sync',$5,NOW(),$6,'QUEUED',0,3,NOW(),NOW(),NOW())`, jobID, auth.OrganizationID, id, provider, auth.Email, json.RawMessage(payloadJSON))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -801,6 +832,8 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	filePath := optionalStringPtr(body, "filePath")
+	// The dispatcher later normalizes export paths against its configured root;
+	// this request-time guard catches obvious traversal payloads early.
 	if filePath != nil && (strings.Contains(*filePath, "..") || strings.HasPrefix(*filePath, "~")) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid SIEM file path"))
 	}
@@ -851,6 +884,8 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 		},
 	}
 	payloadJSON, _ := json.Marshal(payload)
+	// Connectivity tests enqueue an ordinary SIEM delivery row so the user tests
+	// the same dispatcher, lease, serialization, and retry path as real findings.
 	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,'FINDINGS',$4,$5,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, "test:"+deliveryID, json.RawMessage(payloadJSON))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -895,6 +930,9 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 
 	targetIdentifier := targetOverride
 	if targetIdentifier == "" {
+		// Prefer the finding's subject/actor evidence when the UI does not supply
+		// a target override; falling back to the external account keeps legacy
+		// connector actions deterministic.
 		var evidence map[string]any
 		_ = json.Unmarshal([]byte(evidenceJSON), &evidence)
 		if subject, ok := evidence["subject"].(string); ok && subject != "" {
@@ -924,6 +962,9 @@ func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[st
 		if auth.UserID != "" {
 			resolver = auth.UserID
 		}
+		// Successful provider-side action closes the finding in the same
+		// transaction as the audit log so analysts do not see an unaudited status
+		// transition.
 		if _, err := tx.ExecContext(ctx, `UPDATE security_findings SET status = 'RESOLVED', resolved_at = NOW(), resolved_by_id = $1 WHERE id = $2 AND organization_id = $3`, resolver, id, auth.OrganizationID); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
@@ -1561,6 +1602,9 @@ func compatResolveEncryptionKey() ([]byte, error) {
 	if raw == "" {
 		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
 	}
+	// Match the TypeScript vault format exactly: production requires explicit
+	// key encoding, while local development may derive a 32-byte key from a
+	// passphrase for convenience.
 	switch {
 	case strings.HasPrefix(raw, "base64:"):
 		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
@@ -1624,6 +1668,8 @@ func compatEncryptStringWithNonce(plaintext string, additionalAuthenticatedData 
 	if err != nil {
 		return "", err
 	}
+	// Additional authenticated data binds tokens to their organization/provider
+	// context without exposing that context in the encrypted envelope.
 	sealed := gcm.Seal(nil, nonce, []byte(plaintext), []byte(additionalAuthenticatedData))
 	tagStart := len(sealed) - gcm.Overhead()
 	envelope := compatEncryptedEnvelope{
@@ -1657,6 +1703,8 @@ func asMap(value any) map[string]any {
 }
 
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
+	// Keep AAD stable across reconnects: externalAccountID is the provider-owned
+	// tenant identity and therefore survives integration row replacement.
 	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
 }
 

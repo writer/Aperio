@@ -12,12 +12,16 @@ const blockedHostnameSuffixes = [
 ];
 
 function normalizeHostname(hostname: string) {
+  // Normalize trailing-dot FQDNs before allow/deny checks so "localhost." and
+  // equivalent private suffixes cannot bypass string comparisons.
   return hostname.trim().replace(/\.$/, "").toLowerCase();
 }
 
 function isPrivateIpv4(address: string) {
   const octets = address.split(".").map((segment) => Number.parseInt(segment, 10));
   if (octets.length !== 4 || octets.some((octet) => Number.isNaN(octet))) {
+    // Treat malformed numeric hosts as unsafe; callers only invoke this helper
+    // after isIP() where possible, but fail-closed keeps future use safe.
     return true;
   }
 
@@ -49,6 +53,7 @@ function isPrivateIpv6(address: string) {
   }
 
   if (normalized.startsWith("::ffff:")) {
+    // IPv4-mapped IPv6 addresses inherit the IPv4 private-space policy.
     return isPrivateIpv4(normalized.slice("::ffff:".length));
   }
 
@@ -75,6 +80,8 @@ function isBlockedHostname(hostname: string) {
   return (
     hostname === "localhost" ||
     hostname === "0.0.0.0" ||
+    // Single-label DNS names are commonly resolved by corporate search domains
+    // to internal hosts, so external SIEM sinks must use fully-qualified names.
     (!hostname.includes(".") && isIP(hostname) === 0) ||
     blockedHostnameSuffixes.some((suffix) => hostname.endsWith(suffix))
   );
@@ -83,6 +90,8 @@ function isBlockedHostname(hostname: string) {
 function isWithinDirectory(parentDirectory: string, candidatePath: string) {
   const relativePath = relative(parentDirectory, candidatePath);
 
+  // Use path.relative rather than string prefix checks so sibling directories
+  // like "/var/siem-exports2" cannot masquerade as children of the export root.
   return (
     relativePath.length > 0 &&
     relativePath !== ".." &&
@@ -103,6 +112,8 @@ export function resolveSiemExportRoot() {
 export function normalizeSiemFilePath(filePath: string) {
   const exportRoot = resolveSiemExportRoot();
   const trimmedPath = filePath.trim();
+  // Relative paths are intentionally anchored under APERIO_SIEM_EXPORT_DIR; an
+  // absolute path is accepted only if it still resolves inside that same root.
   const candidatePath = resolve(
     isAbsolute(trimmedPath) ? trimmedPath : resolve(exportRoot, trimmedPath)
   );
@@ -128,6 +139,8 @@ export function validateSiemEndpointUrl(endpointUrl: string) {
   }
 
   if (parsed.protocol !== "https:") {
+    // SIEM credentials and finding payloads may contain sensitive tenant data,
+    // so outbound web destinations must be encrypted in transit.
     return "Endpoint URL must use HTTPS";
   }
 
@@ -155,6 +168,8 @@ export async function assertSafeSiemEndpointUrl(endpointUrl: string) {
 
   const hostname = normalizeHostname(new URL(endpointUrl).hostname);
   if (isIP(hostname) !== 0) {
+    // Literal IPs were already classified by validateSiemEndpointUrl; DNS
+    // resolution is only needed for hostnames that can rebind to private space.
     return null;
   }
 
@@ -173,6 +188,8 @@ export async function assertSafeSiemEndpointUrl(endpointUrl: string) {
   }
 
   if (records.some((record) => isPrivateIpAddress(record.address))) {
+    // Re-resolve immediately before dispatch and block if any answer is private.
+    // This reduces SSRF and DNS rebinding risk for long-lived SIEM destinations.
     return "Endpoint URL must not resolve to loopback or private addresses";
   }
 

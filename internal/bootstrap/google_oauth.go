@@ -91,6 +91,8 @@ func encodeOAuthState(state googleOAuthState) (string, error) {
 		return "", err
 	}
 	body := base64.RawURLEncoding.EncodeToString(payload)
+	// Sign the encoded body rather than raw JSON so decoding is unambiguous and
+	// the callback can reject tampering before allocating the state struct.
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(body))
 	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -110,6 +112,8 @@ func decodeOAuthState(token string) (googleOAuthState, error) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(parts[0]))
 	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	// Constant-time comparison avoids leaking which signature bytes matched for
+	// attacker-supplied state tokens.
 	if subtle.ConstantTimeCompare([]byte(expected), []byte(parts[1])) != 1 {
 		return state, errors.New("invalid OAuth state")
 	}
@@ -121,6 +125,8 @@ func decodeOAuthState(token string) (googleOAuthState, error) {
 		return state, errors.New("invalid OAuth state")
 	}
 	if state.Exp*1000 < time.Now().UnixMilli() {
+		// State tokens are short-lived because they authorize binding a Google
+		// Workspace tenant to the current Aperio organization.
 		return state, errors.New("OAuth state expired")
 	}
 	return state, nil
@@ -162,6 +168,8 @@ func (a *App) compatGoogleOAuthStart(body map[string]any, auth compatAuth) (any,
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	scopes := append([]string{"openid", "email", "profile"}, compatScopesForMode("GOOGLE_WORKSPACE", mode)...)
+	// prompt=consent and access_type=offline are required to receive a refresh
+	// token on reconnect, which the ingestion worker stores as the durable secret.
 	authURL, err := url.Parse("https://accounts.google.com/o/oauth2/v2/auth")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -186,6 +194,8 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 		fallbackOrigin = config.webOrigin
 	}
 	redirectError := func(message string) {
+		// Errors are returned to the web origin as query parameters; avoid writing
+		// provider tokens or internal errors to the browser response body.
 		http.Redirect(w, r, fallbackOrigin+"/connectors?google_connect=error&message="+url.QueryEscape(message), http.StatusFound)
 	}
 
@@ -230,6 +240,8 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	adminEmail := strings.ToLower(strings.TrimSpace(identity.Email))
 	hostedDomain := strings.ToLower(strings.TrimSpace(identity.HD))
 	if hostedDomain == "" && strings.Contains(adminEmail, "@") {
+		// Google may omit the hosted-domain claim for some enterprise identities;
+		// derive it from the verified email so the externalAccountID stays stable.
 		hostedDomain = strings.ToLower(strings.TrimSpace(adminEmail[strings.LastIndex(adminEmail, "@")+1:]))
 	}
 	if adminEmail == "" || hostedDomain == "" {
@@ -267,6 +279,9 @@ func exchangeGoogleAuthCode(ctx context.Context, config *googleOAuthConfig, code
 		return tokens, err
 	}
 	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+	// Token exchange is the only outbound OAuth call in this flow; the callback
+	// does not trust browser-supplied identity data and relies on Google's token
+	// response instead.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return tokens, err
@@ -287,6 +302,8 @@ func exchangeGoogleAuthCode(ctx context.Context, config *googleOAuthConfig, code
 
 func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input googleIntegrationUpsert) error {
 	const provider = "GOOGLE_WORKSPACE"
+	// Store the refresh token in the access-token slot because the ingestion
+	// worker validates that field when processing queued Google Workspace events.
 	encryptedAccess, err := compatEncryptString(input.refreshToken, compatIntegrationSecretAAD(input.organizationID, provider, input.externalAccountID, "access_token"))
 	if err != nil {
 		return errors.New("integration credential encryption failed")
@@ -311,6 +328,9 @@ func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input google
 
 	var integrationID string
 	var inserted bool
+	// Reconnecting the same Workspace domain rotates credentials in place while
+	// preserving findings, assets, SIEM subscriptions, and audit history tied to
+	// the integration id.
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO integration_connections (id, organization_id, provider, display_name, external_account_id, scopes, disabled_checks, encrypted_access_token, encrypted_refresh_token, token_key_version, status, mode, created_at, updated_at)
 		VALUES ($1,$2,'GOOGLE_WORKSPACE',$3,$4,$5,$6,$7,$8,'v1','CONNECTED',$9,NOW(),NOW())
@@ -329,6 +349,8 @@ func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input google
 	}
 
 	if inserted {
+		// Create a first-class application asset on initial connect so the security
+		// overview graph has an entry point before detailed discovery completes.
 		isPrivileged := input.mode == "REMEDIATION"
 		riskScore := 35
 		if isPrivileged {
