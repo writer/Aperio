@@ -3,6 +3,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AperioService,
   type Finding as ProtoFinding,
+  type RiskException as ProtoRiskException,
   type SecurityAsset as ProtoSecurityAsset,
   type ShadowItOauthApp as ProtoShadowItOauthApp,
   type ShadowItOauthAppGrant as ProtoShadowItOauthAppGrant
@@ -170,6 +171,39 @@ export type ConnectSecurityAssetsFilters = {
   integrationId?: string;
 };
 
+export type ConnectRiskException = {
+  id: string;
+  title: string;
+  rationale: string;
+  compensatingControls: string[];
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  expiresAt: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  asset: {
+    id: string;
+    name: string;
+    type: string;
+  } | null;
+  finding: {
+    id: string;
+    title: string;
+    severity: ConnectFinding["severity"];
+    status: ConnectFinding["status"];
+  } | null;
+  createdBy: {
+    id: string;
+    email: string;
+    displayName: string | null;
+  } | null;
+  approvedBy: {
+    id: string;
+    email: string;
+    displayName: string | null;
+  } | null;
+};
+
 const transport = createConnectTransport({
   baseUrl: CONNECT_BASE_URL,
   fetch(input, init) {
@@ -301,6 +335,51 @@ function securityAssetFromProto(asset: ProtoSecurityAsset): ConnectSecurityAsset
   };
 }
 
+function riskExceptionFromProto(
+  exception: ProtoRiskException
+): ConnectRiskException {
+  return {
+    id: exception.id,
+    title: exception.title,
+    rationale: exception.rationale,
+    compensatingControls: exception.compensatingControls,
+    status: exception.status as ConnectRiskException["status"],
+    expiresAt: exception.expiresAt || null,
+    approvedAt: exception.approvedAt || null,
+    createdAt: exception.createdAt,
+    updatedAt: exception.updatedAt,
+    asset: exception.asset
+      ? {
+          id: exception.asset.id,
+          name: exception.asset.name,
+          type: exception.asset.type
+        }
+      : null,
+    finding: exception.finding
+      ? {
+          id: exception.finding.id,
+          title: exception.finding.title,
+          severity: exception.finding.severity as ConnectFinding["severity"],
+          status: exception.finding.status as ConnectFinding["status"]
+        }
+      : null,
+    createdBy: exception.createdBy
+      ? {
+          id: exception.createdBy.id,
+          email: exception.createdBy.email,
+          displayName: exception.createdBy.displayName || null
+        }
+      : null,
+    approvedBy: exception.approvedBy
+      ? {
+          id: exception.approvedBy.id,
+          email: exception.approvedBy.email,
+          displayName: exception.approvedBy.displayName || null
+        }
+      : null
+  };
+}
+
 export const aperioConnectClient = {
   checkHealth() {
     return client.checkHealth({});
@@ -415,5 +494,9 @@ export const aperioConnectClient = {
       integrationId: filters?.integrationId ?? ""
     });
     return { data: response.data.map(securityAssetFromProto) };
+  },
+  async listRiskExceptions(): Promise<{ data: ConnectRiskException[] }> {
+    const response = await client.listRiskExceptions({});
+    return { data: response.data.map(riskExceptionFromProto) };
   }
 };

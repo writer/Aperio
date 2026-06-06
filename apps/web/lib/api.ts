@@ -424,36 +424,18 @@ export async function disableMfa(payload: {
 }
 
 export async function fetchDashboardMetrics() {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.getDashboardMetrics();
-  }
-  return request<{ data: DashboardMetrics }>("/api/v1/dashboard/metrics");
+  return aperioConnectClient.getDashboardMetrics();
 }
 
 export async function fetchFindings(filters?: FindingsFilters) {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listFindings(filters);
-  }
-  const params = new URLSearchParams();
-  params.set("limit", String(filters?.limit ?? 50));
-  if (!filters || filters.status !== "ALL") {
-    params.set("status", filters?.status ?? "OPEN");
-  }
-  if (filters?.severity) params.set("severity", filters.severity);
-  if (filters?.provider) params.set("provider", filters.provider);
-  if (filters?.integrationId) params.set("integrationId", filters.integrationId);
-  if (filters?.cursor) params.set("cursor", filters.cursor);
-  return request<{
+  return aperioConnectClient.listFindings(filters) as Promise<{
     data: Finding[];
     pageInfo: { total: number; nextCursor: string | null };
-  }>(`/api/v1/findings?${params.toString()}`);
+  }>;
 }
 
 export async function fetchFinding(id: string) {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.getFinding(id);
-  }
-  return request<{ data: Finding }>(`/api/v1/findings/${encodeURIComponent(id)}`);
+  return aperioConnectClient.getFinding(id) as Promise<{ data: Finding }>;
 }
 
 export async function updateFindingStatus(
@@ -495,12 +477,9 @@ export async function fetchConnectorCatalog() {
 }
 
 export async function fetchIntegrations() {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listIntegrations() as Promise<{
-      data: IntegrationConnection[];
-    }>;
-  }
-  return request<{ data: IntegrationConnection[] }>("/api/v1/integrations");
+  return aperioConnectClient.listIntegrations() as Promise<{
+    data: IntegrationConnection[];
+  }>;
 }
 
 export async function fetchGoogleMailboxScanConfig(integrationId: string) {
@@ -550,12 +529,9 @@ export async function fetchSiemCatalog() {
 }
 
 export async function fetchSiemDestinations() {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listSiemDestinations() as Promise<{
-      data: SiemDestination[];
-    }>;
-  }
-  return request<{ data: SiemDestination[] }>("/api/v1/siem");
+  return aperioConnectClient.listSiemDestinations() as Promise<{
+    data: SiemDestination[];
+  }>;
 }
 
 export async function createSiemDestination(payload: CreateSiemPayload) {
@@ -984,12 +960,9 @@ export async function fetchSecurityOverview() {
 }
 
 export async function fetchSecurityAssets() {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listSecurityAssets() as Promise<{
-      data: SecurityAsset[];
-    }>;
-  }
-  return request<{ data: SecurityAsset[] }>("/api/v1/security/assets");
+  return aperioConnectClient.listSecurityAssets() as Promise<{
+    data: SecurityAsset[];
+  }>;
 }
 
 export async function createSecurityAsset(payload: CreateSecurityAssetPayload) {
@@ -1013,7 +986,9 @@ export async function updateSecurityAsset(
 }
 
 export async function fetchRiskExceptions() {
-  return request<{ data: RiskException[] }>("/api/v1/security/exceptions");
+  return aperioConnectClient.listRiskExceptions() as Promise<{
+    data: RiskException[];
+  }>;
 }
 
 export async function createRiskException(payload: CreateRiskExceptionPayload) {
@@ -1078,21 +1053,13 @@ export type ShadowItOauthAppDetail = {
 };
 
 export async function fetchShadowItOauthApps() {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listShadowItOauthApps() as Promise<{
-      data: ShadowItOauthApp[];
-    }>;
-  }
-  return request<{ data: ShadowItOauthApp[] }>("/api/v1/shadow-it/oauth-apps");
+  return aperioConnectClient.listShadowItOauthApps() as Promise<{
+    data: ShadowItOauthApp[];
+  }>;
 }
 
 export async function fetchShadowItOauthAppGrants(assetId: string) {
-  if (process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL) {
-    return aperioConnectClient.listShadowItOauthAppGrants(assetId) as Promise<{
-      data: ShadowItOauthAppDetail;
-    }>;
-  }
-  return request<{ data: ShadowItOauthAppDetail }>(
-    `/api/v1/shadow-it/oauth-apps/${encodeURIComponent(assetId)}/grants`
-  );
+  return aperioConnectClient.listShadowItOauthAppGrants(assetId) as Promise<{
+    data: ShadowItOauthAppDetail;
+  }>;
 }
