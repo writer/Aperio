@@ -1,0 +1,334 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const matrixPath = "tests/fixtures/migration-ownership/migration-matrix.json";
+
+const allowedStates = new Set([
+  "typescript-reference",
+  "go-parity",
+  "go-default",
+  "removable",
+  "out-of-scope-this-mission"
+]);
+
+type MatrixEntry = {
+  id: string;
+  state: string;
+  covers: string[];
+  owner: string;
+  rationale: string;
+  evidence: string[];
+  rollback?: string;
+  blockedBy?: string;
+};
+
+type MigrationMatrix = {
+  version: number;
+  entries: MatrixEntry[];
+};
+
+function readRepoFile(relativePath: string) {
+  return readFileSync(path.join(repoRoot, relativePath), "utf8");
+}
+
+function readJson<T>(relativePath: string): T {
+  return JSON.parse(readRepoFile(relativePath)) as T;
+}
+
+function loadMatrix() {
+  return readJson<MigrationMatrix>(matrixPath);
+}
+
+function packageScripts() {
+  return readJson<{ scripts: Record<string, string> }>("package.json").scripts;
+}
+
+function filesUnder(relativeDir: string, predicate: (relativePath: string) => boolean): string[] {
+  const absoluteDir = path.join(repoRoot, relativeDir);
+  const entries = readdirSync(absoluteDir);
+  return entries.flatMap((entry) => {
+    const absolutePath = path.join(absoluteDir, entry);
+    const relativePath = path.join(relativeDir, entry);
+    const stat = statSync(absolutePath);
+    if (stat.isDirectory()) {
+      return filesUnder(relativePath, predicate);
+    }
+    return predicate(relativePath) ? [relativePath] : [];
+  });
+}
+
+function makeTargets() {
+  const makefile = readRepoFile("Makefile");
+  const targets = new Set<string>();
+  for (const match of makefile.matchAll(/^\.PHONY:\s+(.+)$/gm)) {
+    for (const target of match[1].trim().split(/\s+/)) {
+      targets.add(target);
+    }
+  }
+  return [...targets].sort();
+}
+
+function compatRoutes() {
+  const source = readRepoFile("internal/bootstrap/compat_api.go");
+  const block = source.match(/var compatRouteTemplates = map\[string\]struct\{\}\{([\s\S]*?)\n\}/);
+  assert.ok(block, "expected compatRouteTemplates map");
+  return [...block[1].matchAll(/"([^"]+)":\s*\{\}/g)].map((match) => match[1]).sort();
+}
+
+function inventoryItems() {
+  const packageItems = Object.keys(packageScripts()).map((script) => `package-script:${script}`);
+  const makeItems = makeTargets().map((target) => `make-target:${target}`);
+  const repoFiles = [
+    ".env.example",
+    "docker-compose.yml",
+    ...filesUnder(".github/workflows", (file) => /\.ya?ml$/.test(file)),
+    ...filesUnder("scripts", (file) => /\.(?:mjs|ts)$/.test(file)),
+    ...filesUnder("cmd", (file) => file.endsWith(".go")),
+    ...filesUnder("workers", (file) => file.endsWith(".ts")),
+    ...filesUnder("apps/mcp", (file) => file.endsWith(".ts")),
+    ...filesUnder("internal/bootstrap", (file) => file.endsWith(".go")),
+    ...filesUnder("internal/ingestionworker", (file) => file.endsWith(".go")),
+    ...filesUnder("internal/siemdispatcher", (file) => file.endsWith(".go")),
+    ...filesUnder("proto", (file) => file.endsWith(".proto")),
+    ...filesUnder(
+      "packages/connect/src",
+      (file) => file.endsWith(".ts") && !file.includes(`${path.sep}gen${path.sep}`)
+    ),
+    ...filesUnder("packages/shared/src", (file) => file.endsWith(".ts"))
+  ].map((file) => `repo-file:${file}`);
+  const routeItems = compatRoutes().map((route) => `compat-route:${route}`);
+  const validatorItems = [
+    "validator:typecheck",
+    "validator:api-tests",
+    "validator:db-validate",
+    "validator:web-build",
+    "validator:go-tests",
+    "validator:db-backed-go-tests",
+    "validator:proto-check",
+    "validator:prod-audit",
+    "validator:leak-check",
+    "validator:frontend-legacy-api-auth-guardrail",
+    "validator:worker-command-guardrail",
+    "validator:migration-ownership-guardrail",
+    "validator:worker-smoke",
+    "validator:e2e-smoke",
+    "validator:secret-safe-merge-evidence"
+  ];
+
+  return [...packageItems, ...makeItems, ...repoFiles, ...routeItems, ...validatorItems].sort();
+}
+
+function patternToRegExp(pattern: string) {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+
+function entryCovers(entry: MatrixEntry, item: string) {
+  return entry.covers.some((pattern) => pattern === item || patternToRegExp(pattern).test(item));
+}
+
+function entriesFor(matrix: MigrationMatrix, item: string) {
+  return matrix.entries.filter((entry) => entryCovers(entry, item));
+}
+
+function stateFor(matrix: MigrationMatrix, item: string) {
+  const matches = entriesFor(matrix, item);
+  assert.equal(matches.length, 1, `${item} should map to exactly one matrix entry`);
+  return matches[0].state;
+}
+
+function evidenceIncludes(entry: MatrixEntry, expected: string) {
+  return entry.evidence.some((evidence) => evidence.includes(expected));
+}
+
+test("migration ownership matrix covers every generated surface exactly once", () => {
+  const matrix = loadMatrix();
+  assert.equal(matrix.version, 1);
+  assert.ok(matrix.entries.length > 0, "expected matrix entries");
+
+  for (const entry of matrix.entries) {
+    assert.ok(entry.id, "matrix entry id is required");
+    assert.ok(allowedStates.has(entry.state), `${entry.id} has invalid state ${entry.state}`);
+    assert.ok(entry.owner, `${entry.id} owner is required`);
+    assert.ok(entry.rationale, `${entry.id} rationale is required`);
+    assert.ok(entry.covers.length > 0, `${entry.id} must cover at least one surface`);
+    assert.ok(entry.evidence.length > 0, `${entry.id} must include evidence`);
+    if (entry.state === "go-parity" || entry.state === "go-default" || entry.state === "removable") {
+      assert.ok(entry.rollback, `${entry.id} must document rollback/fallback`);
+    }
+  }
+
+  const uncovered: string[] = [];
+  const duplicated: string[] = [];
+  for (const item of inventoryItems()) {
+    const matches = entriesFor(matrix, item);
+    if (matches.length === 0) {
+      uncovered.push(item);
+    } else if (matches.length > 1) {
+      duplicated.push(`${item} -> ${matches.map((entry) => entry.id).join(", ")}`);
+    }
+  }
+  assert.deepEqual(uncovered, [], "every migration-relevant surface needs a matrix state");
+  assert.deepEqual(duplicated, [], "every migration-relevant surface needs exactly one matrix state");
+});
+
+test("worker defaults remain TypeScript reference while Go workers stay explicit parity smokes", () => {
+  const matrix = loadMatrix();
+  const scripts = packageScripts();
+  const makefile = readRepoFile("Makefile");
+
+  assert.equal(scripts["worker:ingestion"], "tsx workers/ingestion-worker.ts");
+  assert.equal(scripts["worker:siem"], "tsx workers/siem-dispatcher.ts");
+  assert.doesNotMatch(scripts["worker:ingestion"], /go run|cmd\/ingestion-worker/);
+  assert.doesNotMatch(scripts["worker:siem"], /go run|cmd\/siem-dispatcher/);
+
+  assert.match(makefile, /npx tsx workers\/ingestion-worker\.ts/);
+  assert.match(makefile, /npx tsx workers\/siem-dispatcher\.ts/);
+  assert.match(scripts["worker:ingestion:go"], /cmd\/ingestion-worker/);
+  assert.match(scripts["worker:siem:go"], /cmd\/siem-dispatcher/);
+  assert.match(scripts["smoke:workers:go"], /worker:ingestion:go -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /worker:siem:go -- -once -limit 1/);
+
+  for (const item of [
+    "package-script:worker:ingestion",
+    "package-script:worker:siem",
+    "make-target:worker-ingestion",
+    "make-target:worker-siem",
+    "repo-file:workers/ingestion-worker.ts",
+    "repo-file:workers/siem-dispatcher.ts"
+  ]) {
+    assert.equal(stateFor(matrix, item), "typescript-reference", `${item} must stay TypeScript reference`);
+  }
+
+  for (const item of [
+    "package-script:worker:ingestion:go",
+    "package-script:worker:siem:go",
+    "package-script:smoke:workers:go",
+    "make-target:worker-ingestion-go",
+    "make-target:worker-siem-go",
+    "make-target:smoke-workers-go",
+    "repo-file:cmd/ingestion-worker/main.go",
+    "repo-file:cmd/siem-dispatcher/main.go",
+    "repo-file:internal/ingestionworker/worker.go",
+    "repo-file:internal/siemdispatcher/dispatcher.go"
+  ]) {
+    assert.equal(stateFor(matrix, item), "go-parity", `${item} must stay explicit Go parity`);
+  }
+});
+
+test("frontend legacy API and browser auth guardrails are registered as merge gates", () => {
+  const matrix = loadMatrix();
+  const guardrail = entriesFor(matrix, "validator:frontend-legacy-api-auth-guardrail")[0];
+  assert.equal(guardrail.state, "out-of-scope-this-mission");
+  assert.ok(evidenceIncludes(guardrail, "tests/auth-client-cleanup.test.ts"));
+
+  const source = readRepoFile("tests/auth-client-cleanup.test.ts");
+  assert.match(source, /localStorage/);
+  assert.match(source, /aperio\\\.theme/);
+  assert.match(source, /Authorization/);
+  assert.match(source, /Bearer/);
+  assert.match(source, /callApi/);
+  assert.match(source, /\\\/api\\\/v1\\\//);
+});
+
+test("shared parity fixtures gate every Go worker parity surface", () => {
+  const matrix = loadMatrix();
+  const goWorkerEntries = matrix.entries.filter(
+    (entry) =>
+      entry.state === "go-parity" &&
+      entry.covers.some((item) => /ingestion|siem/.test(item))
+  );
+  assert.ok(goWorkerEntries.length > 0, "expected Go worker parity entries");
+
+  for (const entry of goWorkerEntries) {
+    assert.ok(
+      entry.evidence.some((evidence) => evidence.startsWith("fixture:tests/fixtures/worker-parity/")),
+      `${entry.id} must cite a shared worker parity fixture`
+    );
+  }
+
+  const requiredFixtures = [
+    {
+      path: "tests/fixtures/worker-parity/github-public-repository.json",
+      tsTest: "tests/github-rules.test.ts",
+      goTest: "internal/ingestionworker/worker_test.go",
+      requiredKeys: ["positive", "negative", "disabledCheck"]
+    },
+    {
+      path: "tests/fixtures/worker-parity/siem-finding-delivery.json",
+      tsTest: "tests/siem-dispatcher.test.ts",
+      goTest: "internal/siemdispatcher/dispatcher_test.go",
+      requiredKeys: ["payload", "expectedDeliveryKey", "reopenedSourceEventId"]
+    }
+  ];
+
+  for (const fixture of requiredFixtures) {
+    assert.ok(existsSync(path.join(repoRoot, fixture.path)), `${fixture.path} should exist`);
+    const parsed = readJson<Record<string, unknown>>(fixture.path);
+    for (const key of fixture.requiredKeys) {
+      assert.ok(key in parsed, `${fixture.path} should include ${key}`);
+    }
+    assert.match(readRepoFile(fixture.tsTest), new RegExp(path.basename(fixture.path)));
+    assert.match(readRepoFile(fixture.goTest), new RegExp(path.basename(fixture.path)));
+  }
+});
+
+test("validator and CI gates include contracts, audit, worker smoke, and secret hygiene", () => {
+  const matrix = loadMatrix();
+  const scripts = packageScripts();
+  const ci = readRepoFile(".github/workflows/ci.yml");
+  const contracts = readRepoFile(".github/workflows/contracts.yml");
+  const leakCheck = readRepoFile(".github/workflows/leak-check.yml");
+
+  assert.match(scripts["guardrails:migration"], /migration-ownership-guardrails\.test\.ts/);
+  assert.match(scripts["guardrails:migration"], /auth-client-cleanup\.test\.ts/);
+  assert.match(scripts["guardrails:migration"], /worker-command-guardrails\.test\.ts/);
+  assert.match(scripts["smoke:workers:go"], /worker:ingestion:go -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /worker:siem:go -- -once -limit 1/);
+
+  for (const item of [
+    "validator:typecheck",
+    "validator:api-tests",
+    "validator:db-validate",
+    "validator:web-build",
+    "validator:go-tests",
+    "validator:db-backed-go-tests",
+    "validator:proto-check",
+    "validator:prod-audit",
+    "validator:leak-check",
+    "validator:migration-ownership-guardrail",
+    "validator:worker-smoke",
+    "validator:e2e-smoke",
+    "validator:secret-safe-merge-evidence"
+  ]) {
+    assert.equal(entriesFor(matrix, item).length, 1, `${item} should be represented in matrix gates`);
+  }
+  const e2eEntry = entriesFor(matrix, "validator:e2e-smoke")[0];
+  assert.equal(e2eEntry.state, "out-of-scope-this-mission");
+  assert.equal(e2eEntry.blockedBy, "local-e2e-seed-smoke-harness");
+
+  assert.match(ci, /npm run guardrails:migration/);
+  assert.match(ci, /npm run smoke:workers:go/);
+  assert.match(ci, /npm run typecheck/);
+  assert.match(ci, /npm run test:api/);
+  assert.match(ci, /npm run db:validate/);
+  assert.match(ci, /npm run build:web/);
+  assert.match(ci, /npm run audit:prod/);
+  assert.match(ci, /go test \.\/\.\.\./);
+  assert.match(contracts, /buf\/cmd\/buf@v1\.59\.0 lint/);
+  assert.match(contracts, /buf\/cmd\/buf@v1\.59\.0 breaking/);
+  assert.match(contracts, /git diff --exit-code -- gen packages\/connect\/src\/gen/);
+  assert.match(leakCheck, /npm run leak:check/);
+
+  execFileSync("git", ["check-ignore", "-q", ".env"], { cwd: repoRoot });
+  const envStatus = execFileSync("git", ["status", "--porcelain", "--", ".env"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  }).trim();
+  assert.equal(envStatus, "", ".env must remain ignored and uncommitted");
+});

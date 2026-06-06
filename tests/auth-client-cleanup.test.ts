@@ -79,6 +79,36 @@ test("browser auth client has no localStorage bearer-token shims", () => {
   }
 });
 
+test("browser localStorage use is limited to the non-auth theme preference", () => {
+  const allowedLocalStorageSources = new Set([
+    "apps/web/app/layout.tsx",
+    "apps/web/components/layout/theme-provider.tsx"
+  ]);
+  const browserSources = [
+    ...sourceFilesUnder("apps/web"),
+    ...sourceFilesUnder("packages/connect/src")
+  ].filter(
+    (relativePath) => !relativePath.includes(`${path.sep}gen${path.sep}`)
+  );
+
+  for (const relativePath of browserSources) {
+    const source = readRepoFile(relativePath);
+    if (!/\blocalStorage\b/.test(source)) {
+      continue;
+    }
+    assert.ok(
+      allowedLocalStorageSources.has(relativePath),
+      `${relativePath} must not introduce browser localStorage outside the theme preference`
+    );
+    assert.match(source, /aperio\.theme/);
+    assert.doesNotMatch(
+      source,
+      /localStorage\.(?:getItem|setItem|removeItem)\([^)]*(?:auth|token|session)/i,
+      `${relativePath} must not persist auth/session/token values in localStorage`
+    );
+  }
+});
+
 test("frontend auth session types do not expose bearer tokens", () => {
   const webApi = readRepoFile("apps/web/lib/api.ts");
   const connectClient = readRepoFile("packages/connect/src/client.ts");
