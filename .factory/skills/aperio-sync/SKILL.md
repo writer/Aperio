@@ -62,7 +62,7 @@ cd /path/to/your/Aperio
 The script self-locates regardless of the caller's current directory, so passing the absolute path from anywhere also works:
 
 ```bash
-bash /path/to/your/Aperio/.factory/skills/aperio-sync/scripts/sync.sh
+bash "/path/to/your/Aperio/.factory/skills/aperio-sync/scripts/sync.sh"
 ```
 
 ## Scheduled invocation
