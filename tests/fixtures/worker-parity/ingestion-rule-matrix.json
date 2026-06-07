@@ -12,6 +12,15 @@
       "bounded unsuffixed worker smokes exercise the Go default command"
     ]
   },
+  "unsupportedWorkPolicy": {
+    "state": "final-no-fallback",
+    "action": "dead_letter_without_side_effects",
+    "reason": "Provider/event pairs outside the final Go ingestion matrix are claimed by the Go worker, marked DEAD_LETTER with a bounded safe reason, and never wait for a deleted TypeScript fallback.",
+    "tests": [
+      "internal/ingestionworker/worker_db_test.go#TestDrainDeadLettersUnsupportedIngestionJobsWithoutSideEffects",
+      "internal/ingestionworker/worker_db_test.go#TestDrainDeadLettersUnsupportedGoogleNegativeFixturesWithoutSideEffects"
+    ]
+  },
   "source": "workers/ingestion-worker.ts:evaluateSecurityRules",
   "rules": [
     {

@@ -633,6 +633,11 @@ func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
 		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
 	}
 
+	unsupported := ingestionJobWideEvent(base, errUnsupportedIngestionWork, time.Millisecond)
+	if unsupported.Dimensions["outcome"] != "dead_letter" || unsupported.Dimensions["error_kind"] != "unsupported" {
+		t.Fatalf("unexpected unsupported-work telemetry: %#v", unsupported.Dimensions)
+	}
+
 	var sink bytes.Buffer
 	restore := telemetry.SetOutput(&sink)
 	emitIngestionJobWideEvent(base, nil, time.Millisecond)

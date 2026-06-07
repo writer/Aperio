@@ -344,9 +344,43 @@ func requireTelemetryOutcome(t *testing.T, events []map[string]any, outcome stri
 }
 
 type recordingLifecyclePublisher struct {
-	t    *testing.T
-	db   *sql.DB
-	seen []FindingLifecycleEvent
+	t         *testing.T
+	db        *sql.DB
+	seen      []FindingLifecycleEvent
+	jobEvents []IngestionJobLifecycleEvent
+}
+
+func (p *recordingLifecyclePublisher) PublishIngestionJobLifecycle(ctx context.Context, event IngestionJobLifecycleEvent) error {
+	p.t.Helper()
+	var status string
+	var processedAt sql.NullTime
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text, processed_at
+		FROM ingestion_jobs
+		WHERE id = $1 AND organization_id = $2
+	`, event.JobID, event.OrganizationID).Scan(&status, &processedAt); err != nil {
+		p.t.Fatalf("ingestion job lifecycle event published before committed job was visible: %v", err)
+	}
+	switch event.Status {
+	case "running":
+		if status != "RUNNING" {
+			p.t.Fatalf("running lifecycle event saw job status %s", status)
+		}
+	case "succeeded":
+		if status != "SUCCEEDED" || !processedAt.Valid {
+			p.t.Fatalf("succeeded lifecycle event saw job status=%s processedAt=%v", status, processedAt)
+		}
+	case "failed":
+		if status != "FAILED" {
+			p.t.Fatalf("failed lifecycle event saw job status %s", status)
+		}
+	case "dead_letter":
+		if status != "DEAD_LETTER" {
+			p.t.Fatalf("dead-letter lifecycle event saw job status %s", status)
+		}
+	}
+	p.jobEvents = append(p.jobEvents, event)
+	return nil
 }
 
 func (p *recordingLifecyclePublisher) PublishFindingLifecycle(ctx context.Context, event FindingLifecycleEvent) error {
@@ -366,7 +400,7 @@ func (p *recordingLifecyclePublisher) PublishFindingLifecycle(ctx context.Contex
 	return nil
 }
 
-func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
+func TestDrainDeadLettersUnsupportedIngestionJobsWithoutSideEffects(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)
 	integrations := map[string]string{
@@ -374,6 +408,7 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		"SLACK":            seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED"),
 		"OKTA":             seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED"),
 		"GOOGLE_WORKSPACE": seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED"),
+		"MICROSOFT_365":    seedIngestionWorkerIntegration(t, db, orgID, "MICROSOFT_365", "CONNECTED"),
 	}
 
 	type unsupportedCase struct {
@@ -387,10 +422,11 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 	}
 	cases := []unsupportedCase{
 		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
-		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
+		{name: "slack failed unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 1, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "okta unsupported event", provider: "OKTA", eventType: "USER_LIFECYCLE_DEACTIVATE", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"}]}`)},
 		{name: "google unsupported event", provider: "GOOGLE_WORKSPACE", eventType: "USER_LOGIN", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"parameters":{"forward_to":"external@example.com"}}`)},
 		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
+		{name: "unsupported provider", provider: "MICROSOFT_365", eventType: "USER_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"userPrincipalName":"user@example.com"}`)},
 	}
 
 	jobIDs := map[string]string{}
@@ -408,19 +444,54 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		}{orgID: orgID, integrationID: integrations[input.provider], provider: input.provider, eventType: input.eventType, status: input.status, attempts: input.attempts, maxAttempts: input.maxAttempts, payload: input.payload})
 	}
 
-	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 10)
+	publisher := &recordingLifecyclePublisher{t: t, db: db}
+	sink, restore := captureIngestionTelemetry(t)
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 10)
+	restore()
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
-		t.Fatalf("expected unsupported jobs to remain unprocessed, got %#v", result)
+	if result.Processed != len(cases) || result.Succeeded != 0 || result.Failed != len(cases) {
+		t.Fatalf("expected unsupported jobs to be dead-lettered without fallback, got %#v", result)
 	}
 
 	for _, input := range cases {
 		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobIDs[input.name])
-		if status != input.status || attempts != input.attempts || leaseOwner.Valid || processedAt.Valid || lastError.Valid {
-			t.Fatalf("%s changed: status=%s attempts=%d lease=%v processed=%v error=%v", input.name, status, attempts, leaseOwner, processedAt, lastError)
+		if status != "DEAD_LETTER" || attempts != input.attempts+1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+			t.Fatalf("%s state = status=%s attempts=%d lease=%v processed=%v error=%v", input.name, status, attempts, leaseOwner, processedAt, lastError)
 		}
+		if !strings.Contains(lastError.String, "unsupported ingestion work") || !strings.Contains(lastError.String, "final Go ingestion matrix") {
+			t.Fatalf("%s last_error = %q, want explicit final unsupported-work policy", input.name, lastError.String)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("unsupported work should not create event/finding/SIEM side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+	wideEvents := decodeWideEvents(t, sink)
+	deadLetters := 0
+	for _, event := range wideEvents {
+		if event["outcome"] == "dead_letter" {
+			deadLetters++
+			if event["error_kind"] != "unsupported" {
+				t.Fatalf("unsupported telemetry missing error_kind=unsupported: %#v", event)
+			}
+		}
+	}
+	if deadLetters != len(cases) {
+		t.Fatalf("expected unsupported dead-letter telemetry for every job, got %d events in %#v", deadLetters, wideEvents)
+	}
+	jobDeadLetters := 0
+	for _, event := range publisher.jobEvents {
+		if event.Status == "dead_letter" {
+			jobDeadLetters++
+			if event.SourceEventID != "" {
+				t.Fatalf("unsupported job lifecycle should not claim a source event id: %#v", event)
+			}
+		}
+	}
+	if jobDeadLetters != len(cases) {
+		t.Fatalf("expected dead-letter lifecycle events for unsupported jobs, got %#v", publisher.jobEvents)
 	}
 }
 
@@ -1012,7 +1083,7 @@ func TestDrainProcessesGoogleAdminOAuthDisabledChecksWithoutFindings(t *testing.
 	}
 }
 
-func TestDrainProcessesGoogleAdminOAuthNegativeFixturesWithoutFindings(t *testing.T) {
+func TestDrainDeadLettersUnsupportedGoogleNegativeFixturesWithoutSideEffects(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)
 	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
@@ -1029,18 +1100,21 @@ func TestDrainProcessesGoogleAdminOAuthNegativeFixturesWithoutFindings(t *testin
 	if err != nil {
 		t.Fatalf("drain Google Workspace negative fixtures: %v", err)
 	}
-	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
+	if result.Processed != len(jobIDs) || result.Succeeded != 0 || result.Failed != len(jobIDs) {
 		t.Fatalf("unexpected Google Workspace negative drain result: %#v", result)
 	}
 	for _, jobID := range jobIDs {
 		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
-		if status != "QUEUED" || attempts != 0 || leaseOwner.Valid || processedAt.Valid || lastError.Valid {
+		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
 			t.Fatalf("negative fixture job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+		if !strings.Contains(lastError.String, "unsupported ingestion work") {
+			t.Fatalf("negative fixture job %s last_error = %q", jobID, lastError.String)
 		}
 	}
 	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
 	if events != 0 || findings != 0 || deliveries != 0 {
-		t.Fatalf("negative Google Workspace fixtures should have no side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+		t.Fatalf("unsupported Google Workspace negative fixtures should have no side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
 	}
 }
 
@@ -1593,6 +1667,206 @@ func TestDrainPersistsSupportedGitHubJobSideEffects(t *testing.T) {
 	}
 }
 
+func TestDrainSameJobRetryReusesSourceEventFindingAndDelivery(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'same-job-retry.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	payloadJSON := json.RawMessage(`{"repository":{"full_name":"writer/retry","visibility":"public"}}`)
+	jobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+
+	worker := &Worker{db: db, leaseOwner: "go-test-worker"}
+	result, err := worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("initial drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected initial drain result: %#v", result)
+	}
+
+	var firstEventID, firstFindingID, firstDeliveryID, firstDeliveryDedupe string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2
+	`, orgID, jobID).Scan(&firstEventID); err != nil {
+		t.Fatalf("query first ingested event: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id
+		FROM security_findings
+		WHERE organization_id = $1
+	`, orgID).Scan(&firstFindingID); err != nil {
+		t.Fatalf("query first finding: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, dedupe_key
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2
+	`, orgID, destinationID).Scan(&firstDeliveryID, &firstDeliveryDedupe); err != nil {
+		t.Fatalf("query first delivery: %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE ingestion_jobs
+		SET status = 'FAILED'::"IngestionJobStatus",
+			attempts = 1,
+			processed_at = NULL,
+			next_attempt_at = NOW() - INTERVAL '1 minute',
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_error = 'transient retry probe',
+			updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2
+	`, jobID, orgID); err != nil {
+		t.Fatalf("reset same job for retry: %v", err)
+	}
+
+	result, err = worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("retry drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected retry drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "SUCCEEDED" || attempts != 2 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("retried same job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+
+	var eventCount, findingCount, deliveryCount int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2 AND id = $3
+	`, orgID, jobID, firstEventID).Scan(&eventCount); err != nil {
+		t.Fatalf("count retried event: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM security_findings
+		WHERE organization_id = $1 AND id = $2
+	`, orgID, firstFindingID).Scan(&findingCount); err != nil {
+		t.Fatalf("count retried finding: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2 AND id = $3 AND dedupe_key = $4
+	`, orgID, destinationID, firstDeliveryID, firstDeliveryDedupe).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count retried delivery: %v", err)
+	}
+	if eventCount != 1 || findingCount != 1 || deliveryCount != 1 {
+		t.Fatalf("same-job retry should reuse existing side effects, got events=%d findings=%d deliveries=%d", eventCount, findingCount, deliveryCount)
+	}
+
+	var sourceEventID string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT payload->'record'->>'sourceEventId'
+		FROM siem_deliveries
+		WHERE id = $1 AND organization_id = $2
+	`, firstDeliveryID, orgID).Scan(&sourceEventID); err != nil {
+		t.Fatalf("query retried delivery source event: %v", err)
+	}
+	if sourceEventID != firstEventID {
+		t.Fatalf("same-job retry delivery sourceEventId = %s, want %s", sourceEventID, firstEventID)
+	}
+}
+
+func TestDrainProcessesProducerStyleJobsAndRejectsMalformedPayloads(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+
+	producerJobID := testWorkerID("job")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO ingestion_jobs (
+			id, organization_id, integration_id, provider, event_type, source, actor, occurred_at,
+			payload, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3, 'SLACK'::"SaaSProvider", 'MFA_DISABLED',
+			'slack-real-producer', 'producer@example.com', $4, $5::jsonb, NOW(), NOW()
+		)
+	`, producerJobID, orgID, integrationID, time.Now().UTC().Add(-time.Minute), `{"user":{"email":"real-user@example.com"}}`); err != nil {
+		t.Fatalf("seed producer-style ingestion job: %v", err)
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain producer-style job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected producer-style drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, producerJobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("producer-style job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+	var eventSource, eventActor string
+	var eventPayload json.RawMessage
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT source, actor, payload
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2
+	`, orgID, producerJobID).Scan(&eventSource, &eventActor, &eventPayload); err != nil {
+		t.Fatalf("query producer-style ingested event: %v", err)
+	}
+	if eventSource != "slack-real-producer" || eventActor != "producer@example.com" || !strings.Contains(string(eventPayload), "real-user@example.com") {
+		t.Fatalf("producer-style event did not preserve source/actor/payload: source=%s actor=%s payload=%s", eventSource, eventActor, string(eventPayload))
+	}
+
+	malformedJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`[]`)})
+
+	result, err = (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain malformed payload job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected malformed payload drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError = ingestionJobState(t, db, malformedJobID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "parse payload") {
+		t.Fatalf("malformed payload job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 1 || findings != 1 || deliveries != 0 {
+		t.Fatalf("malformed payload should not add side effects beyond producer job, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
 func TestDrainFansOutFindingsOnlyToSameTenantEligibleSubscribedDestinations(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgA := seedIngestionWorkerOrg(t, db)
@@ -1727,6 +2001,7 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 
 	resolvedPayloadJSON, _, resolvedFinding, resolvedDedupe := payloadForRepo("writer/resolved")
 	mutedPayloadJSON, _, mutedFinding, mutedDedupe := payloadForRepo("writer/muted")
+	createdPayloadJSON, _, createdFinding, createdDedupe := payloadForRepo("writer/created")
 	resolvedFindingID := testWorkerID("fnd")
 	mutedFindingID := testWorkerID("fnd")
 	if _, err := db.ExecContext(context.Background(), `
@@ -1762,16 +2037,27 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 		leaseOwner    *string
 		payload       json.RawMessage
 	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: mutedPayloadJSON})
+	createdJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: createdPayloadJSON})
 
 	publisher := &recordingLifecyclePublisher{t: t, db: db}
-	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 2)
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 3)
 	if err != nil {
 		t.Fatalf("drain lifecycle jobs: %v", err)
 	}
-	if result.Processed != 2 || result.Succeeded != 2 || result.Failed != 0 {
+	if result.Processed != 3 || result.Succeeded != 3 || result.Failed != 0 {
 		t.Fatalf("unexpected lifecycle drain result: %#v", result)
 	}
-	for _, jobID := range []string{resolvedJobID, mutedJobID} {
+	for _, jobID := range []string{resolvedJobID, mutedJobID, createdJobID} {
 		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
 		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
 			t.Fatalf("lifecycle job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
@@ -1804,12 +2090,59 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 		t.Fatalf("muted finding should remain muted with resolved_at preserved, got status=%s resolvedAt=%v", mutedStatus, mutedResolvedAt)
 	}
 
-	if len(publisher.seen) != 1 {
-		t.Fatalf("expected only reopened finding lifecycle event, got %#v", publisher.seen)
+	var createdFindingID string
+	var createdStatus string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, status::text
+		FROM security_findings
+		WHERE organization_id = $1 AND dedupe_key = $2
+	`, orgID, createdDedupe).Scan(&createdFindingID, &createdStatus); err != nil {
+		t.Fatalf("query created lifecycle finding: %v", err)
 	}
-	event := publisher.seen[0]
-	if event.FindingID != resolvedFindingID || event.OrganizationID != orgID || event.IntegrationID != integrationID || event.PreviousStatus != "RESOLVED" || event.NextStatus != "OPEN" || event.ResolutionNote != "Finding observed again during ingestion" {
-		t.Fatalf("unexpected lifecycle event: %#v", event)
+	if createdStatus != "OPEN" || createdFindingID == "" || createdFinding.RuleID == "" {
+		t.Fatalf("created finding state = id=%s status=%s rule=%s", createdFindingID, createdStatus, createdFinding.RuleID)
+	}
+
+	if len(publisher.seen) != 2 {
+		t.Fatalf("expected created and reopened finding lifecycle events only, got %#v", publisher.seen)
+	}
+	seenByFinding := map[string]FindingLifecycleEvent{}
+	for _, event := range publisher.seen {
+		seenByFinding[event.FindingID] = event
+	}
+	reopenedEvent := seenByFinding[resolvedFindingID]
+	if reopenedEvent.FindingID != resolvedFindingID || reopenedEvent.OrganizationID != orgID || reopenedEvent.IntegrationID != integrationID || reopenedEvent.PreviousStatus != "RESOLVED" || reopenedEvent.NextStatus != "OPEN" || reopenedEvent.ResolutionNote != "Finding observed again during ingestion" {
+		t.Fatalf("unexpected reopened lifecycle event: %#v", reopenedEvent)
+	}
+	createdEvent := seenByFinding[createdFindingID]
+	if createdEvent.FindingID != createdFindingID || createdEvent.PreviousStatus != "NEW" || createdEvent.NextStatus != "OPEN" || createdEvent.ResolutionNote != "Finding observed during ingestion" {
+		t.Fatalf("unexpected created lifecycle event: %#v", createdEvent)
+	}
+
+	refreshJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: createdPayloadJSON})
+	result, err = (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain lifecycle refresh job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected lifecycle refresh result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, refreshJobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("refresh job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+	if len(publisher.seen) != 2 {
+		t.Fatalf("routine refresh should not duplicate finding lifecycle events, got %#v", publisher.seen)
 	}
 }
 

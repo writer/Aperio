@@ -14,6 +14,12 @@ type IngestionRuleState =
 
 type IngestionRuleMatrix = {
   version: number;
+  unsupportedWorkPolicy?: {
+    state: string;
+    action: string;
+    reason: string;
+    tests: string[];
+  };
   source: string;
   rules: Array<{
     ruleId: string;
@@ -68,12 +74,13 @@ function aliasesForRule(source: string, ruleId: string) {
 
 function goClaimAllowlistPairs(source: string) {
   const pairs = new Set<string>();
-  for (const match of source.matchAll(/provider = '([^']+)'\s+AND event_type = '([^']+)'/g)) {
-    pairs.add(`${match[1]}:${match[2]}`);
-  }
-  for (const match of source.matchAll(/provider = '([^']+)'\s+AND event_type IN \(([^)]+)\)/g)) {
+  const block = source.match(
+    /var supportedIngestionEventTypes = map\[string\]\[\]string\{([\s\S]*?)\n\}/
+  )?.[1];
+  assert.ok(block, "Go worker must expose the final supported ingestion matrix");
+  for (const match of block.matchAll(/"([^"]+)":\s*\{([\s\S]*?)\n\t\},/g)) {
     const provider = match[1];
-    for (const eventType of match[2].matchAll(/'([^']+)'/g)) {
+    for (const eventType of match[2].matchAll(/"([^"]+)"/g)) {
       pairs.add(`${provider}:${eventType[1]}`);
     }
   }
@@ -109,7 +116,7 @@ test("ingestion rule ownership matrix exactly matches TypeScript rule IDs and al
   assert.deepEqual(sorted(seenProviders), ["GITHUB", "GOOGLE_WORKSPACE", "OKTA", "SLACK"]);
 });
 
-test("Go ingestion claim allowlist matches only matrix-backed parity slices", () => {
+test("Go ingestion supported-work allowlist matches only matrix-backed parity slices", () => {
   const matrix = readJson<IngestionRuleMatrix>(
     "tests/fixtures/worker-parity/ingestion-rule-matrix.json"
   );
@@ -121,6 +128,12 @@ test("Go ingestion claim allowlist matches only matrix-backed parity slices", ()
     )
   );
   assert.deepEqual(goClaimAllowlistPairs(goSource), matrixClaimPairs);
+  assert.equal(matrix.unsupportedWorkPolicy?.state, "final-no-fallback");
+  assert.equal(matrix.unsupportedWorkPolicy?.action, "dead_letter_without_side_effects");
+  assert.match(matrix.unsupportedWorkPolicy?.reason ?? "", /deleted TypeScript fallback/);
+  assert.match(goSource, /errUnsupportedIngestionWork/);
+  assert.match(goSource, /deadLetterUnsupported/);
+  assert.doesNotMatch(goSource, /provider = '[^']+'\s+AND event_type IN/);
 
   for (const rule of matrix.rules) {
     if (rule.goClaimedEventTypes.length === 0) {

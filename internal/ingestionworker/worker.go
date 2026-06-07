@@ -31,7 +31,69 @@ var (
 	errIntegrationCredentialUnavailable   = errors.New("integration credential is unavailable")
 	errIntegrationCredentialIntegrity     = errors.New("integration credential failed integrity validation")
 	errIntegrationConfigurationIncomplete = errors.New("integration configuration is incomplete")
+	errUnsupportedIngestionWork           = errors.New("unsupported ingestion work")
 )
+
+var supportedIngestionEventTypes = map[string][]string{
+	"GITHUB": {
+		"PUBLIC_REPOSITORY_CREATED",
+		"repository.publicized",
+	},
+	"SLACK": {
+		"MFA_DISABLED",
+		"TWO_FACTOR_AUTH_DISABLED",
+		"mfa.disabled",
+		"two-factor auth disabled",
+	},
+	"OKTA": {
+		"USER_ACCOUNT_PRIVILEGE_GRANT",
+		"USER_ACCOUNT_PRIVILEGE_GRANTED",
+		"ADMIN_ROLE_ASSIGNED",
+		"ROLE_ASSIGNMENT_CREATED",
+		"user.account.privilege.grant",
+		"user.account.privilege.granted",
+		"admin.role.assigned",
+		"role.assignment.created",
+		"USER_MFA_FACTOR_RESET",
+		"USER_MFA_FACTOR_RESET_ALL",
+		"MFA_FACTOR_RESET",
+		"user.mfa.factor.reset",
+		"user.mfa.factor.reset_all",
+		"mfa.factor.reset",
+		"POLICY_LIFECYCLE_UPDATE",
+		"PASSWORD_POLICY_UPDATED",
+		"policy.lifecycle.update",
+		"password.policy.updated",
+		"SECURITY_THREAT_DETECTED",
+		"USER_AUTHENTICATION_FAILED",
+		"USER_SESSION_START",
+		"security.threat.detected",
+		"user.authentication.failed",
+		"user.session.start",
+	},
+	"GOOGLE_WORKSPACE": {
+		"EXTERNAL_SHARING_ENABLED",
+		"external.sharing.enabled",
+		"SUPER_ADMIN_GRANTED",
+		"super.admin.granted",
+		"ADMIN_ROLE_GRANTED",
+		"admin.role.granted",
+		"RISKY_OAUTH_GRANT",
+		"risky.oauth.grant",
+		"ADMIN_MFA_NOT_ENFORCED",
+		"admin.mfa.not.enforced",
+		"ADMIN_EXTERNAL_RECOVERY_EMAIL",
+		"admin.external.recovery.email",
+		"EMAIL_FORWARDING_ENABLED",
+		"email.forwarding.enabled",
+		"MAILBOX_DELEGATION_GRANTED",
+		"mailbox.delegation.granted",
+		"LEGACY_MAIL_AUTH_USED",
+		"legacy.mail.auth.used",
+		"FORWARDING_DELEGATE_SEND_AS_COMBO",
+		"forwarding.delegate.send.as.combo",
+	},
+}
 
 type JobPayload struct {
 	OrganizationID string         `json:"organizationId"`
@@ -74,6 +136,21 @@ type Worker struct {
 	eventPublisher IngestionEventPublisher
 }
 
+type IngestionJobLifecycleEvent struct {
+	JobID          string
+	OrganizationID string
+	IntegrationID  string
+	Provider       string
+	EventType      string
+	Source         string
+	Actor          string
+	Status         string
+	Attempts       int
+	SourceEventID  string
+	OccurredAt     time.Time
+	Payload        json.RawMessage
+}
+
 type FindingLifecycleEvent struct {
 	FindingID      string
 	OrganizationID string
@@ -85,10 +162,15 @@ type FindingLifecycleEvent struct {
 }
 
 type IngestionEventPublisher interface {
+	PublishIngestionJobLifecycle(context.Context, IngestionJobLifecycleEvent) error
 	PublishFindingLifecycle(context.Context, FindingLifecycleEvent) error
 }
 
 type noopIngestionEventPublisher struct{}
+
+func (noopIngestionEventPublisher) PublishIngestionJobLifecycle(context.Context, IngestionJobLifecycleEvent) error {
+	return nil
+}
 
 func (noopIngestionEventPublisher) PublishFindingLifecycle(context.Context, FindingLifecycleEvent) error {
 	return nil
@@ -129,7 +211,7 @@ func New(db *sql.DB) *Worker {
 	return &Worker{
 		db:             db,
 		leaseOwner:     fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
-		eventPublisher: noopIngestionEventPublisher{},
+		eventPublisher: NewEnvEventPublisher(),
 	}
 }
 
@@ -1286,6 +1368,7 @@ func (w *Worker) Drain(ctx context.Context, limit int) (Result, error) {
 	}
 	result := Result{Processed: len(jobs)}
 	for _, item := range jobs {
+		w.publishIngestionJobLifecycleEvent(ctx, item, "running", item.Attempts, "")
 		startedAt := time.Now()
 		err := w.process(ctx, item)
 		emitIngestionJobWideEvent(item, err, time.Since(startedAt))
@@ -1301,33 +1384,12 @@ func (w *Worker) Drain(ctx context.Context, limit int) (Result, error) {
 func (w *Worker) retireExhausted(ctx context.Context) error {
 	_, err := w.db.ExecContext(ctx, `
 		UPDATE ingestion_jobs
-		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
+		SET status = 'DEAD_LETTER',
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_error = COALESCE(last_error, 'maximum ingestion attempts exhausted'),
+			updated_at = NOW()
 		WHERE attempts >= max_attempts
-		  AND (
-				(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
-			 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
-			 OR (provider = 'OKTA' AND event_type IN (
-					'USER_ACCOUNT_PRIVILEGE_GRANT', 'USER_ACCOUNT_PRIVILEGE_GRANTED', 'ADMIN_ROLE_ASSIGNED', 'ROLE_ASSIGNMENT_CREATED',
-					'user.account.privilege.grant', 'user.account.privilege.granted', 'admin.role.assigned', 'role.assignment.created',
-					'USER_MFA_FACTOR_RESET', 'USER_MFA_FACTOR_RESET_ALL', 'MFA_FACTOR_RESET',
-					'user.mfa.factor.reset', 'user.mfa.factor.reset_all', 'mfa.factor.reset',
-					'POLICY_LIFECYCLE_UPDATE', 'PASSWORD_POLICY_UPDATED', 'policy.lifecycle.update', 'password.policy.updated',
-					'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
-					'security.threat.detected', 'user.authentication.failed', 'user.session.start'
-				))
-			 OR (provider = 'GOOGLE_WORKSPACE' AND event_type IN (
-					'EXTERNAL_SHARING_ENABLED', 'external.sharing.enabled',
-					'SUPER_ADMIN_GRANTED', 'super.admin.granted',
-					'ADMIN_ROLE_GRANTED', 'admin.role.granted',
-					'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
-					'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
-					'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email',
-					'EMAIL_FORWARDING_ENABLED', 'email.forwarding.enabled',
-					'MAILBOX_DELEGATION_GRANTED', 'mailbox.delegation.granted',
-					'LEGACY_MAIL_AUTH_USED', 'legacy.mail.auth.used',
-					'FORWARDING_DELEGATE_SEND_AS_COMBO', 'forwarding.delegate.send.as.combo'
-				))
-		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
 	`)
@@ -1343,31 +1405,6 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 			FROM ingestion_jobs
 			WHERE attempts < max_attempts
 			  AND next_attempt_at <= NOW()
-			  AND (
-					(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
-				 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
-				 OR (provider = 'OKTA' AND event_type IN (
-						'USER_ACCOUNT_PRIVILEGE_GRANT', 'USER_ACCOUNT_PRIVILEGE_GRANTED', 'ADMIN_ROLE_ASSIGNED', 'ROLE_ASSIGNMENT_CREATED',
-						'user.account.privilege.grant', 'user.account.privilege.granted', 'admin.role.assigned', 'role.assignment.created',
-						'USER_MFA_FACTOR_RESET', 'USER_MFA_FACTOR_RESET_ALL', 'MFA_FACTOR_RESET',
-						'user.mfa.factor.reset', 'user.mfa.factor.reset_all', 'mfa.factor.reset',
-						'POLICY_LIFECYCLE_UPDATE', 'PASSWORD_POLICY_UPDATED', 'policy.lifecycle.update', 'password.policy.updated',
-						'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
-						'security.threat.detected', 'user.authentication.failed', 'user.session.start'
-					))
-				 OR (provider = 'GOOGLE_WORKSPACE' AND event_type IN (
-						'EXTERNAL_SHARING_ENABLED', 'external.sharing.enabled',
-						'SUPER_ADMIN_GRANTED', 'super.admin.granted',
-						'ADMIN_ROLE_GRANTED', 'admin.role.granted',
-						'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
-						'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
-						'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email',
-						'EMAIL_FORWARDING_ENABLED', 'email.forwarding.enabled',
-						'MAILBOX_DELEGATION_GRANTED', 'mailbox.delegation.granted',
-						'LEGACY_MAIL_AUTH_USED', 'legacy.mail.auth.used',
-						'FORWARDING_DELEGATE_SEND_AS_COMBO', 'forwarding.delegate.send.as.combo'
-					))
-			  )
 			  AND (
 					(status IN ('QUEUED', 'FAILED') AND (lease_expires_at IS NULL OR lease_expires_at <= NOW()))
 				 OR (status = 'RUNNING' AND lease_expires_at <= NOW())
@@ -1393,7 +1430,43 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 	return jobs, rows.Err()
 }
 
+func isSupportedIngestionWork(provider string, eventType string) bool {
+	for _, supportedEventType := range supportedIngestionEventTypes[provider] {
+		if eventType == supportedEventType {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Worker) deadLetterUnsupported(ctx context.Context, item job) error {
+	message := "unsupported ingestion work: provider/event type is outside the final Go ingestion matrix"
+	attempts := item.Attempts + 1
+	res, err := w.db.ExecContext(ctx, `
+		UPDATE ingestion_jobs
+		SET status = 'DEAD_LETTER',
+			attempts = $1,
+			next_attempt_at = NOW(),
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_error = $2,
+			updated_at = NOW()
+		WHERE id = $3 AND lease_owner = $4
+	`, attempts, safeIngestionFailureMessage(message), item.ID, w.leaseOwner)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows != 1 {
+		return errIngestionLeaseLost
+	}
+	w.publishIngestionJobLifecycleEvent(ctx, item, "dead_letter", attempts, "")
+	return fmt.Errorf("%w: provider/event type is outside the final Go ingestion matrix", errUnsupportedIngestionWork)
+}
+
 func (w *Worker) process(ctx context.Context, item job) error {
+	if !isSupportedIngestionWork(item.Provider, item.EventType) {
+		return w.deadLetterUnsupported(ctx, item)
+	}
 	payload, err := item.toPayload()
 	if err != nil {
 		return w.fail(ctx, item, fmt.Errorf("parse payload: %w", err).Error())
@@ -1480,6 +1553,7 @@ func (w *Worker) process(ctx context.Context, item job) error {
 	}
 	txDone = true
 	w.publishFindingLifecycleEvents(ctx, lifecycleEvents)
+	w.publishIngestionJobLifecycleEvent(ctx, item, "succeeded", item.Attempts+1, eventID)
 	return nil
 }
 
@@ -1487,6 +1561,12 @@ func (w *Worker) fail(ctx context.Context, item job, message string) error {
 	if err := w.finish(ctx, item, false, message); err != nil {
 		return err
 	}
+	attempts := item.Attempts + 1
+	status := "failed"
+	if attempts >= item.MaxAttempts {
+		status = "dead_letter"
+	}
+	w.publishIngestionJobLifecycleEvent(ctx, item, status, attempts, "")
 	return errors.New(message)
 }
 
@@ -1741,6 +1821,23 @@ func (w *Worker) publisher() IngestionEventPublisher {
 		return w.eventPublisher
 	}
 	return noopIngestionEventPublisher{}
+}
+
+func (w *Worker) publishIngestionJobLifecycleEvent(ctx context.Context, item job, status string, attempts int, sourceEventID string) {
+	_ = w.publisher().PublishIngestionJobLifecycle(ctx, IngestionJobLifecycleEvent{
+		JobID:          item.ID,
+		OrganizationID: item.OrganizationID,
+		IntegrationID:  item.IntegrationID,
+		Provider:       item.Provider,
+		EventType:      item.EventType,
+		Source:         item.Source,
+		Actor:          nullableString(item.Actor),
+		Status:         status,
+		Attempts:       attempts,
+		SourceEventID:  sourceEventID,
+		OccurredAt:     item.OccurredAt,
+		Payload:        item.Payload,
+	})
 }
 
 func (w *Worker) publishFindingLifecycleEvents(ctx context.Context, events []FindingLifecycleEvent) {
@@ -2322,6 +2419,9 @@ func ingestionJobOutcome(item job, processErr error) string {
 	if errors.Is(processErr, errIngestionLeaseLost) {
 		return "lost_lease"
 	}
+	if errors.Is(processErr, errUnsupportedIngestionWork) {
+		return "dead_letter"
+	}
 	if item.Attempts+1 >= item.MaxAttempts {
 		return "dead_letter"
 	}
@@ -2334,6 +2434,9 @@ func ingestionErrorKind(processErr error) string {
 	}
 	if errors.Is(processErr, errIngestionLeaseLost) {
 		return "lease_lost"
+	}
+	if errors.Is(processErr, errUnsupportedIngestionWork) {
+		return "unsupported"
 	}
 	return "error"
 }
