@@ -14,13 +14,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"github.com/writer/aperio/internal/telemetry"
 )
 
 const leaseDuration = 5 * time.Minute
 
-var errIngestionLeaseLost = errors.New("ingestion job lease lost")
+var (
+	errIngestionLeaseLost                 = errors.New("ingestion job lease lost")
+	errIntegrationNotConnected            = errors.New("integration not found or not connected")
+	errIntegrationCredentialMissing       = errors.New("integration credential is missing")
+	errIntegrationCredentialUnavailable   = errors.New("integration credential is unavailable")
+	errIntegrationCredentialIntegrity     = errors.New("integration credential failed integrity validation")
+	errIntegrationConfigurationIncomplete = errors.New("integration configuration is incomplete")
+)
 
 type JobPayload struct {
 	OrganizationID string         `json:"organizationId"`
@@ -94,6 +102,19 @@ type job struct {
 	Payload        json.RawMessage
 	Attempts       int
 	MaxAttempts    int
+}
+
+type integrationConfig struct {
+	ID                                   string
+	OrganizationID                       string
+	Provider                             string
+	ExternalAccountID                    string
+	DisabledChecks                       []string
+	EncryptedAccessToken                 string
+	EncryptedRefreshToken                sql.NullString
+	EncryptedWebhookSecret               sql.NullString
+	GoogleMailboxScanClientEmail         sql.NullString
+	EncryptedGoogleMailboxScanPrivateKey sql.NullString
 }
 
 func New(db *sql.DB) *Worker {
@@ -382,27 +403,155 @@ func (w *Worker) fail(ctx context.Context, item job, message string) error {
 }
 
 func (w *Worker) findingsForJob(ctx context.Context, payload JobPayload, item job) ([]Finding, error) {
-	disabledChecks, err := w.loadDisabledChecks(ctx, item)
+	config, err := w.loadIntegrationConfig(ctx, item)
 	if err != nil {
 		return nil, err
 	}
-	return Evaluate(payload, disabledChecks), nil
+	if err := config.validateForJob(item); err != nil {
+		return nil, err
+	}
+	return Evaluate(payload, config.DisabledChecks), nil
 }
 
-func (w *Worker) loadDisabledChecks(ctx context.Context, item job) ([]string, error) {
-	var raw string
+func (w *Worker) loadIntegrationConfig(ctx context.Context, item job) (integrationConfig, error) {
+	var config integrationConfig
+	var rawDisabledChecks string
 	if err := w.db.QueryRowContext(ctx, `
-		SELECT COALESCE(array_to_json(disabled_checks)::text, '[]')
+		SELECT
+			id,
+			organization_id,
+			provider::text,
+			external_account_id,
+			COALESCE(array_to_json(disabled_checks)::text, '[]'),
+			encrypted_access_token,
+			encrypted_refresh_token,
+			encrypted_webhook_secret,
+			google_mailbox_scan_client_email,
+			encrypted_google_mailbox_scan_private_key
 		FROM integration_connections
 		WHERE id = $1 AND organization_id = $2 AND provider = $3::"SaaSProvider" AND status = 'CONNECTED'
-	`, item.IntegrationID, item.OrganizationID, item.Provider).Scan(&raw); err != nil {
-		return nil, err
+	`, item.IntegrationID, item.OrganizationID, item.Provider).Scan(
+		&config.ID,
+		&config.OrganizationID,
+		&config.Provider,
+		&config.ExternalAccountID,
+		&rawDisabledChecks,
+		&config.EncryptedAccessToken,
+		&config.EncryptedRefreshToken,
+		&config.EncryptedWebhookSecret,
+		&config.GoogleMailboxScanClientEmail,
+		&config.EncryptedGoogleMailboxScanPrivateKey,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return integrationConfig{}, errIntegrationNotConnected
+		}
+		return integrationConfig{}, err
 	}
-	disabledChecks := []string{}
-	if err := json.Unmarshal([]byte(raw), &disabledChecks); err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(rawDisabledChecks), &config.DisabledChecks); err != nil {
+		return integrationConfig{}, errIntegrationConfigurationIncomplete
 	}
-	return disabledChecks, nil
+	return config, nil
+}
+
+func (config integrationConfig) validateForJob(item job) error {
+	if strings.TrimSpace(config.ID) == "" ||
+		strings.TrimSpace(config.OrganizationID) == "" ||
+		strings.TrimSpace(config.Provider) == "" ||
+		strings.TrimSpace(config.ExternalAccountID) == "" {
+		return errIntegrationConfigurationIncomplete
+	}
+	if config.ID != item.IntegrationID || config.OrganizationID != item.OrganizationID || config.Provider != item.Provider {
+		return errIntegrationNotConnected
+	}
+	if _, err := config.decryptRequiredSecret("access_token", 8); err != nil {
+		return err
+	}
+	if requiresRefreshToken(config.Provider) && strings.TrimSpace(nullStringValue(config.EncryptedRefreshToken)) == "" {
+		return errIntegrationConfigurationIncomplete
+	}
+	if _, err := config.decryptOptionalSecret(config.EncryptedRefreshToken, "refresh_token"); err != nil {
+		return err
+	}
+	if _, err := config.decryptOptionalSecret(config.EncryptedWebhookSecret, "webhook_secret"); err != nil {
+		return err
+	}
+	if err := config.validateGoogleMailboxConfig(item.EventType); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (config integrationConfig) decryptRequiredSecret(suffix string, minLength int) (string, error) {
+	encrypted := strings.TrimSpace(config.EncryptedAccessToken)
+	if encrypted == "" {
+		return "", errIntegrationCredentialMissing
+	}
+	return config.decryptSecret(encrypted, suffix, minLength)
+}
+
+func (config integrationConfig) decryptOptionalSecret(value sql.NullString, suffix string) (string, error) {
+	encrypted := strings.TrimSpace(nullStringValue(value))
+	if encrypted == "" {
+		return "", nil
+	}
+	return config.decryptSecret(encrypted, suffix, 1)
+}
+
+func (config integrationConfig) decryptSecret(encrypted string, suffix string, minLength int) (string, error) {
+	plaintext, err := runtimeutil.DecryptIntegrationSecret(encrypted, config.OrganizationID, config.ID, config.Provider, config.ExternalAccountID, suffix)
+	if err != nil {
+		return "", errIntegrationCredentialUnavailable
+	}
+	if len(strings.TrimSpace(plaintext)) < minLength {
+		return "", errIntegrationCredentialIntegrity
+	}
+	return plaintext, nil
+}
+
+func (config integrationConfig) validateGoogleMailboxConfig(eventType string) error {
+	if config.Provider != "GOOGLE_WORKSPACE" {
+		return nil
+	}
+	clientEmail := strings.TrimSpace(nullStringValue(config.GoogleMailboxScanClientEmail))
+	encryptedPrivateKey := strings.TrimSpace(nullStringValue(config.EncryptedGoogleMailboxScanPrivateKey))
+	if requiresGoogleMailboxScanConfig(eventType) || clientEmail != "" || encryptedPrivateKey != "" {
+		if clientEmail == "" || encryptedPrivateKey == "" {
+			return errIntegrationConfigurationIncomplete
+		}
+		privateKey, err := runtimeutil.DecryptGoogleMailboxPrivateKey(encryptedPrivateKey, config.OrganizationID, config.ID, config.ExternalAccountID)
+		if err != nil {
+			return errIntegrationCredentialUnavailable
+		}
+		if len(strings.TrimSpace(privateKey)) < 8 {
+			return errIntegrationCredentialIntegrity
+		}
+	}
+	return nil
+}
+
+func requiresRefreshToken(provider string) bool {
+	switch provider {
+	case "GITHUB", "OKTA", "MICROSOFT_365", "GOOGLE_WORKSPACE":
+		return true
+	default:
+		return false
+	}
+}
+
+func requiresGoogleMailboxScanConfig(eventType string) bool {
+	switch normalizeEventType(eventType) {
+	case "EMAIL_FORWARDING_ENABLED", "MAILBOX_DELEGATION_GRANTED", "LEGACY_MAIL_AUTH_USED", "FORWARDING_DELEGATE_SEND_AS_COMBO":
+		return true
+	default:
+		return false
+	}
+}
+
+func nullStringValue(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
 }
 
 func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string) (persistedFinding, error) {
@@ -629,7 +778,7 @@ func (w *Worker) finish(ctx context.Context, item job, ok bool, message string) 
 		UPDATE ingestion_jobs
 		SET status = $1, attempts = $2, next_attempt_at = $3, lease_owner = NULL, lease_expires_at = NULL, last_error = $4, updated_at = NOW()
 		WHERE id = $5 AND lease_owner = $6
-	`, status, attempts, time.Now().UTC().Add(nextRetryDelay(attempts)), truncate(message, 500), item.ID, w.leaseOwner)
+	`, status, attempts, time.Now().UTC().Add(nextRetryDelay(attempts)), safeIngestionFailureMessage(message), item.ID, w.leaseOwner)
 	if err != nil {
 		return err
 	}
@@ -790,6 +939,15 @@ func truncate(value string, max int) string {
 		return value
 	}
 	return value[:max]
+}
+
+func safeIngestionFailureMessage(message string) string {
+	return truncate(runtimeutil.RedactText(
+		message,
+		os.Getenv("APERIO_ENCRYPTION_KEY"),
+		os.Getenv("DATABASE_URL"),
+		os.Getenv("APERIO_TEST_DATABASE_URL"),
+	), 500)
 }
 
 func randomID() string {

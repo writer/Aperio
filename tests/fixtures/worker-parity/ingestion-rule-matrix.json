@@ -33,7 +33,7 @@
         "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "Go validates a connected provider/integration and honors disabled checks, but does not decrypt and integrity-check encrypted integration credentials like the TypeScript reference.",
+        "Go now decrypts and integrity-checks canonical/legacy encrypted integration credentials and provider config fields before side effects, but this row remains blocked until every GitHub visibility alias is individually fixture-backed.",
         "GitHub payload-predicate detection is fixture-tested and the shared publicized event alias is DB-backed, while broader GitHub repository visibility aliases remain TypeScript-reference fallback until individually fixture-backed."
       ],
       "goDefaultBlocked": true
@@ -54,7 +54,7 @@
         "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "Go validates a connected Slack integration and honors disabled checks, but does not decrypt and integrity-check encrypted integration credentials like the TypeScript reference.",
+        "Go now decrypts and integrity-checks canonical/legacy encrypted integration credentials and optional Slack webhook config before side effects, but this row remains blocked until every Slack rule slice is fixture-backed.",
         "Only fixture-backed MFA-disabled Slack event aliases are allowlisted; all other Slack events remain TypeScript-reference fallback."
       ],
       "goDefaultBlocked": true

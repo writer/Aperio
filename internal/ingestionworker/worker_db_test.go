@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +15,17 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"github.com/writer/aperio/internal/telemetry"
+)
+
+const (
+	testIngestionWorkerEncryptionKey  = "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	testIngestionWorkerAccessToken    = "development-demo-provider-token"
+	testIngestionWorkerRefreshToken   = "development-demo-refresh-token"
+	testIngestionWorkerWebhookSecret  = "development-demo-webhook-secret"
+	testIngestionWorkerMailboxPrivKey = "-----BEGIN EXAMPLE PRIVATE KEY-----\ndevelopment-demo-mailbox-key\n-----END EXAMPLE PRIVATE KEY-----"
 )
 
 func openDBBackedIngestionWorkerDB(t *testing.T) *sql.DB {
@@ -53,6 +64,59 @@ func testWorkerID(prefix string) string {
 	return prefix + "_" + randomID()
 }
 
+func ensureIngestionWorkerTestEncryptionKey(t *testing.T) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY")) == "" {
+		t.Setenv("APERIO_ENCRYPTION_KEY", testIngestionWorkerEncryptionKey)
+	}
+}
+
+func encryptIngestionWorkerSecret(t *testing.T, orgID, integrationID, provider, externalAccountID, suffix, plaintext string, legacy bool) string {
+	t.Helper()
+	ensureIngestionWorkerTestEncryptionKey(t)
+	aad := runtimeutil.IntegrationSecretAAD(orgID, provider, externalAccountID, suffix)
+	if legacy {
+		aad = runtimeutil.LegacyIntegrationSecretAAD(orgID, integrationID, suffix)
+	}
+	encrypted, err := runtimeutil.EncryptString(plaintext, aad)
+	if err != nil {
+		t.Fatalf("encrypt %s credential fixture: %v", suffix, err)
+	}
+	return encrypted
+}
+
+func encryptIngestionWorkerMailboxKey(t *testing.T, orgID, integrationID, externalAccountID, plaintext string, legacy bool) string {
+	t.Helper()
+	ensureIngestionWorkerTestEncryptionKey(t)
+	aad := runtimeutil.IntegrationSecretAAD(orgID, "GOOGLE_WORKSPACE", externalAccountID, "gmail_scan_private_key")
+	if legacy {
+		aad = runtimeutil.LegacyIntegrationSecretAAD(orgID, integrationID, "google_mailbox_private_key")
+	}
+	encrypted, err := runtimeutil.EncryptString(plaintext, aad)
+	if err != nil {
+		t.Fatalf("encrypt Google mailbox credential fixture: %v", err)
+	}
+	return encrypted
+}
+
+func tamperIngestionWorkerEnvelopeTag(t *testing.T, encrypted string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatalf("decode credential envelope: %v", err)
+	}
+	var envelope runtimeutil.EncryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode credential envelope JSON: %v", err)
+	}
+	envelope.Tag = base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("encode tampered credential envelope: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
 func seedIngestionWorkerOrg(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	orgID := testWorkerID("org")
@@ -72,16 +136,20 @@ func seedIngestionWorkerOrg(t *testing.T, db *sql.DB) string {
 func seedIngestionWorkerIntegration(t *testing.T, db *sql.DB, orgID, provider, status string) string {
 	t.Helper()
 	integrationID := testWorkerID("int")
+	externalAccountID := integrationID
+	encryptedAccessToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "access_token", testIngestionWorkerAccessToken, false)
+	encryptedRefreshToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "refresh_token", testIngestionWorkerRefreshToken, false)
+	encryptedWebhookSecret := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "webhook_secret", testIngestionWorkerWebhookSecret, false)
 	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO integration_connections (
 			id, organization_id, provider, display_name, external_account_id, scopes, disabled_checks,
-			encrypted_access_token, status, mode, created_at, updated_at
+			encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, created_at, updated_at
 		)
 		VALUES (
 			$1, $2, $3::"SaaSProvider", $4, $5, ARRAY[]::text[], ARRAY[]::text[],
-			'test-token', $6::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
+			$6, $7, $8, $9::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
 		)
-	`, integrationID, orgID, provider, provider+" Worker Test", integrationID, status); err != nil {
+	`, integrationID, orgID, provider, provider+" Worker Test", externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, status); err != nil {
 		t.Fatalf("seed %s integration: %v", provider, err)
 	}
 	return integrationID
@@ -144,6 +212,28 @@ func ingestionJobNextAttemptAt(t *testing.T, db *sql.DB, jobID string) time.Time
 		t.Fatalf("query ingestion job next attempt %s: %v", jobID, err)
 	}
 	return nextAttemptAt
+}
+
+func ingestionSideEffectCounts(t *testing.T, db *sql.DB, orgID string) (events int, findings int, deliveries int) {
+	t.Helper()
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ingested_events WHERE organization_id = $1`, orgID).Scan(&events); err != nil {
+		t.Fatalf("count ingested events: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM security_findings WHERE organization_id = $1`, orgID).Scan(&findings); err != nil {
+		t.Fatalf("count security findings: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM siem_deliveries WHERE organization_id = $1`, orgID).Scan(&deliveries); err != nil {
+		t.Fatalf("count SIEM deliveries: %v", err)
+	}
+	return events, findings, deliveries
+}
+
+func assertNoIngestionSideEffects(t *testing.T, db *sql.DB, orgID string) {
+	t.Helper()
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("expected no ingestion side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
 }
 
 func captureIngestionTelemetry(t *testing.T) (*bytes.Buffer, func()) {
@@ -513,6 +603,275 @@ func TestDrainProcessesSupportedSlackDisabledCheckWithoutFinding(t *testing.T) {
 	}
 	if eventCount != 1 || findingCount != 0 {
 		t.Fatalf("disabled check should persist event only, got events=%d findings=%d", eventCount, findingCount)
+	}
+}
+
+func TestSupportedIngestionCredentialGateAllowsCanonicalAndLegacyCredentials(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	canonicalIntegrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+	legacyIntegrationID := seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED")
+	legacyAccessToken := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "access_token", testIngestionWorkerAccessToken, true)
+	legacyRefreshToken := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "refresh_token", testIngestionWorkerRefreshToken, true)
+	legacyWebhookSecret := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "webhook_secret", testIngestionWorkerWebhookSecret, true)
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET encrypted_access_token = $1, encrypted_refresh_token = $2, encrypted_webhook_secret = $3
+		WHERE id = $4
+	`, legacyAccessToken, legacyRefreshToken, legacyWebhookSecret, legacyIntegrationID); err != nil {
+		t.Fatalf("seed legacy credential envelopes: %v", err)
+	}
+
+	slackJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: canonicalIntegrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+	githubJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: legacyIntegrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/aperio","visibility":"public"}}`)})
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("drain canonical and legacy credential jobs: %v", err)
+	}
+	if result.Processed != 2 || result.Succeeded != 2 || result.Failed != 0 {
+		t.Fatalf("unexpected credential success drain result: %#v", result)
+	}
+	for _, jobID := range []string{slackJobID, githubJobID} {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("credential success job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 2 || findings != 2 || deliveries != 0 {
+		t.Fatalf("expected canonical and legacy credentials to allow event/finding side effects only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestSupportedIngestionCredentialFailuresFailClosedAndRedact(t *testing.T) {
+	cases := []struct {
+		name          string
+		mutate        func(t *testing.T, db *sql.DB, orgID, integrationID string) string
+		clearKey      bool
+		wantErrorText string
+	}{
+		{
+			name: "missing encryption key",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				return testIngestionWorkerAccessToken
+			},
+			clearKey:      true,
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "missing credential value",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = '' WHERE id = $1`, integrationID); err != nil {
+					t.Fatalf("blank encrypted credential: %v", err)
+				}
+				return testIngestionWorkerAccessToken
+			},
+			wantErrorText: "integration credential is missing",
+		},
+		{
+			name: "malformed credential envelope",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				const malformed = "not-an-encrypted-envelope"
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, malformed, integrationID); err != nil {
+					t.Fatalf("malform encrypted credential: %v", err)
+				}
+				return malformed
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "tampered credential tag",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				tampered := tamperIngestionWorkerEnvelopeTag(t, encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "access_token", testIngestionWorkerAccessToken, false))
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, tampered, integrationID); err != nil {
+					t.Fatalf("tamper encrypted credential: %v", err)
+				}
+				return tampered
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "wrong aad credential",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET external_account_id = $1 WHERE id = $2`, integrationID+"-rotated", integrationID); err != nil {
+					t.Fatalf("rotate external account id: %v", err)
+				}
+				return testIngestionWorkerAccessToken
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "short decrypted credential",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				const shortToken = "short"
+				encrypted := encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "access_token", shortToken, false)
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, encrypted, integrationID); err != nil {
+					t.Fatalf("seed short encrypted credential: %v", err)
+				}
+				return shortToken
+			},
+			wantErrorText: "integration credential failed integrity validation",
+		},
+		{
+			name: "tampered optional webhook secret",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				tampered := tamperIngestionWorkerEnvelopeTag(t, encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "webhook_secret", testIngestionWorkerWebhookSecret, false))
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_webhook_secret = $1 WHERE id = $2`, tampered, integrationID); err != nil {
+					t.Fatalf("tamper encrypted webhook secret: %v", err)
+				}
+				return tampered
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openDBBackedIngestionWorkerDB(t)
+			orgID := seedIngestionWorkerOrg(t, db)
+			integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+			destinationID := testWorkerID("dst")
+			if _, err := db.ExecContext(context.Background(), `
+				INSERT INTO siem_destinations (
+					id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+				)
+				VALUES ($1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'credential-gate.jsonl', ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW())
+			`, destinationID, orgID); err != nil {
+				t.Fatalf("seed SIEM destination: %v", err)
+			}
+			secretToScan := tc.mutate(t, db, orgID, integrationID)
+			if tc.clearKey {
+				t.Setenv("APERIO_ENCRYPTION_KEY", "")
+			}
+			jobID := seedIngestionWorkerJob(t, db, struct {
+				orgID         string
+				integrationID string
+				provider      string
+				eventType     string
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+				payload       json.RawMessage
+			}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+
+			sink, restore := captureIngestionTelemetry(t)
+			result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+			restore()
+			if err != nil {
+				t.Fatalf("drain credential failure case: %v", err)
+			}
+			if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected credential failure drain result: %#v", result)
+			}
+			status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+			if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+				t.Fatalf("credential failure job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+			}
+			if !strings.Contains(lastError.String, tc.wantErrorText) {
+				t.Fatalf("last_error = %q, want %q", lastError.String, tc.wantErrorText)
+			}
+			if len(lastError.String) > 500 {
+				t.Fatalf("last_error was not bounded: length=%d", len(lastError.String))
+			}
+			for _, leaked := range []string{testIngestionWorkerAccessToken, testIngestionWorkerRefreshToken, testIngestionWorkerWebhookSecret, testIngestionWorkerEncryptionKey, secretToScan} {
+				if strings.TrimSpace(leaked) != "" && strings.Contains(lastError.String, leaked) {
+					t.Fatalf("last_error leaked secret material %q in %q", leaked, lastError.String)
+				}
+				if strings.TrimSpace(leaked) != "" && strings.Contains(sink.String(), leaked) {
+					t.Fatalf("telemetry leaked secret material %q in %s", leaked, sink.String())
+				}
+			}
+			failureTelemetry := requireTelemetryOutcome(t, decodeWideEvents(t, sink), "failed")
+			if failureTelemetry["error_kind"] != "error" || strings.Contains(fmt.Sprint(failureTelemetry), testIngestionWorkerAccessToken) {
+				t.Fatalf("credential failure telemetry unsafe: %#v", failureTelemetry)
+			}
+			assertNoIngestionSideEffects(t, db, orgID)
+		})
+	}
+}
+
+func TestSupportedIngestionProviderGatesFailClosedBeforeSideEffects(t *testing.T) {
+	cases := []struct {
+		name         string
+		setup        func(t *testing.T, db *sql.DB, orgID string) (integrationID string, provider string)
+		wantErrorSub string
+	}{
+		{
+			name: "disabled integration",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				return seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "DISABLED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+		{
+			name: "wrong provider",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				return seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+		{
+			name: "cross tenant integration",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				otherOrgID := seedIngestionWorkerOrg(t, db)
+				return seedIngestionWorkerIntegration(t, db, otherOrgID, "SLACK", "CONNECTED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openDBBackedIngestionWorkerDB(t)
+			orgID := seedIngestionWorkerOrg(t, db)
+			integrationID, provider := tc.setup(t, db, orgID)
+			jobID := seedIngestionWorkerJob(t, db, struct {
+				orgID         string
+				integrationID string
+				provider      string
+				eventType     string
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+				payload       json.RawMessage
+			}{orgID: orgID, integrationID: integrationID, provider: provider, eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+
+			result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+			if err != nil {
+				t.Fatalf("drain provider gate case: %v", err)
+			}
+			if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected provider gate drain result: %#v", result)
+			}
+			status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+			if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, tc.wantErrorSub) {
+				t.Fatalf("provider gate job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+			}
+			assertNoIngestionSideEffects(t, db, orgID)
+		})
 	}
 }
 

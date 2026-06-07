@@ -310,8 +310,125 @@ func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
 	}
 }
 
+func TestIntegrationConfigValidatesProviderCredentialShapes(t *testing.T) {
+	ensureIngestionWorkerTestEncryptionKey(t)
+	baseJob := func(provider, eventType string) job {
+		return job{
+			ID:             "job_1",
+			OrganizationID: "org_1",
+			IntegrationID:  "int_1",
+			Provider:       provider,
+			EventType:      eventType,
+		}
+	}
+	baseConfig := func(provider string, legacy bool) integrationConfig {
+		return integrationConfig{
+			ID:                     "int_1",
+			OrganizationID:         "org_1",
+			Provider:               provider,
+			ExternalAccountID:      "acct_1",
+			EncryptedAccessToken:   encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "access_token", testIngestionWorkerAccessToken, legacy),
+			EncryptedRefreshToken:  sql.NullString{String: encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "refresh_token", testIngestionWorkerRefreshToken, legacy), Valid: true},
+			EncryptedWebhookSecret: sql.NullString{String: encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "webhook_secret", testIngestionWorkerWebhookSecret, legacy), Valid: true},
+		}
+	}
+
+	t.Run("GitHub canonical credential envelope with refresh and webhook succeeds", func(t *testing.T) {
+		config := baseConfig("GITHUB", false)
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); err != nil {
+			t.Fatalf("validate GitHub canonical config: %v", err)
+		}
+	})
+
+	t.Run("GitHub legacy credential envelope with refresh and webhook succeeds", func(t *testing.T) {
+		config := baseConfig("GITHUB", true)
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); err != nil {
+			t.Fatalf("validate GitHub legacy config: %v", err)
+		}
+	})
+
+	t.Run("Slack access token without optional secrets succeeds", func(t *testing.T) {
+		config := integrationConfig{
+			ID:                   "int_1",
+			OrganizationID:       "org_1",
+			Provider:             "SLACK",
+			ExternalAccountID:    "acct_1",
+			EncryptedAccessToken: encryptIngestionWorkerSecret(t, "org_1", "int_1", "SLACK", "acct_1", "access_token", testIngestionWorkerAccessToken, false),
+		}
+		if err := config.validateForJob(baseJob("SLACK", "MFA_DISABLED")); err != nil {
+			t.Fatalf("validate Slack access-only config: %v", err)
+		}
+	})
+
+	t.Run("Okta missing refresh token fails provider config validation", func(t *testing.T) {
+		config := baseConfig("OKTA", false)
+		config.EncryptedRefreshToken = sql.NullString{}
+		if err := config.validateForJob(baseJob("OKTA", "ADMIN_ROLE_ASSIGNED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Okta missing refresh error = %v", err)
+		}
+	})
+
+	t.Run("tampered refresh token fails closed", func(t *testing.T) {
+		config := baseConfig("GITHUB", false)
+		config.EncryptedRefreshToken = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, config.EncryptedRefreshToken.String), Valid: true}
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("tampered refresh error = %v", err)
+		}
+	})
+
+	t.Run("tampered webhook secret fails closed", func(t *testing.T) {
+		config := baseConfig("SLACK", false)
+		config.EncryptedWebhookSecret = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, config.EncryptedWebhookSecret.String), Valid: true}
+		if err := config.validateForJob(baseJob("SLACK", "MFA_DISABLED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("tampered webhook error = %v", err)
+		}
+	})
+
+	t.Run("Google mailbox canonical service account config succeeds", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); err != nil {
+			t.Fatalf("validate Google mailbox canonical config: %v", err)
+		}
+	})
+
+	t.Run("Google mailbox legacy service account config succeeds", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", true)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, true),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "MAILBOX_DELEGATION_GRANTED")); err != nil {
+			t.Fatalf("validate Google mailbox legacy config: %v", err)
+		}
+	})
+
+	t.Run("Google mailbox event requires private key", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Google mailbox missing private key error = %v", err)
+		}
+	})
+
+	t.Run("Google mailbox tampered private key fails closed", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		encrypted := encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false)
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, encrypted), Valid: true}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("Google mailbox tampered key error = %v", err)
+		}
+	})
+}
+
 func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
-	state := &failureDriverState{}
+	state := newFailureDriverState(t, "")
 	driverName := fmt.Sprintf("ingestion_failure_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -351,7 +468,7 @@ func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
 }
 
 func TestDrainCountsRecordedJobFailureAsFailed(t *testing.T) {
-	state := &failureDriverState{}
+	state := newFailureDriverState(t, "")
 	driverName := fmt.Sprintf("ingestion_drain_failure_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -371,7 +488,7 @@ func TestDrainCountsRecordedJobFailureAsFailed(t *testing.T) {
 }
 
 func TestFindingsForJobHonorsDisabledChecks(t *testing.T) {
-	state := &failureDriverState{disabledChecksJSON: `["github.public_repository_created"]`}
+	state := newFailureDriverState(t, `["github.public_repository_created"]`)
 	driverName := fmt.Sprintf("ingestion_disabled_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -405,11 +522,30 @@ func TestFindingsForJobHonorsDisabledChecks(t *testing.T) {
 	}
 }
 
+func newFailureDriverState(t *testing.T, disabledChecksJSON string) *failureDriverState {
+	t.Helper()
+	return &failureDriverState{
+		disabledChecksJSON:        disabledChecksJSON,
+		integrationExternalID:     "int_1",
+		encryptedAccessToken:      encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "access_token", testIngestionWorkerAccessToken, false),
+		encryptedRefreshToken:     encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "refresh_token", testIngestionWorkerRefreshToken, false),
+		encryptedWebhookSecret:    encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "webhook_secret", testIngestionWorkerWebhookSecret, false),
+		googleMailboxClientEmail:  nil,
+		encryptedGoogleMailboxKey: nil,
+	}
+}
+
 type failureDriverState struct {
-	mu                 sync.Mutex
-	execs              [][]driver.NamedValue
-	rolledBack         bool
-	disabledChecksJSON string
+	mu                        sync.Mutex
+	execs                     [][]driver.NamedValue
+	rolledBack                bool
+	disabledChecksJSON        string
+	integrationExternalID     string
+	encryptedAccessToken      string
+	encryptedRefreshToken     string
+	encryptedWebhookSecret    string
+	googleMailboxClientEmail  any
+	encryptedGoogleMailboxKey any
 }
 
 func (s *failureDriverState) failureUpdate() (string, string, string) {
@@ -451,12 +587,37 @@ func (c *failureConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, err
 }
 
 func (c *failureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	if strings.Contains(query, "array_to_json(disabled_checks)") {
+	if strings.Contains(query, "FROM integration_connections") {
 		disabled := c.state.disabledChecksJSON
 		if disabled == "" {
 			disabled = "[]"
 		}
-		return &singleValueRows{columns: []string{"disabled_checks"}, values: [][]driver.Value{{disabled}}}, nil
+		return &singleValueRows{
+			columns: []string{
+				"id",
+				"organization_id",
+				"provider",
+				"external_account_id",
+				"disabled_checks",
+				"encrypted_access_token",
+				"encrypted_refresh_token",
+				"encrypted_webhook_secret",
+				"google_mailbox_scan_client_email",
+				"encrypted_google_mailbox_scan_private_key",
+			},
+			values: [][]driver.Value{{
+				"int_1",
+				"org_1",
+				"GITHUB",
+				c.state.integrationExternalID,
+				disabled,
+				c.state.encryptedAccessToken,
+				c.state.encryptedRefreshToken,
+				c.state.encryptedWebhookSecret,
+				c.state.googleMailboxClientEmail,
+				c.state.encryptedGoogleMailboxKey,
+			}},
+		}, nil
 	}
 	if strings.Contains(query, "RETURNING id, organization_id, integration_id") {
 		payload, _ := json.Marshal(map[string]any{"repository": map[string]any{"full_name": "writer/aperio", "visibility": "public"}})
