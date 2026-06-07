@@ -18,12 +18,17 @@
       "ruleId": "github.public_repository_created",
       "provider": "GITHUB",
       "state": "go-parity",
-      "typescriptEventAliases": ["PUBLIC_REPOSITORY_CREATED"],
+      "typescriptEventAliases": [
+        "PUBLIC_REPOSITORY_CREATED"
+      ],
       "typescriptPayloadPredicates": [
         "repository.private === false",
         "repository.visibility === public"
       ],
-      "goClaimedEventTypes": ["PUBLIC_REPOSITORY_CREATED", "repository.publicized"],
+      "goClaimedEventTypes": [
+        "PUBLIC_REPOSITORY_CREATED",
+        "repository.publicized"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/github-public-repository.json"
       ],
@@ -41,9 +46,17 @@
       "ruleId": "slack.mfa_disabled",
       "provider": "SLACK",
       "state": "go-parity",
-      "typescriptEventAliases": ["MFA_DISABLED", "TWO_FACTOR_AUTH_DISABLED"],
+      "typescriptEventAliases": [
+        "MFA_DISABLED",
+        "TWO_FACTOR_AUTH_DISABLED"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": ["MFA_DISABLED", "TWO_FACTOR_AUTH_DISABLED", "mfa.disabled", "two-factor auth disabled"],
+      "goClaimedEventTypes": [
+        "MFA_DISABLED",
+        "TWO_FACTOR_AUTH_DISABLED",
+        "mfa.disabled",
+        "two-factor auth disabled"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/slack-mfa-disabled.json"
       ],
@@ -67,7 +80,9 @@
         "ADMIN_ROLE_ASSIGNED",
         "ROLE_ASSIGNMENT_CREATED"
       ],
-      "typescriptPayloadPredicates": ["isPrivilegedOktaRole(grantedRole)"],
+      "typescriptPayloadPredicates": [
+        "isPrivilegedOktaRole(grantedRole)"
+      ],
       "goClaimedEventTypes": [
         "USER_ACCOUNT_PRIVILEGE_GRANT",
         "USER_ACCOUNT_PRIVILEGE_GRANTED",
@@ -101,7 +116,9 @@
         "USER_MFA_FACTOR_RESET_ALL",
         "MFA_FACTOR_RESET"
       ],
-      "typescriptPayloadPredicates": ["actor.toLowerCase() !== user.toLowerCase()"],
+      "typescriptPayloadPredicates": [
+        "actor.toLowerCase() !== user.toLowerCase()"
+      ],
       "goClaimedEventTypes": [
         "USER_MFA_FACTOR_RESET",
         "USER_MFA_FACTOR_RESET_ALL",
@@ -165,7 +182,9 @@
         "USER_AUTHENTICATION_FAILED",
         "USER_SESSION_START"
       ],
-      "typescriptPayloadPredicates": ["threatSuspected"],
+      "typescriptPayloadPredicates": [
+        "threatSuspected"
+      ],
       "goClaimedEventTypes": [
         "SECURITY_THREAT_DETECTED",
         "USER_AUTHENTICATION_FAILED",
@@ -191,84 +210,156 @@
     {
       "ruleId": "google_workspace.external_sharing_enabled",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["EXTERNAL_SHARING_ENABLED"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "EXTERNAL_SHARING_ENABLED"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "EXTERNAL_SHARING_ENABLED",
+        "external.sharing.enabled"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace external sharing parity is fixture-backed for admin audit and Drive payload shapes, external actor extraction, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.super_admin_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["SUPER_ADMIN_GRANTED"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "SUPER_ADMIN_GRANTED"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "SUPER_ADMIN_GRANTED",
+        "super.admin.granted"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace super-admin grant parity is fixture-backed for target/parameter extraction, critical severity, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.admin_role_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["ADMIN_ROLE_GRANTED"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "ADMIN_ROLE_GRANTED"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "ADMIN_ROLE_GRANTED",
+        "admin.role.granted"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace admin-role grant parity is fixture-backed for role extraction variants, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.risky_oauth_grant",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["RISKY_OAUTH_GRANT"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "RISKY_OAUTH_GRANT"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "RISKY_OAUTH_GRANT",
+        "risky.oauth.grant"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace risky OAuth parity is fixture-backed for critical Gmail scopes, high mailbox scopes, admin/Drive fallback scopes, empty-scope default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.admin_mfa_not_enforced",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["ADMIN_MFA_NOT_ENFORCED"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "ADMIN_MFA_NOT_ENFORCED"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "ADMIN_MFA_NOT_ENFORCED",
+        "admin.mfa.not.enforced"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace admin MFA parity is fixture-backed for not-enrolled critical findings, enrolled-but-not-enforced high findings, delegated-admin evidence, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.admin_external_recovery_email",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
-      "typescriptEventAliases": ["ADMIN_EXTERNAL_RECOVERY_EMAIL"],
+      "state": "go-parity",
+      "typescriptEventAliases": [
+        "ADMIN_EXTERNAL_RECOVERY_EMAIL"
+      ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "ADMIN_EXTERNAL_RECOVERY_EMAIL",
+        "admin.external.recovery.email"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
+      "tests": [
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace OAuth/service-account credential parity exists for this rule slice."
+        "Google Workspace admin external recovery email parity is fixture-backed for recovery email and delegated-admin extraction variants, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
@@ -276,11 +367,15 @@
       "ruleId": "google_workspace.email_forwarding_enabled",
       "provider": "GOOGLE_WORKSPACE",
       "state": "typescript-reference",
-      "typescriptEventAliases": ["EMAIL_FORWARDING_ENABLED"],
+      "typescriptEventAliases": [
+        "EMAIL_FORWARDING_ENABLED"
+      ],
       "typescriptPayloadPredicates": [],
       "goClaimedEventTypes": [],
       "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "tests": [
+        "tests/ingestion-parity-matrix.test.ts"
+      ],
       "cutoverBlockers": [
         "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail credential/config parity exists for this mailbox slice."
       ],
@@ -290,11 +385,15 @@
       "ruleId": "google_workspace.mailbox_delegation_granted",
       "provider": "GOOGLE_WORKSPACE",
       "state": "typescript-reference",
-      "typescriptEventAliases": ["MAILBOX_DELEGATION_GRANTED"],
+      "typescriptEventAliases": [
+        "MAILBOX_DELEGATION_GRANTED"
+      ],
       "typescriptPayloadPredicates": [],
       "goClaimedEventTypes": [],
       "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "tests": [
+        "tests/ingestion-parity-matrix.test.ts"
+      ],
       "cutoverBlockers": [
         "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail delegate credential/config parity exists for this mailbox slice."
       ],
@@ -304,11 +403,15 @@
       "ruleId": "google_workspace.legacy_mail_auth_used",
       "provider": "GOOGLE_WORKSPACE",
       "state": "typescript-reference",
-      "typescriptEventAliases": ["LEGACY_MAIL_AUTH_USED"],
+      "typescriptEventAliases": [
+        "LEGACY_MAIL_AUTH_USED"
+      ],
       "typescriptPayloadPredicates": [],
       "goClaimedEventTypes": [],
       "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "tests": [
+        "tests/ingestion-parity-matrix.test.ts"
+      ],
       "cutoverBlockers": [
         "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail credential/config parity exists for this mailbox slice."
       ],
@@ -318,11 +421,15 @@
       "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
       "provider": "GOOGLE_WORKSPACE",
       "state": "typescript-reference",
-      "typescriptEventAliases": ["FORWARDING_DELEGATE_SEND_AS_COMBO"],
+      "typescriptEventAliases": [
+        "FORWARDING_DELEGATE_SEND_AS_COMBO"
+      ],
       "typescriptPayloadPredicates": [],
       "goClaimedEventTypes": [],
       "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "tests": [
+        "tests/ingestion-parity-matrix.test.ts"
+      ],
       "cutoverBlockers": [
         "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail forwarding/delegation/send-as credential/config parity exists for this mailbox slice."
       ],

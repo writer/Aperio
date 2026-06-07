@@ -126,6 +126,60 @@ type oktaFixturePayload struct {
 	Payload        map[string]any `json:"payload"`
 }
 
+type googleRulesFixture struct {
+	Rules []googleParityFixture `json:"rules"`
+}
+
+type googleParityFixture struct {
+	RuleID   string `json:"ruleId"`
+	Positive struct {
+		Payload         googleFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"positive"`
+	Variants []struct {
+		Name            string               `json:"name"`
+		Payload         googleFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"variants"`
+	Negative struct {
+		Payload googleFixturePayload `json:"payload"`
+	} `json:"negative"`
+	AdditionalNegatives []struct {
+		Name    string               `json:"name"`
+		Payload googleFixturePayload `json:"payload"`
+	} `json:"additionalNegatives"`
+	DisabledCheck string `json:"disabledCheck"`
+}
+
+type googleFixturePayload struct {
+	OrganizationID string         `json:"organizationId"`
+	IntegrationID  string         `json:"integrationId"`
+	Provider       string         `json:"provider"`
+	EventType      string         `json:"eventType"`
+	Source         string         `json:"source"`
+	Actor          string         `json:"actor"`
+	OccurredAt     string         `json:"occurredAt"`
+	Payload        map[string]any `json:"payload"`
+}
+
 func readGitHubParityFixture(t *testing.T) githubParityFixture {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "github-public-repository.json"))
@@ -180,6 +234,19 @@ func readOktaParityFixtures(t *testing.T) []oktaParityFixture {
 	return fixtures
 }
 
+func readGoogleParityFixtures(t *testing.T) []googleParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "google-admin-oauth-rules.json"))
+	if err != nil {
+		t.Fatalf("read Google Workspace parity fixture: %v", err)
+	}
+	var fixture googleRulesFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode Google Workspace parity fixture: %v", err)
+	}
+	return fixture.Rules
+}
+
 func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
 	cases := map[string]string{
 		"repository.publicized":        "REPOSITORY_PUBLICIZED",
@@ -190,6 +257,8 @@ func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
 		"user.mfa.factor.reset_all":    "USER_MFA_FACTOR_RESET_ALL",
 		"policy.lifecycle.update":      "POLICY_LIFECYCLE_UPDATE",
 		"user.session.start":           "USER_SESSION_START",
+		"external.sharing.enabled":     "EXTERNAL_SHARING_ENABLED",
+		"risky.oauth.grant":            "RISKY_OAUTH_GRANT",
 	}
 	for input, want := range cases {
 		if got := normalizeEventType(input); got != want {
@@ -235,6 +304,24 @@ func (p slackFixturePayload) jobPayload(t *testing.T) JobPayload {
 }
 
 func (p oktaFixturePayload) jobPayload(t *testing.T) JobPayload {
+	t.Helper()
+	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
+	if err != nil {
+		t.Fatalf("parse fixture occurredAt: %v", err)
+	}
+	return JobPayload{
+		OrganizationID: p.OrganizationID,
+		IntegrationID:  p.IntegrationID,
+		Provider:       p.Provider,
+		EventType:      p.EventType,
+		Source:         p.Source,
+		Actor:          p.Actor,
+		OccurredAt:     occurredAt,
+		Payload:        p.Payload,
+	}
+}
+
+func (p googleFixturePayload) jobPayload(t *testing.T) JobPayload {
 	t.Helper()
 	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
 	if err != nil {
@@ -403,6 +490,68 @@ func TestEvaluateOktaRules(t *testing.T) {
 	}
 }
 
+func TestEvaluateGoogleWorkspaceAdminOAuthRules(t *testing.T) {
+	for _, fixture := range readGoogleParityFixtures(t) {
+		t.Run(fixture.Positive.ExpectedFinding.RuleID, func(t *testing.T) {
+			payload := fixture.Positive.Payload.jobPayload(t)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected one finding, got %d", len(findings))
+			}
+			finding := findings[0]
+			if finding.RuleID != fixture.Positive.ExpectedFinding.RuleID {
+				t.Fatalf("rule id = %s", finding.RuleID)
+			}
+			if finding.Title != fixture.Positive.ExpectedFinding.Title {
+				t.Fatalf("title = %s", finding.Title)
+			}
+			if finding.Description != fixture.Positive.ExpectedFinding.Description {
+				t.Fatalf("description = %s", finding.Description)
+			}
+			if finding.Target != fixture.Positive.ExpectedFinding.Target {
+				t.Fatalf("target = %s", finding.Target)
+			}
+			if finding.Severity != fixture.Positive.ExpectedFinding.Severity || finding.RiskScore != fixture.Positive.ExpectedFinding.RiskScore {
+				t.Fatalf("unexpected severity/risk: %#v", finding)
+			}
+			assertJSONEqual(t, finding.Evidence, fixture.Positive.ExpectedFinding.Evidence)
+			if got := DedupeKey(payload, finding); got != fixture.Positive.ExpectedFinding.DedupeKey {
+				t.Fatalf("dedupe key = %s, want TS-compatible hash", got)
+			}
+			for _, variant := range fixture.Variants {
+				variantPayload := variant.Payload.jobPayload(t)
+				variantFindings := Evaluate(variantPayload, nil)
+				if len(variantFindings) != 1 || variantFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+					t.Fatalf("expected variant %q to produce %s finding, got %#v", variant.Name, fixture.Positive.ExpectedFinding.RuleID, variantFindings)
+				}
+				variantFinding := variantFindings[0]
+				if variantFinding.Title != variant.ExpectedFinding.Title ||
+					variantFinding.Description != variant.ExpectedFinding.Description ||
+					variantFinding.Target != variant.ExpectedFinding.Target ||
+					variantFinding.Severity != variant.ExpectedFinding.Severity ||
+					variantFinding.RiskScore != variant.ExpectedFinding.RiskScore {
+					t.Fatalf("variant %q finding = %#v, want %#v", variant.Name, variantFinding, variant.ExpectedFinding)
+				}
+				assertJSONEqual(t, variantFinding.Evidence, variant.ExpectedFinding.Evidence)
+				if got := DedupeKey(variantPayload, variantFinding); got != variant.ExpectedFinding.DedupeKey {
+					t.Fatalf("variant %q dedupe key = %s, want TS-compatible hash", variant.Name, got)
+				}
+			}
+			if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
+				t.Fatalf("expected negative fixture to produce no findings, got %#v", got)
+			}
+			for _, negative := range fixture.AdditionalNegatives {
+				if got := Evaluate(negative.Payload.jobPayload(t), nil); len(got) != 0 {
+					t.Fatalf("expected negative fixture %q to produce no findings, got %#v", negative.Name, got)
+				}
+			}
+			if got := Evaluate(payload, []string{fixture.DisabledCheck}); len(got) != 0 {
+				t.Fatalf("expected disabled check to produce no findings, got %#v", got)
+			}
+		})
+	}
+}
+
 func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -428,6 +577,12 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	oktaFinding := Evaluate(oktaPayload, nil)[0]
 	if got := DedupeKey(oktaPayload, oktaFinding); got != oktaFixture.Positive.ExpectedFinding.DedupeKey {
 		t.Fatalf("Okta dedupe key = %s, want TS-compatible dedupeTarget hash", got)
+	}
+	googleFixture := readGoogleParityFixtures(t)[3]
+	googlePayload := googleFixture.Variants[2].Payload.jobPayload(t)
+	googleFinding := Evaluate(googlePayload, nil)[0]
+	if got := DedupeKey(googlePayload, googleFinding); got != googleFixture.Variants[2].ExpectedFinding.DedupeKey {
+		t.Fatalf("Google risky OAuth empty-scope dedupe key = %s, want TS-compatible dedupeTarget hash", got)
 	}
 }
 

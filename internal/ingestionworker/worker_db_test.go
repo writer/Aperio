@@ -263,6 +263,42 @@ func oktaJobPayloadForDB(t *testing.T, fixturePayload oktaFixturePayload, orgID,
 	return payload
 }
 
+func seedGoogleFixtureJob(t *testing.T, db *sql.DB, orgID, integrationID string, fixturePayload googleFixturePayload) string {
+	t.Helper()
+	payloadJSON, err := json.Marshal(fixturePayload.Payload)
+	if err != nil {
+		t.Fatalf("marshal Google Workspace fixture payload: %v", err)
+	}
+	jobID := testWorkerID("job")
+	var actor sql.NullString
+	if strings.TrimSpace(fixturePayload.Actor) != "" {
+		actor = sql.NullString{String: fixturePayload.Actor, Valid: true}
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO ingestion_jobs (
+			id, organization_id, integration_id, provider, event_type, source, actor, occurred_at,
+			payload, status, attempts, max_attempts, next_attempt_at, lease_owner, lease_expires_at,
+			created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3, 'GOOGLE_WORKSPACE'::"SaaSProvider", $4, $5, $6, $7,
+			$8, 'QUEUED'::"IngestionJobStatus", 0, 3, NOW() - INTERVAL '1 minute', NULL,
+			NULL, NOW(), NOW()
+		)
+	`, jobID, orgID, integrationID, fixturePayload.EventType, fixturePayload.Source, actor, time.Now().UTC().Add(-time.Minute), payloadJSON); err != nil {
+		t.Fatalf("seed Google Workspace fixture job: %v", err)
+	}
+	return jobID
+}
+
+func googleJobPayloadForDB(t *testing.T, fixturePayload googleFixturePayload, orgID, integrationID string) JobPayload {
+	t.Helper()
+	payload := fixturePayload.jobPayload(t)
+	payload.OrganizationID = orgID
+	payload.IntegrationID = integrationID
+	return payload
+}
+
 func captureIngestionTelemetry(t *testing.T) (*bytes.Buffer, func()) {
 	t.Helper()
 	var sink bytes.Buffer
@@ -344,7 +380,7 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "okta unsupported event", provider: "OKTA", eventType: "USER_LIFECYCLE_DEACTIVATE", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"}]}`)},
-		{name: "google fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EXTERNAL_SHARING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"resource":{"name":"Board Deck"},"parameters":{"visibility":"public_on_the_web"}}`)},
+		{name: "google mailbox fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EMAIL_FORWARDING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"parameters":{"forward_to":"external@example.com"}}`)},
 		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
 	}
 
@@ -800,6 +836,202 @@ func TestDrainProcessesOktaNegativeFixturesWithoutFindings(t *testing.T) {
 	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
 	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
 		t.Fatalf("negative Okta fixtures should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainPersistsSupportedGoogleAdminOAuthRuleSideEffects(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'google-admin-oauth-side-effects.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	type expectedGoogleFinding struct {
+		name    string
+		jobID   string
+		payload JobPayload
+		finding Finding
+		dedupe  string
+	}
+	expected := []expectedGoogleFinding{}
+	for _, fixture := range readGoogleParityFixtures(t) {
+		cases := []struct {
+			name    string
+			payload googleFixturePayload
+		}{
+			{name: fixture.Positive.ExpectedFinding.RuleID, payload: fixture.Positive.Payload},
+		}
+		for _, variant := range fixture.Variants {
+			cases = append(cases, struct {
+				name    string
+				payload googleFixturePayload
+			}{name: fixture.RuleID + "/" + variant.Name, payload: variant.Payload})
+		}
+		for _, item := range cases {
+			jobID := seedGoogleFixtureJob(t, db, orgID, integrationID, item.payload)
+			payload := googleJobPayloadForDB(t, item.payload, orgID, integrationID)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected fixture %s to produce one finding, got %#v", item.name, findings)
+			}
+			finding := findings[0]
+			expected = append(expected, expectedGoogleFinding{
+				name:    item.name,
+				jobID:   jobID,
+				payload: payload,
+				finding: finding,
+				dedupe:  DedupeKey(payload, finding),
+			})
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(expected))
+	if err != nil {
+		t.Fatalf("drain Google Workspace rule jobs: %v", err)
+	}
+	if result.Processed != len(expected) || result.Succeeded != len(expected) || result.Failed != 0 {
+		t.Fatalf("unexpected Google Workspace rule drain result: %#v", result)
+	}
+
+	seenEmptyScopeEvidence := false
+	for _, want := range expected {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, want.jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("%s job state = status=%s attempts=%d lease=%v processed=%v error=%v", want.name, status, attempts, leaseOwner, processedAt, lastError)
+		}
+
+		var persistedFindingID, title, severity string
+		var riskScore int
+		var rawEvidence json.RawMessage
+		if err := db.QueryRowContext(context.Background(), `
+			SELECT id, title, severity::text, risk_score, evidence
+			FROM security_findings
+			WHERE organization_id = $1 AND dedupe_key = $2
+		`, orgID, want.dedupe).Scan(&persistedFindingID, &title, &severity, &riskScore, &rawEvidence); err != nil {
+			t.Fatalf("query %s security finding: %v", want.name, err)
+		}
+		var evidence map[string]any
+		if err := json.Unmarshal(rawEvidence, &evidence); err != nil {
+			t.Fatalf("decode %s security finding evidence: %v", want.name, err)
+		}
+		if persistedFindingID == "" || title != want.finding.Title || severity != want.finding.Severity || riskScore != want.finding.RiskScore {
+			t.Fatalf("%s finding fields = id=%s title=%s severity=%s risk=%d", want.name, persistedFindingID, title, severity, riskScore)
+		}
+		if evidence["ruleId"] != want.finding.RuleID || evidence["target"] != want.finding.Target || evidence["sourceEventId"] == "" {
+			t.Fatalf("%s finding evidence missing required fields: %#v", want.name, evidence)
+		}
+		for key, value := range want.finding.Evidence {
+			assertJSONEqual(t, evidence[key], value)
+		}
+		if want.finding.RuleID == "google_workspace.risky_oauth_grant" && want.finding.Target == "Unknown Scope App" {
+			if evidence["scopeCount"] != float64(0) || evidence["matchedScopes"] != nil {
+				t.Fatalf("empty-scope risky OAuth evidence = %#v", evidence)
+			}
+			seenEmptyScopeEvidence = true
+		}
+	}
+	if !seenEmptyScopeEvidence {
+		t.Fatal("expected DB evidence coverage for empty-scope risky OAuth default-positive behavior")
+	}
+
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(expected) || findings != len(expected) || deliveries != len(expected) {
+		t.Fatalf("expected Google Workspace event/finding/delivery side effects for every case, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesGoogleAdminOAuthDisabledChecksWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'google-disabled-checks.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	fixtures := readGoogleParityFixtures(t)
+	disabledChecks := make([]string, 0, len(fixtures))
+	jobIDs := []string{}
+	for _, fixture := range fixtures {
+		disabledChecks = append(disabledChecks, fixture.DisabledCheck)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET disabled_checks = $1::text[]
+		WHERE id = $2
+	`, postgresTextArray(disabledChecks), integrationID); err != nil {
+		t.Fatalf("disable Google Workspace checks: %v", err)
+	}
+	for _, fixture := range fixtures {
+		jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload))
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Google Workspace disabled checks: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Google Workspace disabled-check drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("disabled-check job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("disabled Google Workspace checks should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesGoogleAdminOAuthNegativeFixturesWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+
+	jobIDs := []string{}
+	for _, fixture := range readGoogleParityFixtures(t) {
+		jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, fixture.Negative.Payload))
+		for _, negative := range fixture.AdditionalNegatives {
+			jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, negative.Payload))
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Google Workspace negative fixtures: %v", err)
+	}
+	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
+		t.Fatalf("unexpected Google Workspace negative drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "QUEUED" || attempts != 0 || leaseOwner.Valid || processedAt.Valid || lastError.Valid {
+			t.Fatalf("negative fixture job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("negative Google Workspace fixtures should have no side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
 	}
 }
 

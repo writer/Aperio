@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -164,6 +165,36 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 	}
 	if _, ok := disabled["okta.suspicious_signin"]; !ok {
 		if finding, ok := evaluateOktaSuspiciousSignin(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.external_sharing_enabled"]; !ok {
+		if finding, ok := evaluateGoogleExternalSharingEnabled(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.super_admin_granted"]; !ok {
+		if finding, ok := evaluateGoogleSuperAdminGranted(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.admin_role_granted"]; !ok {
+		if finding, ok := evaluateGoogleAdminRoleGranted(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.risky_oauth_grant"]; !ok {
+		if finding, ok := evaluateGoogleRiskyOAuthGrant(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.admin_mfa_not_enforced"]; !ok {
+		if finding, ok := evaluateGoogleAdminMFANotEnforced(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.admin_external_recovery_email"]; !ok {
+		if finding, ok := evaluateGoogleAdminExternalRecoveryEmail(payload); ok {
 			findings = append(findings, finding)
 		}
 	}
@@ -409,6 +440,496 @@ func evaluateOktaSuspiciousSignin(payload JobPayload) (Finding, bool) {
 	}, true
 }
 
+func evaluateGoogleExternalSharingEnabled(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "EXTERNAL_SHARING_ENABLED" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	fileName := firstNonEmpty(
+		nestedString(payload.Payload, "resource", "name"),
+		nestedString(payload.Payload, "parameters", "doc_title"),
+	)
+	fileID := firstNonEmpty(
+		nestedString(payload.Payload, "resource", "id"),
+		nestedString(payload.Payload, "parameters", "doc_id"),
+	)
+	fileType := nestedString(payload.Payload, "parameters", "doc_type")
+	owner := nestedString(payload.Payload, "parameters", "owner")
+	visibility := firstNonEmpty(nestedString(payload.Payload, "parameters", "visibility"), "shared_externally")
+	driveType := "User drive"
+	if nestedBoolValue(payload.Payload, "parameters", "owner_is_shared_drive") ||
+		nestedBoolValue(payload.Payload, "parameters", "owner_is_team_drive") {
+		driveType = "Shared drive"
+	}
+	resource := firstNonEmpty(fileName, fileID, "unknown resource")
+	ownerDomain := firstNonEmpty(nestedString(payload.Payload, "ownerDomain"), domainFromEmail(owner))
+	externalRecipient := extractExternalRecipient(parameters, ownerDomain, payload.Actor)
+	subject := firstNonEmpty(fileID, resource)
+
+	return Finding{
+		RuleID:      "google_workspace.external_sharing_enabled",
+		Title:       "Google Workspace external sharing enabled",
+		Description: "A Google Workspace resource was configured for external sharing, which may expose regulated or confidential data.",
+		Severity:    "HIGH",
+		RiskScore:   75,
+		RemediationSteps: []string{
+			"Restrict the resource sharing policy to trusted domains.",
+			"Confirm business justification with the resource owner.",
+			"Audit downstream links and inherited folder permissions.",
+		},
+		Target:       resource,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"fileName":      fileName,
+			"fileId":        fileID,
+			"fileType":      fileType,
+			"owner":         owner,
+			"visibility":    visibility,
+			"driveType":     driveType,
+			"subject":       subject,
+			"externalActor": optionalString(externalRecipient),
+			"docTitle":      stringValue(parameters["doc_title"]),
+			"docType":       stringValue(parameters["doc_type"]),
+		}),
+	}, true
+}
+
+func evaluateGoogleSuperAdminGranted(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "SUPER_ADMIN_GRANTED" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	user := firstNonEmpty(
+		nestedString(payload.Payload, "target", "email"),
+		nestedString(payload.Payload, "target", "name"),
+		nestedString(parameters, "USER_EMAIL"),
+		nestedString(parameters, "EMAIL"),
+		nestedString(parameters, "user_email"),
+		payload.Actor,
+		"unknown user",
+	)
+	grantedRole := firstNonEmpty(
+		nestedString(parameters, "ROLE_NAME"),
+		nestedString(parameters, "role_name"),
+		"Super admin",
+	)
+	return Finding{
+		RuleID:      "google_workspace.super_admin_granted",
+		Title:       "Google Workspace super admin granted",
+		Description: "A Google Workspace account was granted super administrator privileges.",
+		Severity:    "CRITICAL",
+		RiskScore:   92,
+		RemediationSteps: []string{
+			"Validate that the admin elevation was approved through change control.",
+			"Remove the role if the assignment is not explicitly authorized.",
+			"Review recent sign-ins and admin actions for the affected account.",
+		},
+		Target:       user,
+		DedupeTarget: user,
+		Evidence: map[string]any{
+			"user":        user,
+			"grantedRole": grantedRole,
+			"subject":     user,
+		},
+	}, true
+}
+
+func evaluateGoogleAdminRoleGranted(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "ADMIN_ROLE_GRANTED" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	user := firstNonEmpty(
+		nestedString(payload.Payload, "target", "email"),
+		nestedString(parameters, "USER_EMAIL"),
+		nestedString(parameters, "EMAIL"),
+		nestedString(parameters, "user_email"),
+		payload.Actor,
+		"unknown user",
+	)
+	grantedRole := firstNonEmpty(
+		nestedString(parameters, "ROLE_NAME"),
+		nestedString(parameters, "PRIVILEGE_NAME"),
+		nestedString(parameters, "role_name"),
+		"Admin role",
+	)
+	subject := user + ":" + grantedRole
+	return Finding{
+		RuleID:      "google_workspace.admin_role_granted",
+		Title:       "Google Workspace admin role granted",
+		Description: "A Google Workspace account was granted an administrative role.",
+		Severity:    "HIGH",
+		RiskScore:   86,
+		RemediationSteps: []string{
+			"Validate that the admin role assignment was approved through change control.",
+			"Remove the role if the assignment is not required.",
+			"Review recent admin actions and sign-ins for the affected account.",
+		},
+		Target:       user,
+		DedupeTarget: subject,
+		Evidence: map[string]any{
+			"user":        user,
+			"grantedRole": grantedRole,
+			"subject":     subject,
+		},
+	}, true
+}
+
+func evaluateGoogleRiskyOAuthGrant(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "RISKY_OAUTH_GRANT" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	appName := nestedString(payload.Payload, "parameters", "app_name")
+	clientID := nestedString(payload.Payload, "parameters", "client_id")
+	clientType := nestedString(payload.Payload, "parameters", "client_type")
+	scopes := stringArray(parameters["scope"])
+	client := firstNonEmpty(appName, clientID, "unknown OAuth client")
+	oauthRisk := googleOAuthGrantRisk(scopes)
+	riskScore := oauthRisk.riskScore
+	if override, ok := nestedNumber(payload.Payload, "oauth", "riskScore"); ok {
+		riskScore = int(override)
+	}
+	subject := firstNonEmpty(clientID, client)
+
+	return Finding{
+		RuleID:      "google_workspace.risky_oauth_grant",
+		Title:       oauthRisk.title,
+		Description: "A Google Workspace user granted a third-party OAuth client access to sensitive Google scopes.",
+		Severity:    oauthRisk.severity,
+		RiskScore:   riskScore,
+		RemediationSteps: []string{
+			"Confirm the OAuth client is approved for the tenant.",
+			"Revoke the grant if the client or scopes are not required.",
+			"Review the scopes and affected user activity for possible abuse.",
+		},
+		Target:       client,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"appName":       appName,
+			"clientId":      clientID,
+			"clientType":    clientType,
+			"scopes":        scopes,
+			"matchedScopes": oauthRisk.matchedScopes,
+			"riskReason":    oauthRisk.riskReason,
+			"scopeCount":    len(scopes),
+			"subject":       subject,
+		}),
+	}, true
+}
+
+func evaluateGoogleAdminMFANotEnforced(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "ADMIN_MFA_NOT_ENFORCED" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	user := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "user_email"),
+		"unknown admin",
+	)
+	mfaEnrolled := nestedBoolValue(parameters, "mfa_enrolled")
+	mfaEnforced := nestedBoolValue(parameters, "mfa_enforced")
+	delegatedAdmin := nestedBoolValue(parameters, "is_delegated_admin")
+	title := "Google Workspace admin MFA not enrolled"
+	severity := "CRITICAL"
+	riskScore := 92
+	if mfaEnrolled {
+		title = "Google Workspace admin MFA not enforced"
+		severity = "HIGH"
+		riskScore = 86
+	}
+	return Finding{
+		RuleID:      "google_workspace.admin_mfa_not_enforced",
+		Title:       title,
+		Description: "A Google Workspace admin account lacks enforced multi-factor authentication, increasing the risk of privileged account takeover.",
+		Severity:    severity,
+		RiskScore:   riskScore,
+		RemediationSteps: []string{
+			"Require 2-step verification for the affected admin account immediately.",
+			"Confirm the account is still authorized to hold privileged access.",
+			"Review recent admin actions and sign-ins for suspicious activity.",
+		},
+		Target:       user,
+		DedupeTarget: user,
+		Evidence: compactEvidence(map[string]any{
+			"user":           user,
+			"mfaEnrolled":    mfaEnrolled,
+			"mfaEnforced":    mfaEnforced,
+			"delegatedAdmin": delegatedAdmin,
+			"subject":        user,
+		}),
+	}, true
+}
+
+func evaluateGoogleAdminExternalRecoveryEmail(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "ADMIN_EXTERNAL_RECOVERY_EMAIL" {
+		return Finding{}, false
+	}
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		parameters = map[string]any{}
+	}
+	user := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "user_email"),
+		"unknown admin",
+	)
+	recoveryEmail := firstNonEmpty(nestedString(parameters, "recovery_email"), "unknown recovery email")
+	delegatedAdmin := nestedBoolValue(parameters, "is_delegated_admin")
+	subject := user + ":" + recoveryEmail
+	return Finding{
+		RuleID:      "google_workspace.admin_external_recovery_email",
+		Title:       "Google Workspace admin uses external recovery email",
+		Description: "A Google Workspace admin account has a recovery email outside the tenant domain, creating an external account-recovery path.",
+		Severity:    "HIGH",
+		RiskScore:   83,
+		RemediationSteps: []string{
+			"Validate that the recovery email is approved for the privileged account.",
+			"Replace the external recovery address with a controlled corporate recovery path if not required.",
+			"Review recent recovery, sign-in, and admin activity for the account.",
+		},
+		Target:       user,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"user":           user,
+			"recoveryEmail":  recoveryEmail,
+			"delegatedAdmin": delegatedAdmin,
+			"subject":        subject,
+		}),
+	}, true
+}
+
+type googleOAuthRisk struct {
+	severity      string
+	riskScore     int
+	title         string
+	riskReason    string
+	matchedScopes []string
+}
+
+func googleOAuthGrantRisk(scopes []string) googleOAuthRisk {
+	normalized := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		normalized = append(normalized, strings.ToLower(scope))
+	}
+	criticalScopeSet := map[string]struct{}{
+		"https://mail.google.com/":                               {},
+		"https://www.googleapis.com/auth/gmail.modify":           {},
+		"https://www.googleapis.com/auth/gmail.insert":           {},
+		"https://www.googleapis.com/auth/gmail.settings.basic":   {},
+		"https://www.googleapis.com/auth/gmail.settings.sharing": {},
+	}
+	highMailboxScopeSet := map[string]struct{}{
+		"https://www.googleapis.com/auth/gmail.readonly":                        {},
+		"https://www.googleapis.com/auth/gmail.metadata":                        {},
+		"https://www.googleapis.com/auth/gmail.send":                            {},
+		"https://www.googleapis.com/auth/gmail.compose":                         {},
+		"https://www.googleapis.com/auth/gmail.labels":                          {},
+		"https://www.googleapis.com/auth/gmail.addons.current.message.readonly": {},
+		"https://www.googleapis.com/auth/gmail.addons.current.message.action":   {},
+		"https://www.googleapis.com/auth/gmail.addons.execute":                  {},
+	}
+	criticalScopes := filterScopesBySet(normalized, criticalScopeSet)
+	if len(criticalScopes) > 0 {
+		return googleOAuthRisk{
+			severity:      "CRITICAL",
+			riskScore:     minInt(97, 92+len(criticalScopes)),
+			title:         "Critical Gmail-scoped OAuth grant",
+			riskReason:    "Granted full mailbox or mailbox-settings access",
+			matchedScopes: criticalScopes,
+		}
+	}
+	highMailboxScopes := filterScopesBySet(normalized, highMailboxScopeSet)
+	if len(highMailboxScopes) > 0 {
+		return googleOAuthRisk{
+			severity:      "HIGH",
+			riskScore:     minInt(91, 84+len(highMailboxScopes)),
+			title:         "High-risk Gmail OAuth grant",
+			riskReason:    "Granted mailbox read, send, or compose access",
+			matchedScopes: highMailboxScopes,
+		}
+	}
+	matchedScopes := []string{}
+	for _, scope := range normalized {
+		if strings.Contains(scope, "admin") || strings.Contains(scope, "drive") || strings.Contains(scope, "directory") {
+			matchedScopes = append(matchedScopes, scope)
+		}
+	}
+	return googleOAuthRisk{
+		severity:      "HIGH",
+		riskScore:     82,
+		title:         "High-risk Google OAuth grant",
+		riskReason:    "Granted high-value Google Workspace scopes",
+		matchedScopes: matchedScopes,
+	}
+}
+
+func filterScopesBySet(scopes []string, allowed map[string]struct{}) []string {
+	matches := []string{}
+	for _, scope := range scopes {
+		if _, ok := allowed[scope]; ok {
+			matches = append(matches, scope)
+		}
+	}
+	return matches
+}
+
+func extractExternalRecipient(parameters map[string]any, ownerDomain string, sharerEmail string) string {
+	keys := []string{
+		"target_user",
+		"email_address",
+		"user_email",
+		"recipient",
+		"recipient_email",
+		"permission_change_target",
+		"permission_change_grantee",
+		"shared_with",
+		"new_value",
+	}
+	for _, key := range keys {
+		for _, candidate := range externalRecipientCandidates(parameters[key]) {
+			if isEmailLike(candidate) && isExternalEmail(candidate, ownerDomain, sharerEmail) {
+				return strings.TrimSpace(candidate)
+			}
+		}
+	}
+	return ""
+}
+
+func externalRecipientCandidates(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		return []string{typed}
+	case []any:
+		candidates := []string{}
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				candidates = append(candidates, text)
+			}
+		}
+		return candidates
+	case []string:
+		return typed
+	default:
+		return nil
+	}
+}
+
+var emailLikePattern = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+
+func isEmailLike(value string) bool {
+	return emailLikePattern.MatchString(strings.TrimSpace(value))
+}
+
+func isExternalEmail(email string, ownerDomain string, sharerEmail string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(email))
+	recipientDomain := domainFromEmail(lowered)
+	if recipientDomain == "" {
+		return false
+	}
+	if ownerDomain != "" && recipientDomain == strings.ToLower(ownerDomain) {
+		return false
+	}
+	sharerDomain := domainFromEmail(sharerEmail)
+	if sharerDomain != "" && recipientDomain == sharerDomain {
+		return false
+	}
+	if sharerEmail != "" && lowered == strings.ToLower(strings.TrimSpace(sharerEmail)) {
+		return false
+	}
+	return true
+}
+
+func domainFromEmail(value string) string {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "@")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+func stringArray(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		return []string{typed}
+	case []any:
+		values := []string{}
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok && strings.TrimSpace(text) != "" {
+				values = append(values, text)
+			}
+		}
+		return values
+	case []string:
+		values := []string{}
+		for _, item := range typed {
+			if strings.TrimSpace(item) != "" {
+				values = append(values, item)
+			}
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
+func nestedNumber(value map[string]any, path ...string) (float64, bool) {
+	var current any = value
+	for _, segment := range path {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return 0, false
+		}
+		current = next[segment]
+	}
+	switch typed := current.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func DedupeKey(payload JobPayload, finding Finding) string {
 	dedupeTarget := finding.Target
 	if strings.TrimSpace(finding.DedupeTarget) != "" {
@@ -466,6 +987,14 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 					'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
 					'security.threat.detected', 'user.authentication.failed', 'user.session.start'
 				))
+			 OR (provider = 'GOOGLE_WORKSPACE' AND event_type IN (
+					'EXTERNAL_SHARING_ENABLED', 'external.sharing.enabled',
+					'SUPER_ADMIN_GRANTED', 'super.admin.granted',
+					'ADMIN_ROLE_GRANTED', 'admin.role.granted',
+					'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
+					'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
+					'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email'
+				))
 		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
@@ -493,6 +1022,14 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 						'POLICY_LIFECYCLE_UPDATE', 'PASSWORD_POLICY_UPDATED', 'policy.lifecycle.update', 'password.policy.updated',
 						'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
 						'security.threat.detected', 'user.authentication.failed', 'user.session.start'
+					))
+				 OR (provider = 'GOOGLE_WORKSPACE' AND event_type IN (
+						'EXTERNAL_SHARING_ENABLED', 'external.sharing.enabled',
+						'SUPER_ADMIN_GRANTED', 'super.admin.granted',
+						'ADMIN_ROLE_GRANTED', 'admin.role.granted',
+						'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
+						'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
+						'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email'
 					))
 			  )
 			  AND (
