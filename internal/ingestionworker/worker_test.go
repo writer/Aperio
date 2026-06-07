@@ -1,6 +1,7 @@
 package ingestionworker
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 type githubParityFixture struct {
@@ -238,6 +241,58 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	payload.Provider = "SLACK"
 	if DedupeKey(payload, finding) != first {
 		t.Fatal("dedupe key should exclude provider to match the TypeScript worker")
+	}
+}
+
+func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
+	base := job{
+		ID:             "job_1",
+		OrganizationID: "org_1",
+		Provider:       "GITHUB",
+		EventType:      "PUBLIC_REPOSITORY_CREATED",
+		Attempts:       0,
+		MaxAttempts:    3,
+	}
+	success := ingestionJobWideEvent(base, nil, 7*time.Millisecond)
+	if success.Name != "ingestion.job.process" || success.Service != "ingestion-worker" {
+		t.Fatalf("unexpected telemetry identity: %#v", success)
+	}
+	if success.Organization != "org_1" || success.Dimensions["outcome"] != "succeeded" || success.Dimensions["provider"] != "GITHUB" || success.Dimensions["event_type"] != "PUBLIC_REPOSITORY_CREATED" {
+		t.Fatalf("unexpected success dimensions: %#v", success.Dimensions)
+	}
+	if success.Measurements["attempt"] != 1 || success.Measurements["max_attempts"] != 3 || success.Measurements["duration_ms"] != 7 {
+		t.Fatalf("unexpected success measurements: %#v", success.Measurements)
+	}
+	if _, ok := success.Dimensions["error_kind"]; ok {
+		t.Fatalf("success telemetry should not include error_kind: %#v", success.Dimensions)
+	}
+
+	retry := ingestionJobWideEvent(base, errors.New("database password should not be serialized"), time.Millisecond)
+	if retry.Dimensions["outcome"] != "failed" || retry.Dimensions["error_kind"] != "error" {
+		t.Fatalf("unexpected retry telemetry: %#v", retry.Dimensions)
+	}
+	if strings.Contains(fmt.Sprint(retry.Dimensions), "password") {
+		t.Fatalf("telemetry dimensions leaked raw error text: %#v", retry.Dimensions)
+	}
+
+	deadLetterJob := base
+	deadLetterJob.Attempts = 2
+	deadLetter := ingestionJobWideEvent(deadLetterJob, errors.New("boom"), time.Millisecond)
+	if deadLetter.Dimensions["outcome"] != "dead_letter" || deadLetter.Measurements["attempt"] != 3 {
+		t.Fatalf("unexpected dead-letter telemetry: %#v %#v", deadLetter.Dimensions, deadLetter.Measurements)
+	}
+
+	lostLease := ingestionJobWideEvent(base, errIngestionLeaseLost, time.Millisecond)
+	if lostLease.Dimensions["outcome"] != "lost_lease" || lostLease.Dimensions["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
+	}
+
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	emitIngestionJobWideEvent(base, nil, time.Millisecond)
+	restore()
+	if !strings.Contains(sink.String(), `"event_name":"ingestion.job.process"`) || strings.Contains(sink.String(), "password") {
+		t.Fatalf("unexpected emitted telemetry: %s", sink.String())
 	}
 }
 

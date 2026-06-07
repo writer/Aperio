@@ -11,7 +11,7 @@
         "repository.private === false",
         "repository.visibility === public"
       ],
-      "goClaimedEventTypes": ["PUBLIC_REPOSITORY_CREATED"],
+      "goClaimedEventTypes": ["PUBLIC_REPOSITORY_CREATED", "repository.publicized"],
       "fixtures": [
         "tests/fixtures/worker-parity/github-public-repository.json"
       ],
@@ -22,7 +22,7 @@
       ],
       "cutoverBlockers": [
         "Go validates a connected provider/integration and honors disabled checks, but does not decrypt and integrity-check encrypted integration credentials like the TypeScript reference.",
-        "GitHub payload-predicate detection is fixture-tested, while Go queue claims remain limited to the exact PUBLIC_REPOSITORY_CREATED event slice."
+        "GitHub payload-predicate detection is fixture-tested and the shared publicized event alias is DB-backed, while broader GitHub repository visibility aliases remain TypeScript-reference fallback until individually fixture-backed."
       ],
       "goDefaultBlocked": true
     },
@@ -32,7 +32,7 @@
       "state": "go-parity",
       "typescriptEventAliases": ["MFA_DISABLED", "TWO_FACTOR_AUTH_DISABLED"],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": ["MFA_DISABLED", "TWO_FACTOR_AUTH_DISABLED"],
+      "goClaimedEventTypes": ["MFA_DISABLED", "TWO_FACTOR_AUTH_DISABLED", "mfa.disabled", "two-factor auth disabled"],
       "fixtures": [
         "tests/fixtures/worker-parity/slack-mfa-disabled.json"
       ],
@@ -43,7 +43,7 @@
       ],
       "cutoverBlockers": [
         "Go validates a connected Slack integration and honors disabled checks, but does not decrypt and integrity-check encrypted integration credentials like the TypeScript reference.",
-        "Only the MFA-disabled Slack event aliases are allowlisted; all other Slack events remain TypeScript-reference fallback."
+        "Only fixture-backed MFA-disabled Slack event aliases are allowlisted; all other Slack events remain TypeScript-reference fallback."
       ],
       "goDefaultBlocked": true
     },
