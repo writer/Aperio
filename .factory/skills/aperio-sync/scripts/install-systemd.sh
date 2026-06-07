@@ -30,7 +30,7 @@ fi
 # create the state and unit dirs up front.
 mkdir -p "${USER_UNIT_DIR}" "${STATE_DIR}"
 
-sed_escape() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+sed_escape() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g' -e 's/"/\\\\\\"/g'; }
 
 sed -e "s|__SCRIPT_PATH__|$(sed_escape "${SYNC_SCRIPT}")|g" \
   "${SERVICE_TEMPLATE}" > "${USER_UNIT_DIR}/aperio-sync.service"
