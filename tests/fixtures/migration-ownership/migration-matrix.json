@@ -466,13 +466,15 @@
         "repo-file:internal/siemdispatcher/*.go"
       ],
       "owner": "Go SIEM dispatcher parity slice",
-      "rationale": "Go SIEM dispatcher currently claims locally testable JSON_FILE and GENERIC_WEBHOOK deliveries while TypeScript remains fallback/default for unsupported adapters.",
+      "rationale": "Go SIEM dispatcher now claims all SIEM adapter rows and has local parity fixtures for HTTP adapters, confined JSON_FILE JSONL sinks, and CEREBRO_CLAIMS runtime/claim fanout semantics while the unsuffixed TypeScript dispatcher remains the default until the later cutover feature.",
       "evidence": [
         "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "fixture:tests/fixtures/worker-parity/siem-cerebro-claims.json",
         "fixture:tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "fixture:tests/fixtures/worker-parity/siem-envelope-cases.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "fixture:tests/fixtures/worker-parity/siem-generic-webhook-delivery.json",
+        "fixture:tests/fixtures/worker-parity/siem-json-file-sink.json",
         "test:tests/siem-adapter-matrix.test.ts",
         "test:internal/siemdispatcher/dispatcher_test.go",
         "test:internal/siemdispatcher/dispatcher_db_test.go",

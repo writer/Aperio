@@ -80,6 +80,7 @@ type Dispatcher struct {
 	organizationID      string
 	httpClient          *http.Client
 	endpointSafetyCheck func(context.Context, string) error
+	claimPublisher      ClaimFanoutPublisher
 }
 
 type delivery struct {
@@ -103,6 +104,13 @@ type destination struct {
 	EncryptedToken sql.NullString
 }
 
+type sendResult struct {
+	CerebroClaims    []cerebroClaim
+	CerebroRuntimeID string
+	FindingID        string
+	DedupeKey        string
+}
+
 type encryptedEnvelope = runtimeutil.EncryptedEnvelope
 
 type endpointResolver interface {
@@ -115,8 +123,9 @@ func New(db *sql.DB) *Dispatcher {
 		hostname = "unknown-host"
 	}
 	return &Dispatcher{
-		db:         db,
-		leaseOwner: fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
+		db:             db,
+		leaseOwner:     fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
+		claimPublisher: NewEnvClaimFanoutPublisher(),
 	}
 }
 
@@ -269,9 +278,14 @@ func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload 
 		permanent, message := destinationLoadFailure(err)
 		return d.failDelivery(ctx, item, permanent, message)
 	}
-	err = d.sendForKind(ctx, dest, payload)
+	sendOutcome, err := d.sendForKind(ctx, dest, payload)
 	if err != nil {
-		return d.fail(ctx, item, isPermanentSendFailure(err), err.Error())
+		permanent := isPermanentSendFailure(err)
+		if finishErr := d.finish(ctx, item, false, permanent, err.Error()); finishErr != nil {
+			return finishErr
+		}
+		d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, false, err.Error())
+		return errors.New(err.Error())
 	}
 	if err := d.finish(ctx, item, true, false, ""); err != nil {
 		return err
@@ -281,6 +295,7 @@ func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload 
 		SET last_delivery_at = NOW(), deliveries_ok = deliveries_ok + 1, last_error = NULL, status = 'ACTIVE', updated_at = NOW()
 		WHERE id = $1 AND organization_id = $2
 	`, dest.ID, dest.OrganizationID)
+	d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, true, "")
 	return nil
 }
 
@@ -442,26 +457,26 @@ func writeJSONFile(dest destination, payload Payload) error {
 	return err
 }
 
-func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload Payload) error {
+func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload Payload) (sendResult, error) {
 	switch dest.Kind {
 	case "SPLUNK_HEC":
-		return d.sendSplunk(ctx, dest, payload)
+		return sendResult{}, d.sendSplunk(ctx, dest, payload)
 	case "PANTHER":
-		return d.sendPanther(ctx, dest, payload)
+		return sendResult{}, d.sendPanther(ctx, dest, payload)
 	case "PANOPTICON":
-		return d.sendPanopticon(ctx, dest, payload)
+		return sendResult{}, d.sendPanopticon(ctx, dest, payload)
 	case "ELASTIC":
-		return d.sendElastic(ctx, dest, payload)
+		return sendResult{}, d.sendElastic(ctx, dest, payload)
 	case "DATADOG":
-		return d.sendDatadog(ctx, dest, payload)
+		return sendResult{}, d.sendDatadog(ctx, dest, payload)
 	case "GENERIC_WEBHOOK":
-		return d.sendGenericWebhook(ctx, dest, payload)
+		return sendResult{}, d.sendGenericWebhook(ctx, dest, payload)
 	case "CEREBRO_CLAIMS":
 		return d.sendCerebroClaims(ctx, dest, payload)
 	case "JSON_FILE":
-		return writeJSONFile(dest, payload)
+		return sendResult{}, writeJSONFile(dest, payload)
 	default:
-		return fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
+		return sendResult{}, fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
 	}
 }
 
@@ -593,35 +608,44 @@ func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, p
 	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
 }
 
-func (d *Dispatcher) sendCerebroClaims(ctx context.Context, dest destination, payload Payload) error {
+func (d *Dispatcher) sendCerebroClaims(ctx context.Context, dest destination, payload Payload) (sendResult, error) {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("Cerebro API URL missing")
+		return sendResult{}, permanentAdapterError("Cerebro API URL missing")
 	}
 	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
-		return errors.New("Cerebro source runtime ID is not configured")
+		return sendResult{}, permanentAdapterError("Cerebro source runtime ID is not configured")
 	}
 	token, err := requireDestinationToken(dest, "missing Cerebro API token")
 	if err != nil {
-		return err
+		return sendResult{}, err
 	}
 	runtimeID := strings.TrimSpace(dest.Index.String)
 	runtimePath := "/source-runtimes/" + url.PathEscape(runtimeID)
 	headers := map[string]string{"authorization": "Bearer " + token}
 	if err := d.getJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath), headers); err != nil {
-		return fmt.Errorf("Cerebro runtime check failed: %w", err)
+		return sendResult{}, fmt.Errorf("Cerebro runtime check failed: %w", err)
 	}
 	claims, err := buildCerebroClaims(dest, payload)
 	if err != nil {
-		return err
+		return sendResult{}, err
+	}
+	result := sendResult{
+		CerebroClaims:    claims,
+		CerebroRuntimeID: runtimeID,
+		FindingID:        firstString(payload.Record["findingId"], payload.Record["id"]),
+		DedupeKey:        firstString(payload.Record["dedupeKey"]),
 	}
 	bodyBytes, err := json.Marshal(map[string]any{
 		"runtime_id": runtimeID,
 		"claims":     claims,
 	})
 	if err != nil {
-		return err
+		return result, err
 	}
-	return d.postJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath+"/claims"), headers, bodyBytes)
+	if err := d.postJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath+"/claims"), headers, bodyBytes); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[string]string, body []byte) error {
@@ -633,7 +657,11 @@ func (d *Dispatcher) postWithContentType(ctx context.Context, endpoint string, c
 }
 
 func (d *Dispatcher) getJSON(ctx context.Context, endpoint string, headers map[string]string) error {
-	return d.doHTTPRequest(ctx, http.MethodGet, endpoint, "", headers, nil)
+	requestHeaders := map[string]string{"accept": "application/json"}
+	for key, value := range headers {
+		requestHeaders[key] = value
+	}
+	return d.doHTTPRequest(ctx, http.MethodGet, endpoint, "", requestHeaders, nil)
 }
 
 func (d *Dispatcher) doHTTPRequest(ctx context.Context, method string, endpoint string, contentType string, headers map[string]string, body []byte) error {

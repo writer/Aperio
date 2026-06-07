@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,39 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type recordingClaimFanoutPublisher struct {
+	t                 *testing.T
+	db                *sql.DB
+	events            []CerebroClaimsFanoutEvent
+	deliveryStatuses  []string
+	destinationHealth []string
+	err               error
+}
+
+func (p *recordingClaimFanoutPublisher) PublishCerebroClaimsFanout(ctx context.Context, event CerebroClaimsFanoutEvent) error {
+	p.t.Helper()
+	var deliveryStatus string
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text
+		FROM siem_deliveries
+		WHERE id = $1 AND organization_id = $2
+	`, event.DeliveryID, event.OrganizationID).Scan(&deliveryStatus); err != nil {
+		p.t.Fatalf("query delivery status during fanout publish: %v", err)
+	}
+	var destinationStatus string
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text
+		FROM siem_destinations
+		WHERE id = $1 AND organization_id = $2
+	`, event.DestinationID, event.OrganizationID).Scan(&destinationStatus); err != nil {
+		p.t.Fatalf("query destination status during fanout publish: %v", err)
+	}
+	p.events = append(p.events, event)
+	p.deliveryStatuses = append(p.deliveryStatuses, deliveryStatus)
+	p.destinationHealth = append(p.destinationHealth, destinationStatus)
+	return p.err
+}
 
 func openDBBackedSIEMDispatcherDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -277,7 +311,7 @@ func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t 
 		t.Fatalf("exhausted Go-owned delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
 	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, cerebroID)
-	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
+	if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
 		t.Fatalf("CEREBRO_CLAIMS misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
 	healthStatus, deliveriesOK, deliveriesFail, _, lastError := siemDestinationHealth(t, db, cerebroDestinationID)
@@ -675,6 +709,113 @@ func TestProcessGenericWebhookDeliveryCapturesRequestAndMarksDelivered(t *testin
 	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
 	if healthStatus != "ACTIVE" || deliveriesOK != 1 || deliveriesFail != 0 || !lastDeliveryAt.Valid || destinationError.Valid {
 		t.Fatalf("webhook destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+}
+
+func TestProcessCerebroClaimsDeliveryCapturesRequestsAndPublishesAfterFinalization(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "CEREBRO_CLAIMS", "ACTIVE", "")
+	updateDispatcherDestinationToken(t, db, orgID, destinationID, "fixture-cerebro-db-token")
+	updateDispatcherDestinationIndex(t, db, orgID, destinationID, "runtime-db")
+	payload := fixtureDeliveryPayload(t, orgID)
+	payload.OccurredAt = "2026-06-05T20:00:00.000Z"
+	payload.Record["findingId"] = "fnd_cerebro_db"
+	payload.Record["dedupeKey"] = "dedupe_cerebro_db"
+	payload.Record["sourceEventId"] = "evt_cerebro_db"
+	payload.Record["provider"] = "GITHUB"
+	payload.Record["integrationId"] = "int_cerebro_db"
+	payload.Record["target"] = "writer/cerebro-db"
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
+
+	transport := &captureTransport{}
+	checkedEndpoints := []string{}
+	publisher := &recordingClaimFanoutPublisher{
+		t:   t,
+		db:  db,
+		err: errors.New("local NATS unavailable"),
+	}
+	dispatcher := &Dispatcher{
+		db:             db,
+		leaseOwner:     "go-siem-test-cerebro",
+		organizationID: orgID,
+		httpClient:     &http.Client{Transport: transport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			checkedEndpoints = append(checkedEndpoints, endpoint)
+			return nil
+		},
+		claimPublisher: publisher,
+	}
+	result, err := dispatcher.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected Cerebro drain result: %#v", result)
+	}
+	if len(checkedEndpoints) != 2 || transport.calls != 2 || len(transport.requests) != 2 {
+		t.Fatalf("expected runtime check and claim write, endpoints=%v calls=%d requests=%d", checkedEndpoints, transport.calls, len(transport.requests))
+	}
+	runtimeURL := "https://example.com/collector/source-runtimes/runtime-db"
+	claimsURL := runtimeURL + "/claims"
+	if transport.requests[0].method != http.MethodGet || transport.requests[0].url != runtimeURL {
+		t.Fatalf("runtime request = %s %s", transport.requests[0].method, transport.requests[0].url)
+	}
+	if transport.requests[0].header.Get("authorization") != "Bearer fixture-cerebro-db-token" || transport.requests[0].header.Get("accept") != "application/json" {
+		t.Fatalf("runtime headers = %#v", transport.requests[0].header)
+	}
+	if transport.requests[1].method != http.MethodPost || transport.requests[1].url != claimsURL {
+		t.Fatalf("claim request = %s %s", transport.requests[1].method, transport.requests[1].url)
+	}
+	if transport.requests[1].header.Get("authorization") != "Bearer fixture-cerebro-db-token" || transport.requests[1].header.Get("content-type") != "application/json" {
+		t.Fatalf("claim headers = %#v", transport.requests[1].header)
+	}
+	if strings.Contains(string(transport.requests[1].body), "fixture-cerebro-db-token") {
+		t.Fatal("Cerebro claim write body leaked token")
+	}
+	var requestBody struct {
+		RuntimeID string         `json:"runtime_id"`
+		Claims    []cerebroClaim `json:"claims"`
+	}
+	if err := json.Unmarshal(transport.requests[1].body, &requestBody); err != nil {
+		t.Fatalf("decode Cerebro claim request body: %v", err)
+	}
+	if requestBody.RuntimeID != "runtime-db" || len(requestBody.Claims) == 0 {
+		t.Fatalf("claim request body = %#v", requestBody)
+	}
+	if requestBody.Claims[0].SourceEvent != "evt_cerebro_db" {
+		t.Fatalf("claim source_event_id = %q", requestBody.Claims[0].SourceEvent)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "DELIVERED" || attempts != 1 || leaseOwner.Valid || !deliveredAt.Valid || lastError.Valid {
+		t.Fatalf("Cerebro delivered state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ACTIVE" || deliveriesOK != 1 || deliveriesFail != 0 || !lastDeliveryAt.Valid || destinationError.Valid {
+		t.Fatalf("Cerebro destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("expected one fanout publish attempt, got %d", len(publisher.events))
+	}
+	if publisher.deliveryStatuses[0] != "DELIVERED" || publisher.destinationHealth[0] != "ACTIVE" {
+		t.Fatalf("fanout published before finalization/health update: delivery=%v destination=%v", publisher.deliveryStatuses, publisher.destinationHealth)
+	}
+	event := publisher.events[0]
+	if event.Status != "delivered" || event.Error != "" || event.RuntimeID != "runtime-db" || event.FindingID != "fnd_cerebro_db" || event.DedupeKey != "dedupe_cerebro_db" {
+		t.Fatalf("unexpected fanout event: %#v", event)
+	}
+	if len(event.Claims) != len(requestBody.Claims) || event.Claims[0].SourceEvent != "evt_cerebro_db" {
+		t.Fatalf("fanout claims = %#v", event.Claims)
 	}
 }
 
