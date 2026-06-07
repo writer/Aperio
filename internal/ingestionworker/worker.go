@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -195,6 +196,26 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 	}
 	if _, ok := disabled["google_workspace.admin_external_recovery_email"]; !ok {
 		if finding, ok := evaluateGoogleAdminExternalRecoveryEmail(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.email_forwarding_enabled"]; !ok {
+		if finding, ok := evaluateGoogleEmailForwardingEnabled(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.mailbox_delegation_granted"]; !ok {
+		if finding, ok := evaluateGoogleMailboxDelegationGranted(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.legacy_mail_auth_used"]; !ok {
+		if finding, ok := evaluateGoogleLegacyMailAuthUsed(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["google_workspace.forwarding_delegate_send_as_combo"]; !ok {
+		if finding, ok := evaluateGoogleForwardingDelegateSendAsCombo(payload); ok {
 			findings = append(findings, finding)
 		}
 	}
@@ -717,6 +738,214 @@ func evaluateGoogleAdminExternalRecoveryEmail(payload JobPayload) (Finding, bool
 	}, true
 }
 
+func evaluateGoogleEmailForwardingEnabled(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "EMAIL_FORWARDING_ENABLED" {
+		return Finding{}, false
+	}
+	parameters := googleParameters(payload)
+	addresses := uniqueStrings(googleForwardingAddresses(parameters))
+	forwardedTo := ""
+	for _, address := range addresses {
+		if !strings.EqualFold(address, payload.Actor) {
+			forwardedTo = address
+			break
+		}
+	}
+	forwardedTo = firstNonEmpty(forwardedTo, firstString(addresses), "unknown forwarding address")
+	mailbox := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "mailbox"),
+		"unknown mailbox",
+	)
+	disposition := firstNonEmpty(
+		nestedString(parameters, "disposition"),
+		nestedString(parameters, "forwarding_disposition"),
+		nestedString(parameters, "action"),
+		"forward",
+	)
+	subject := mailbox + ":" + forwardedTo
+	return Finding{
+		RuleID:      "google_workspace.email_forwarding_enabled",
+		Title:       "Google Workspace email forwarding enabled",
+		Description: "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+		Severity:    "HIGH",
+		RiskScore:   78,
+		RemediationSteps: []string{
+			"Validate that the forwarding destination is approved for business use.",
+			"Disable the forwarding rule if it is not explicitly authorized.",
+			"Review recent mailbox activity and message access for possible data leakage.",
+		},
+		Target:       mailbox,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"mailbox":     mailbox,
+			"forwardedTo": forwardedTo,
+			"disposition": disposition,
+			"subject":     subject,
+		}),
+	}, true
+}
+
+func evaluateGoogleMailboxDelegationGranted(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "MAILBOX_DELEGATION_GRANTED" {
+		return Finding{}, false
+	}
+	parameters := googleParameters(payload)
+	mailbox := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "mailbox"),
+		"unknown mailbox",
+	)
+	delegates := uniqueStrings(googleDelegateAddresses(parameters))
+	delegate := ""
+	for _, candidate := range delegates {
+		if !strings.EqualFold(candidate, mailbox) {
+			delegate = candidate
+			break
+		}
+	}
+	delegate = firstNonEmpty(delegate, firstString(delegates), "unknown delegate")
+	delegationStatus := firstNonEmpty(
+		nestedString(parameters, "delegation_status"),
+		nestedString(parameters, "verificationStatus"),
+		"accepted",
+	)
+	subject := mailbox + ":" + delegate
+	return Finding{
+		RuleID:      "google_workspace.mailbox_delegation_granted",
+		Title:       "Google Workspace mailbox delegation granted",
+		Description: "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+		Severity:    "HIGH",
+		RiskScore:   84,
+		RemediationSteps: []string{
+			"Confirm the delegate is explicitly approved for the mailbox.",
+			"Remove the delegate if the access is not required.",
+			"Review recent mailbox activity for unexpected message access or sending.",
+		},
+		Target:       mailbox,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"mailbox":          mailbox,
+			"delegate":         delegate,
+			"delegateCount":    len(delegates),
+			"delegationStatus": delegationStatus,
+			"subject":          subject,
+		}),
+	}, true
+}
+
+func evaluateGoogleLegacyMailAuthUsed(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "LEGACY_MAIL_AUTH_USED" {
+		return Finding{}, false
+	}
+	parameters := googleParameters(payload)
+	parameterBlob := strings.ToLower(strings.Join(flattenRecordStrings(parameters), " "))
+	mailbox := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "mailbox"),
+		"unknown mailbox",
+	)
+	protocol := ""
+	for _, candidate := range []string{"imap", "pop", "smtp"} {
+		if strings.Contains(parameterBlob, candidate) {
+			protocol = candidate
+			break
+		}
+	}
+	authMethod := protocol
+	switch {
+	case strings.Contains(parameterBlob, "app password"):
+		authMethod = "app_password"
+	case strings.Contains(parameterBlob, "basic"):
+		authMethod = "basic_auth"
+	case strings.Contains(parameterBlob, "legacy"):
+		authMethod = "legacy_auth"
+	case authMethod == "":
+		authMethod = "legacy_mail_auth"
+	}
+	title := "Google Workspace legacy mail authentication used"
+	riskScore := 82
+	if authMethod == "app_password" {
+		title = "Google Workspace app password created or used"
+		riskScore = 88
+	}
+	subject := mailbox + ":" + authMethod
+	return Finding{
+		RuleID:      "google_workspace.legacy_mail_auth_used",
+		Title:       title,
+		Description: "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+		Severity:    "HIGH",
+		RiskScore:   riskScore,
+		RemediationSteps: []string{
+			"Disable app passwords or legacy mail access for the affected user if not required.",
+			"Rotate the user's password and revoke active sessions if the usage is unexpected.",
+			"Review the mailbox for suspicious IMAP, POP, or SMTP access.",
+		},
+		Target:       mailbox,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"mailbox":    mailbox,
+			"authMethod": authMethod,
+			"protocol":   optionalString(protocol),
+			"subject":    subject,
+		}),
+	}, true
+}
+
+func evaluateGoogleForwardingDelegateSendAsCombo(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "GOOGLE_WORKSPACE" || normalizeEventType(payload.EventType) != "FORWARDING_DELEGATE_SEND_AS_COMBO" {
+		return Finding{}, false
+	}
+	parameters := googleParameters(payload)
+	mailbox := firstNonEmpty(
+		payload.Actor,
+		nestedString(parameters, "email"),
+		nestedString(parameters, "mailbox"),
+		"unknown mailbox",
+	)
+	forwardedTo := firstNonEmpty(firstString(uniqueStrings([]string{
+		emailsFirst(parameters["forwarding_address"]),
+		emailsFirst(parameters["forwarding_email"]),
+		emailsFirst(parameters["forward_to"]),
+	})), "unknown forwarding address")
+	delegates := uniqueStrings(emailsFromValue(parameters["delegates"]))
+	sendAsAliases := uniqueStrings(emailsFromValue(parameters["send_as_aliases"]))
+	comboKinds := []string{}
+	if len(delegates) > 0 {
+		comboKinds = append(comboKinds, "delegate")
+	}
+	if len(sendAsAliases) > 0 {
+		comboKinds = append(comboKinds, "send-as")
+	}
+	return Finding{
+		RuleID:      "google_workspace.forwarding_delegate_send_as_combo",
+		Title:       "Google Workspace forwarding with delegate/send-as combo",
+		Description: "A mailbox has forwarding enabled alongside delegate or send-as access, creating multiple parallel paths for mailbox exfiltration or impersonation.",
+		Severity:    "CRITICAL",
+		RiskScore:   93,
+		RemediationSteps: []string{
+			"Validate that forwarding, delegate access, and send-as aliases are all approved together.",
+			"Disable the forwarding rule first if any destination is untrusted.",
+			"Remove unnecessary delegates or send-as aliases and review recent sent-mail activity.",
+		},
+		Target:       mailbox,
+		DedupeTarget: mailbox,
+		Evidence: compactEvidence(map[string]any{
+			"mailbox":       mailbox,
+			"forwardedTo":   forwardedTo,
+			"delegates":     delegates,
+			"delegateCount": len(delegates),
+			"sendAsAliases": sendAsAliases,
+			"sendAsCount":   len(sendAsAliases),
+			"comboKinds":    comboKinds,
+			"subject":       mailbox,
+		}),
+	}, true
+}
+
 type googleOAuthRisk struct {
 	severity      string
 	riskScore     int
@@ -834,6 +1063,7 @@ func externalRecipientCandidates(value any) []string {
 }
 
 var emailLikePattern = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+var emailExtractPattern = regexp.MustCompile(`(?i)[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}`)
 
 func isEmailLike(value string) bool {
 	return emailLikePattern.MatchString(strings.TrimSpace(value))
@@ -893,6 +1123,104 @@ func stringArray(value any) []string {
 	default:
 		return nil
 	}
+}
+
+func emailsFromValue(value any) []string {
+	emails := []string{}
+	for _, entry := range stringArray(value) {
+		for _, match := range emailExtractPattern.FindAllString(entry, -1) {
+			if !containsString(emails, match) {
+				emails = append(emails, match)
+			}
+		}
+	}
+	return emails
+}
+
+func emailsFirst(value any) string {
+	return firstString(emailsFromValue(value))
+}
+
+func uniqueStrings(values []string) []string {
+	unique := []string{}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || containsString(unique, value) {
+			continue
+		}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func googleParameters(payload JobPayload) map[string]any {
+	parameters := nestedRecord(payload.Payload, "parameters")
+	if parameters == nil {
+		return map[string]any{}
+	}
+	return parameters
+}
+
+func sortedRecordKeys(record map[string]any) []string {
+	keys := make([]string, 0, len(record))
+	for key := range record {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func googleForwardingAddresses(parameters map[string]any) []string {
+	addresses := []string{}
+	for _, key := range []string{
+		"forward_to",
+		"forwarding_address",
+		"forwarding_email",
+		"forwarding_destination",
+		"email_forwarding_destination",
+	} {
+		addresses = append(addresses, emailsFromValue(parameters[key])...)
+	}
+	for _, key := range sortedRecordKeys(parameters) {
+		addresses = append(addresses, emailsFromValue(parameters[key])...)
+	}
+	return addresses
+}
+
+func googleDelegateAddresses(parameters map[string]any) []string {
+	addresses := []string{}
+	for _, key := range []string{"delegate", "delegate_email", "delegateAddress"} {
+		addresses = append(addresses, emailsFromValue(parameters[key])...)
+	}
+	for _, key := range sortedRecordKeys(parameters) {
+		if strings.Contains(strings.ToLower(key), "delegate") {
+			addresses = append(addresses, emailsFromValue(parameters[key])...)
+		}
+	}
+	return addresses
+}
+
+func flattenRecordStrings(record map[string]any) []string {
+	values := []string{}
+	for _, key := range sortedRecordKeys(record) {
+		values = append(values, stringArray(record[key])...)
+	}
+	return values
 }
 
 func nestedNumber(value map[string]any, path ...string) (float64, bool) {
@@ -993,7 +1321,11 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 					'ADMIN_ROLE_GRANTED', 'admin.role.granted',
 					'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
 					'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
-					'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email'
+					'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email',
+					'EMAIL_FORWARDING_ENABLED', 'email.forwarding.enabled',
+					'MAILBOX_DELEGATION_GRANTED', 'mailbox.delegation.granted',
+					'LEGACY_MAIL_AUTH_USED', 'legacy.mail.auth.used',
+					'FORWARDING_DELEGATE_SEND_AS_COMBO', 'forwarding.delegate.send.as.combo'
 				))
 		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
@@ -1029,7 +1361,11 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 						'ADMIN_ROLE_GRANTED', 'admin.role.granted',
 						'RISKY_OAUTH_GRANT', 'risky.oauth.grant',
 						'ADMIN_MFA_NOT_ENFORCED', 'admin.mfa.not.enforced',
-						'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email'
+						'ADMIN_EXTERNAL_RECOVERY_EMAIL', 'admin.external.recovery.email',
+						'EMAIL_FORWARDING_ENABLED', 'email.forwarding.enabled',
+						'MAILBOX_DELEGATION_GRANTED', 'mailbox.delegation.granted',
+						'LEGACY_MAIL_AUTH_USED', 'legacy.mail.auth.used',
+						'FORWARDING_DELEGATE_SEND_AS_COMBO', 'forwarding.delegate.send.as.combo'
 					))
 			  )
 			  AND (

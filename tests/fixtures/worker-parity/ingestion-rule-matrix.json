@@ -366,72 +366,104 @@
     {
       "ruleId": "google_workspace.email_forwarding_enabled",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "EMAIL_FORWARDING_ENABLED"
       ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
+      "goClaimedEventTypes": [
+        "EMAIL_FORWARDING_ENABLED",
+        "email.forwarding.enabled"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
       "tests": [
-        "tests/ingestion-parity-matrix.test.ts"
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail credential/config parity exists for this mailbox slice."
+        "Google Workspace email forwarding parity is fixture-backed for forwarding parameter variants, actor/self handling, generic extraction, default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.mailbox_delegation_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "MAILBOX_DELEGATION_GRANTED"
       ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
+      "goClaimedEventTypes": [
+        "MAILBOX_DELEGATION_GRANTED",
+        "mailbox.delegation.granted"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
       "tests": [
-        "tests/ingestion-parity-matrix.test.ts"
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail delegate credential/config parity exists for this mailbox slice."
+        "Google Workspace mailbox delegation parity is fixture-backed for delegate extraction variants, self-delegate handling, default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.legacy_mail_auth_used",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "LEGACY_MAIL_AUTH_USED"
       ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
+      "goClaimedEventTypes": [
+        "LEGACY_MAIL_AUTH_USED",
+        "legacy.mail.auth.used"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
       "tests": [
-        "tests/ingestion-parity-matrix.test.ts"
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail credential/config parity exists for this mailbox slice."
+        "Google Workspace legacy mail auth parity is fixture-backed for app-password, basic, legacy, IMAP, POP, SMTP, empty-extraction default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "FORWARDING_DELEGATE_SEND_AS_COMBO"
       ],
       "typescriptPayloadPredicates": [],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
+      "goClaimedEventTypes": [
+        "FORWARDING_DELEGATE_SEND_AS_COMBO",
+        "forwarding.delegate.send.as.combo"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/google-admin-oauth-rules.json"
+      ],
       "tests": [
-        "tests/ingestion-parity-matrix.test.ts"
+        "tests/google-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or Google Workspace Gmail forwarding/delegation/send-as credential/config parity exists for this mailbox slice."
+        "Google Workspace forwarding/delegate/send-as combo parity is fixture-backed for forwarding+delegate, forwarding+send-as, forwarding+both, empty-combo default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     }

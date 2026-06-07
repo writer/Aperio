@@ -140,16 +140,25 @@ func seedIngestionWorkerIntegration(t *testing.T, db *sql.DB, orgID, provider, s
 	encryptedAccessToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "access_token", testIngestionWorkerAccessToken, false)
 	encryptedRefreshToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "refresh_token", testIngestionWorkerRefreshToken, false)
 	encryptedWebhookSecret := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "webhook_secret", testIngestionWorkerWebhookSecret, false)
+	var googleMailboxClientEmail any
+	var encryptedGoogleMailboxPrivateKey any
+	if provider == "GOOGLE_WORKSPACE" {
+		googleMailboxClientEmail = "mailbox-scanner@example.com"
+		encryptedGoogleMailboxPrivateKey = encryptIngestionWorkerMailboxKey(t, orgID, integrationID, externalAccountID, testIngestionWorkerMailboxPrivKey, false)
+	}
 	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO integration_connections (
 			id, organization_id, provider, display_name, external_account_id, scopes, disabled_checks,
-			encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret, status, mode, created_at, updated_at
+			encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret,
+			google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key,
+			status, mode, created_at, updated_at
 		)
 		VALUES (
 			$1, $2, $3::"SaaSProvider", $4, $5, ARRAY[]::text[], ARRAY[]::text[],
-			$6, $7, $8, $9::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
+			$6, $7, $8, $9, $10,
+			$11::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
 		)
-	`, integrationID, orgID, provider, provider+" Worker Test", externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, status); err != nil {
+	`, integrationID, orgID, provider, provider+" Worker Test", externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, googleMailboxClientEmail, encryptedGoogleMailboxPrivateKey, status); err != nil {
 		t.Fatalf("seed %s integration: %v", provider, err)
 	}
 	return integrationID
@@ -380,7 +389,7 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "okta unsupported event", provider: "OKTA", eventType: "USER_LIFECYCLE_DEACTIVATE", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"}]}`)},
-		{name: "google mailbox fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EMAIL_FORWARDING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"parameters":{"forward_to":"external@example.com"}}`)},
+		{name: "google unsupported event", provider: "GOOGLE_WORKSPACE", eventType: "USER_LOGIN", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"parameters":{"forward_to":"external@example.com"}}`)},
 		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
 	}
 

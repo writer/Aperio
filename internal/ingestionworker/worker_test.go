@@ -249,16 +249,20 @@ func readGoogleParityFixtures(t *testing.T) []googleParityFixture {
 
 func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
 	cases := map[string]string{
-		"repository.publicized":        "REPOSITORY_PUBLICIZED",
-		" two-factor auth disabled ":   "TWO_FACTOR_AUTH_DISABLED",
-		"//public-repository-created/": "PUBLIC_REPOSITORY_CREATED",
-		"mfa.disabled":                 "MFA_DISABLED",
-		"user.account.privilege.grant": "USER_ACCOUNT_PRIVILEGE_GRANT",
-		"user.mfa.factor.reset_all":    "USER_MFA_FACTOR_RESET_ALL",
-		"policy.lifecycle.update":      "POLICY_LIFECYCLE_UPDATE",
-		"user.session.start":           "USER_SESSION_START",
-		"external.sharing.enabled":     "EXTERNAL_SHARING_ENABLED",
-		"risky.oauth.grant":            "RISKY_OAUTH_GRANT",
+		"repository.publicized":             "REPOSITORY_PUBLICIZED",
+		" two-factor auth disabled ":        "TWO_FACTOR_AUTH_DISABLED",
+		"//public-repository-created/":      "PUBLIC_REPOSITORY_CREATED",
+		"mfa.disabled":                      "MFA_DISABLED",
+		"user.account.privilege.grant":      "USER_ACCOUNT_PRIVILEGE_GRANT",
+		"user.mfa.factor.reset_all":         "USER_MFA_FACTOR_RESET_ALL",
+		"policy.lifecycle.update":           "POLICY_LIFECYCLE_UPDATE",
+		"user.session.start":                "USER_SESSION_START",
+		"external.sharing.enabled":          "EXTERNAL_SHARING_ENABLED",
+		"risky.oauth.grant":                 "RISKY_OAUTH_GRANT",
+		"email.forwarding.enabled":          "EMAIL_FORWARDING_ENABLED",
+		"mailbox.delegation.granted":        "MAILBOX_DELEGATION_GRANTED",
+		"legacy.mail.auth.used":             "LEGACY_MAIL_AUTH_USED",
+		"forwarding.delegate.send.as.combo": "FORWARDING_DELEGATE_SEND_AS_COMBO",
 	}
 	for input, want := range cases {
 		if got := normalizeEventType(input); got != want {

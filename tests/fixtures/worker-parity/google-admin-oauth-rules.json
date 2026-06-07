@@ -747,6 +747,841 @@
           "actor": "recovery-admin@writer.com"
         }
       }
+    },
+    {
+      "ruleId": "google_workspace.email_forwarding_enabled",
+      "disabledCheck": "google_workspace.email_forwarding_enabled",
+      "positive": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "EMAIL_FORWARDING_ENABLED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T07:00:00.000Z",
+          "payload": {
+            "parameters": {
+              "forward_to": "external-forward@outside.example",
+              "disposition": "archive"
+            }
+          },
+          "actor": "mailbox-owner@writer.com"
+        },
+        "expectedFinding": {
+          "ruleId": "google_workspace.email_forwarding_enabled",
+          "title": "Google Workspace email forwarding enabled",
+          "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+          "severity": "HIGH",
+          "riskScore": 78,
+          "target": "mailbox-owner@writer.com",
+          "evidence": {
+            "mailbox": "mailbox-owner@writer.com",
+            "forwardedTo": "external-forward@outside.example",
+            "disposition": "archive",
+            "subject": "mailbox-owner@writer.com:external-forward@outside.example"
+          },
+          "dedupeKey": "cd09a7a0daf4c8b9fb117aeb5913ea767d1fc280ce29ca3f4c7d6742454ce7f6"
+        }
+      },
+      "variants": [
+        {
+          "name": "forwarding_address skips mailbox actor and keeps forwarding disposition",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "email.forwarding.enabled",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T07:05:00.000Z",
+            "payload": {
+              "parameters": {
+                "forwarding_address": [
+                  "self-forward@writer.com",
+                  "partner@external.example"
+                ],
+                "forwarding_disposition": "leave_in_inbox"
+              }
+            },
+            "actor": "self-forward@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.email_forwarding_enabled",
+            "title": "Google Workspace email forwarding enabled",
+            "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+            "severity": "HIGH",
+            "riskScore": 78,
+            "target": "self-forward@writer.com",
+            "evidence": {
+              "mailbox": "self-forward@writer.com",
+              "forwardedTo": "partner@external.example",
+              "disposition": "leave_in_inbox",
+              "subject": "self-forward@writer.com:partner@external.example"
+            },
+            "dedupeKey": "32e2d8e37eb75876eed3ad1c128dd76eaad28e7ed685cd14a85301347d5d365a"
+          }
+        },
+        {
+          "name": "forwarding_email uses email parameter mailbox and action",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "EMAIL_FORWARDING_ENABLED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T07:10:00.000Z",
+            "payload": {
+              "parameters": {
+                "email": "mailbox-param@writer.com",
+                "forwarding_email": "archive@outside.example",
+                "action": "forward_and_archive"
+              }
+            }
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.email_forwarding_enabled",
+            "title": "Google Workspace email forwarding enabled",
+            "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+            "severity": "HIGH",
+            "riskScore": 78,
+            "target": "mailbox-param@writer.com",
+            "evidence": {
+              "mailbox": "mailbox-param@writer.com",
+              "forwardedTo": "archive@outside.example",
+              "disposition": "forward_and_archive",
+              "subject": "mailbox-param@writer.com:archive@outside.example"
+            },
+            "dedupeKey": "1b61129d03597e00ef3263b27c7212f400574ce976d2168872395f4086b1b7fa"
+          }
+        },
+        {
+          "name": "forwarding_destination is treated as a forwarding address",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "EMAIL_FORWARDING_ENABLED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T07:15:00.000Z",
+            "payload": {
+              "parameters": {
+                "forwarding_destination": "destination-param@outside.example"
+              }
+            },
+            "actor": "destination-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.email_forwarding_enabled",
+            "title": "Google Workspace email forwarding enabled",
+            "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+            "severity": "HIGH",
+            "riskScore": 78,
+            "target": "destination-owner@writer.com",
+            "evidence": {
+              "mailbox": "destination-owner@writer.com",
+              "forwardedTo": "destination-param@outside.example",
+              "disposition": "forward",
+              "subject": "destination-owner@writer.com:destination-param@outside.example"
+            },
+            "dedupeKey": "c92699091b2c8a8ccb03b756cd8b6f595daf12f28ddeac13dc819422e0fda3fd"
+          }
+        },
+        {
+          "name": "email_forwarding_destination is treated as a forwarding address",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "EMAIL_FORWARDING_ENABLED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T07:20:00.000Z",
+            "payload": {
+              "parameters": {
+                "email_forwarding_destination": "email-destination@outside.example"
+              }
+            },
+            "actor": "email-destination-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.email_forwarding_enabled",
+            "title": "Google Workspace email forwarding enabled",
+            "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+            "severity": "HIGH",
+            "riskScore": 78,
+            "target": "email-destination-owner@writer.com",
+            "evidence": {
+              "mailbox": "email-destination-owner@writer.com",
+              "forwardedTo": "email-destination@outside.example",
+              "disposition": "forward",
+              "subject": "email-destination-owner@writer.com:email-destination@outside.example"
+            },
+            "dedupeKey": "d7d8099480d100a99040b6fc317633bd89e52029e3dd551059c6013050041932"
+          }
+        },
+        {
+          "name": "generic parameter email extraction finds destination",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "EMAIL_FORWARDING_ENABLED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T07:25:00.000Z",
+            "payload": {
+              "parameters": {
+                "note": "send a copy to generic-dest@outside.example for retention"
+              }
+            },
+            "actor": "generic-forward@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.email_forwarding_enabled",
+            "title": "Google Workspace email forwarding enabled",
+            "description": "A Gmail mailbox was configured to forward messages to another address, which can exfiltrate sensitive email outside the tenant.",
+            "severity": "HIGH",
+            "riskScore": 78,
+            "target": "generic-forward@writer.com",
+            "evidence": {
+              "mailbox": "generic-forward@writer.com",
+              "forwardedTo": "generic-dest@outside.example",
+              "disposition": "forward",
+              "subject": "generic-forward@writer.com:generic-dest@outside.example"
+            },
+            "dedupeKey": "0fc7c023f6fb5b1b7404d2b3cf3c21b607b9cfe4683bdce868f2310be8532657"
+          }
+        }
+      ],
+      "negative": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "GMAIL_SETTINGS_VIEWED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T07:30:00.000Z",
+          "payload": {
+            "parameters": {
+              "forward_to": "external-forward@outside.example"
+            }
+          },
+          "actor": "mailbox-owner@writer.com"
+        }
+      }
+    },
+    {
+      "ruleId": "google_workspace.mailbox_delegation_granted",
+      "disabledCheck": "google_workspace.mailbox_delegation_granted",
+      "positive": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "MAILBOX_DELEGATION_GRANTED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T08:00:00.000Z",
+          "payload": {
+            "parameters": {
+              "delegate": "assistant@writer.com",
+              "delegation_status": "pending"
+            }
+          },
+          "actor": "delegate-owner@writer.com"
+        },
+        "expectedFinding": {
+          "ruleId": "google_workspace.mailbox_delegation_granted",
+          "title": "Google Workspace mailbox delegation granted",
+          "description": "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+          "severity": "HIGH",
+          "riskScore": 84,
+          "target": "delegate-owner@writer.com",
+          "evidence": {
+            "mailbox": "delegate-owner@writer.com",
+            "delegate": "assistant@writer.com",
+            "delegateCount": 1,
+            "delegationStatus": "pending",
+            "subject": "delegate-owner@writer.com:assistant@writer.com"
+          },
+          "dedupeKey": "28e7274bfd5572443fcf7415393b111c913831f5db237e82b03fd4fcfa62c967"
+        }
+      },
+      "variants": [
+        {
+          "name": "delegate_email extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "mailbox.delegation.granted",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T08:05:00.000Z",
+            "payload": {
+              "parameters": {
+                "delegate_email": "delegate-email@writer.com"
+              }
+            },
+            "actor": "delegate-email-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.mailbox_delegation_granted",
+            "title": "Google Workspace mailbox delegation granted",
+            "description": "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+            "severity": "HIGH",
+            "riskScore": 84,
+            "target": "delegate-email-owner@writer.com",
+            "evidence": {
+              "mailbox": "delegate-email-owner@writer.com",
+              "delegate": "delegate-email@writer.com",
+              "delegateCount": 1,
+              "delegationStatus": "accepted",
+              "subject": "delegate-email-owner@writer.com:delegate-email@writer.com"
+            },
+            "dedupeKey": "fcd3df1247cfb83869280b67f9c27c2debec479165855f937d3bce61838df540"
+          }
+        },
+        {
+          "name": "delegateAddress and verificationStatus extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "MAILBOX_DELEGATION_GRANTED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T08:10:00.000Z",
+            "payload": {
+              "parameters": {
+                "delegateAddress": "delegate-address@writer.com",
+                "verificationStatus": "verified"
+              }
+            },
+            "actor": "delegate-address-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.mailbox_delegation_granted",
+            "title": "Google Workspace mailbox delegation granted",
+            "description": "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+            "severity": "HIGH",
+            "riskScore": 84,
+            "target": "delegate-address-owner@writer.com",
+            "evidence": {
+              "mailbox": "delegate-address-owner@writer.com",
+              "delegate": "delegate-address@writer.com",
+              "delegateCount": 1,
+              "delegationStatus": "verified",
+              "subject": "delegate-address-owner@writer.com:delegate-address@writer.com"
+            },
+            "dedupeKey": "e1aea4959aba5610b2613e107ac5625bae138d9e0bccfc1c0383df1cdc80e8c5"
+          }
+        },
+        {
+          "name": "generic delegate key skips self delegate",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "MAILBOX_DELEGATION_GRANTED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T08:15:00.000Z",
+            "payload": {
+              "parameters": {
+                "delegated_to": [
+                  "self-delegate-owner@writer.com",
+                  "assistant-generic@writer.com"
+                ]
+              }
+            },
+            "actor": "self-delegate-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.mailbox_delegation_granted",
+            "title": "Google Workspace mailbox delegation granted",
+            "description": "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+            "severity": "HIGH",
+            "riskScore": 84,
+            "target": "self-delegate-owner@writer.com",
+            "evidence": {
+              "mailbox": "self-delegate-owner@writer.com",
+              "delegate": "assistant-generic@writer.com",
+              "delegateCount": 2,
+              "delegationStatus": "accepted",
+              "subject": "self-delegate-owner@writer.com:assistant-generic@writer.com"
+            },
+            "dedupeKey": "6cdbb963743f7c00634cea1df6bad395cb48b572d4529075da9284b2487349cc"
+          }
+        },
+        {
+          "name": "empty delegate preserves default-positive behavior",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "MAILBOX_DELEGATION_GRANTED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T08:20:00.000Z",
+            "payload": {
+              "parameters": {}
+            },
+            "actor": "empty-delegate-owner@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.mailbox_delegation_granted",
+            "title": "Google Workspace mailbox delegation granted",
+            "description": "A Gmail mailbox granted delegate access to another user, allowing them to read and send mail on behalf of the mailbox owner.",
+            "severity": "HIGH",
+            "riskScore": 84,
+            "target": "empty-delegate-owner@writer.com",
+            "evidence": {
+              "mailbox": "empty-delegate-owner@writer.com",
+              "delegate": "unknown delegate",
+              "delegateCount": 0,
+              "delegationStatus": "accepted",
+              "subject": "empty-delegate-owner@writer.com:unknown delegate"
+            },
+            "dedupeKey": "1008742c16ff31c1e08db1779c3e729b6f5f1437cd7ed164dfe30741135c8ff7"
+          }
+        }
+      ],
+      "negative": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "GMAIL_SETTINGS_VIEWED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T08:30:00.000Z",
+          "payload": {
+            "parameters": {
+              "delegate": "assistant@writer.com"
+            }
+          },
+          "actor": "delegate-owner@writer.com"
+        }
+      }
+    },
+    {
+      "ruleId": "google_workspace.legacy_mail_auth_used",
+      "disabledCheck": "google_workspace.legacy_mail_auth_used",
+      "positive": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "LEGACY_MAIL_AUTH_USED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T09:00:00.000Z",
+          "payload": {
+            "parameters": {
+              "event_description": "App password created for legacy mail client"
+            }
+          },
+          "actor": "legacy-app@writer.com"
+        },
+        "expectedFinding": {
+          "ruleId": "google_workspace.legacy_mail_auth_used",
+          "title": "Google Workspace app password created or used",
+          "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+          "severity": "HIGH",
+          "riskScore": 88,
+          "target": "legacy-app@writer.com",
+          "evidence": {
+            "mailbox": "legacy-app@writer.com",
+            "authMethod": "app_password",
+            "subject": "legacy-app@writer.com:app_password"
+          },
+          "dedupeKey": "9b90d6bc29684e4ad5a51220258a1cc4ece05c5e19f791a5e62e8e79e62ce82d"
+        }
+      },
+      "variants": [
+        {
+          "name": "basic auth extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "legacy.mail.auth.used",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:05:00.000Z",
+            "payload": {
+              "parameters": {
+                "method": "Basic authentication from old client"
+              }
+            },
+            "actor": "legacy-basic@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-basic@writer.com",
+            "evidence": {
+              "mailbox": "legacy-basic@writer.com",
+              "authMethod": "basic_auth",
+              "subject": "legacy-basic@writer.com:basic_auth"
+            },
+            "dedupeKey": "1ad6560c5ed78506db579bf593e6c5c93fa91964f158eb3a029e69be2a93a1c6"
+          }
+        },
+        {
+          "name": "legacy auth extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "LEGACY_MAIL_AUTH_USED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:10:00.000Z",
+            "payload": {
+              "parameters": {
+                "description": "Legacy mail auth allowed"
+              }
+            },
+            "actor": "legacy-auth@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-auth@writer.com",
+            "evidence": {
+              "mailbox": "legacy-auth@writer.com",
+              "authMethod": "legacy_auth",
+              "subject": "legacy-auth@writer.com:legacy_auth"
+            },
+            "dedupeKey": "7eee0c86d45764f5cf9e2ddb1a09edc86a9f47808966428748257a779bc5933d"
+          }
+        },
+        {
+          "name": "IMAP protocol extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "LEGACY_MAIL_AUTH_USED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:15:00.000Z",
+            "payload": {
+              "parameters": {
+                "protocol": "IMAP login from Thunderbird"
+              }
+            },
+            "actor": "legacy-imap@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-imap@writer.com",
+            "evidence": {
+              "mailbox": "legacy-imap@writer.com",
+              "authMethod": "imap",
+              "protocol": "imap",
+              "subject": "legacy-imap@writer.com:imap"
+            },
+            "dedupeKey": "bccc82c2ff45e018a692f6dd1442719def3441b71d645906ffd74f5c94964ee9"
+          }
+        },
+        {
+          "name": "POP protocol extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "LEGACY_MAIL_AUTH_USED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:20:00.000Z",
+            "payload": {
+              "parameters": {
+                "protocol": "POP mailbox sync"
+              }
+            },
+            "actor": "legacy-pop@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-pop@writer.com",
+            "evidence": {
+              "mailbox": "legacy-pop@writer.com",
+              "authMethod": "pop",
+              "protocol": "pop",
+              "subject": "legacy-pop@writer.com:pop"
+            },
+            "dedupeKey": "538a093c04f7019dd48c61bb65c0beb9bc712b6a8795a604bc131f6409d7e1fa"
+          }
+        },
+        {
+          "name": "SMTP protocol extraction variant",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "LEGACY_MAIL_AUTH_USED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:25:00.000Z",
+            "payload": {
+              "parameters": {
+                "protocol": "SMTP client send"
+              }
+            },
+            "actor": "legacy-smtp@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-smtp@writer.com",
+            "evidence": {
+              "mailbox": "legacy-smtp@writer.com",
+              "authMethod": "smtp",
+              "protocol": "smtp",
+              "subject": "legacy-smtp@writer.com:smtp"
+            },
+            "dedupeKey": "c42c2e459171687379d1d087b9441ccfcd85616c9abf83c0127b84209a70770e"
+          }
+        },
+        {
+          "name": "empty extraction preserves default legacy-auth evidence",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "LEGACY_MAIL_AUTH_USED",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T09:30:00.000Z",
+            "payload": {
+              "parameters": {}
+            },
+            "actor": "legacy-default@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.legacy_mail_auth_used",
+            "title": "Google Workspace legacy mail authentication used",
+            "description": "A mailbox used app passwords or a legacy mail protocol, which weakens account protections and can allow long-lived mailbox access outside modern OAuth controls.",
+            "severity": "HIGH",
+            "riskScore": 82,
+            "target": "legacy-default@writer.com",
+            "evidence": {
+              "mailbox": "legacy-default@writer.com",
+              "authMethod": "legacy_mail_auth",
+              "subject": "legacy-default@writer.com:legacy_mail_auth"
+            },
+            "dedupeKey": "cbb0b49043391906d46e287fe25b08973bfeb537a0f5890296cd9bcffefb66ec"
+          }
+        }
+      ],
+      "negative": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "USER_LOGIN",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T09:35:00.000Z",
+          "payload": {
+            "parameters": {
+              "protocol": "IMAP login from Thunderbird"
+            }
+          },
+          "actor": "legacy-imap@writer.com"
+        }
+      }
+    },
+    {
+      "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
+      "disabledCheck": "google_workspace.forwarding_delegate_send_as_combo",
+      "positive": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "FORWARDING_DELEGATE_SEND_AS_COMBO",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T10:00:00.000Z",
+          "payload": {
+            "parameters": {
+              "forwarding_address": "combo-forward@outside.example",
+              "delegates": [
+                "delegate-one@writer.com"
+              ]
+            }
+          },
+          "actor": "combo-delegate@writer.com"
+        },
+        "expectedFinding": {
+          "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
+          "title": "Google Workspace forwarding with delegate/send-as combo",
+          "description": "A mailbox has forwarding enabled alongside delegate or send-as access, creating multiple parallel paths for mailbox exfiltration or impersonation.",
+          "severity": "CRITICAL",
+          "riskScore": 93,
+          "target": "combo-delegate@writer.com",
+          "evidence": {
+            "mailbox": "combo-delegate@writer.com",
+            "forwardedTo": "combo-forward@outside.example",
+            "delegates": [
+              "delegate-one@writer.com"
+            ],
+            "delegateCount": 1,
+            "sendAsCount": 0,
+            "comboKinds": [
+              "delegate"
+            ],
+            "subject": "combo-delegate@writer.com"
+          },
+          "dedupeKey": "4da535d0bc4d72059c9f771afcb9a08d8ee4c82f4309e07213f542068f8fe7f5"
+        }
+      },
+      "variants": [
+        {
+          "name": "forwarding plus send-as alias",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "forwarding.delegate.send.as.combo",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T10:05:00.000Z",
+            "payload": {
+              "parameters": {
+                "forwarding_email": "sendas-forward@outside.example",
+                "send_as_aliases": [
+                  "alias@writer.com"
+                ]
+              }
+            },
+            "actor": "combo-sendas@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
+            "title": "Google Workspace forwarding with delegate/send-as combo",
+            "description": "A mailbox has forwarding enabled alongside delegate or send-as access, creating multiple parallel paths for mailbox exfiltration or impersonation.",
+            "severity": "CRITICAL",
+            "riskScore": 93,
+            "target": "combo-sendas@writer.com",
+            "evidence": {
+              "mailbox": "combo-sendas@writer.com",
+              "forwardedTo": "sendas-forward@outside.example",
+              "delegateCount": 0,
+              "sendAsAliases": [
+                "alias@writer.com"
+              ],
+              "sendAsCount": 1,
+              "comboKinds": [
+                "send-as"
+              ],
+              "subject": "combo-sendas@writer.com"
+            },
+            "dedupeKey": "22cbc965731ddb24aa88b5cf845a052c21e68cbb9269ed4b88a9f72d63ace033"
+          }
+        },
+        {
+          "name": "forwarding plus delegate and send-as aliases",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "FORWARDING_DELEGATE_SEND_AS_COMBO",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T10:10:00.000Z",
+            "payload": {
+              "parameters": {
+                "forward_to": "both-forward@outside.example",
+                "delegates": [
+                  "delegate-both@writer.com"
+                ],
+                "send_as_aliases": [
+                  "alias-both@writer.com"
+                ]
+              }
+            },
+            "actor": "combo-both@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
+            "title": "Google Workspace forwarding with delegate/send-as combo",
+            "description": "A mailbox has forwarding enabled alongside delegate or send-as access, creating multiple parallel paths for mailbox exfiltration or impersonation.",
+            "severity": "CRITICAL",
+            "riskScore": 93,
+            "target": "combo-both@writer.com",
+            "evidence": {
+              "mailbox": "combo-both@writer.com",
+              "forwardedTo": "both-forward@outside.example",
+              "delegates": [
+                "delegate-both@writer.com"
+              ],
+              "delegateCount": 1,
+              "sendAsAliases": [
+                "alias-both@writer.com"
+              ],
+              "sendAsCount": 1,
+              "comboKinds": [
+                "delegate",
+                "send-as"
+              ],
+              "subject": "combo-both@writer.com"
+            },
+            "dedupeKey": "84e59a763d6f8a4202910507e2335889304c63d76661f529fac1401f0111248b"
+          }
+        },
+        {
+          "name": "empty combo preserves default-positive behavior",
+          "payload": {
+            "organizationId": "org_1",
+            "integrationId": "int_google_1",
+            "provider": "GOOGLE_WORKSPACE",
+            "eventType": "FORWARDING_DELEGATE_SEND_AS_COMBO",
+            "source": "google.workspace.audit",
+            "occurredAt": "2026-06-07T10:15:00.000Z",
+            "payload": {
+              "parameters": {}
+            },
+            "actor": "combo-default@writer.com"
+          },
+          "expectedFinding": {
+            "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
+            "title": "Google Workspace forwarding with delegate/send-as combo",
+            "description": "A mailbox has forwarding enabled alongside delegate or send-as access, creating multiple parallel paths for mailbox exfiltration or impersonation.",
+            "severity": "CRITICAL",
+            "riskScore": 93,
+            "target": "combo-default@writer.com",
+            "evidence": {
+              "mailbox": "combo-default@writer.com",
+              "forwardedTo": "unknown forwarding address",
+              "delegateCount": 0,
+              "sendAsCount": 0,
+              "subject": "combo-default@writer.com"
+            },
+            "dedupeKey": "06c18278ade0ed4f8c1eb93f66bf1bfb120c2668f9d049cdf481d6b4a4e5b8fe"
+          }
+        }
+      ],
+      "negative": {
+        "payload": {
+          "organizationId": "org_1",
+          "integrationId": "int_google_1",
+          "provider": "GOOGLE_WORKSPACE",
+          "eventType": "GMAIL_SETTINGS_VIEWED",
+          "source": "google.workspace.audit",
+          "occurredAt": "2026-06-07T10:30:00.000Z",
+          "payload": {
+            "parameters": {
+              "forwarding_address": "combo-forward@outside.example",
+              "delegates": [
+                "delegate-one@writer.com"
+              ]
+            }
+          },
+          "actor": "combo-delegate@writer.com"
+        }
+      }
     }
   ]
 }
