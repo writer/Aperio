@@ -1,0 +1,161 @@
+{
+  "positive": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.account.privilege.grant",
+      "source": "okta.system_log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T02:00:00.000Z",
+      "payload": {
+        "actor": {
+          "alternateId": "admin@example.com",
+          "type": "User"
+        },
+        "target": [
+          {
+            "alternateId": "new-admin@example.com",
+            "type": "User"
+          },
+          {
+            "displayName": "SUPER_ADMIN",
+            "type": "Role"
+          }
+        ],
+        "debugContext": {
+          "debugData": {
+            "role": "SUPER_ADMIN"
+          }
+        }
+      }
+    },
+    "expectedFinding": {
+      "ruleId": "okta.admin_role_assigned",
+      "title": "Okta admin role assigned",
+      "description": "An Okta account was granted a highly privileged administrator role.",
+      "severity": "CRITICAL",
+      "riskScore": 93,
+      "target": "new-admin@example.com",
+      "evidence": {
+        "user": "new-admin@example.com",
+        "grantedRole": "SUPER_ADMIN",
+        "actor": "admin@example.com",
+        "subject": "new-admin@example.com:SUPER_ADMIN"
+      },
+      "dedupeKey": "b365c95f39e905f92065f7e4a0ea30520c923fa32cd3d2c45694d412ebc37db1"
+    }
+  },
+  "aliases": [
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "USER_ACCOUNT_PRIVILEGE_GRANTED",
+        "source": "okta.system_log",
+        "actor": "admin@example.com",
+        "occurredAt": "2026-06-06T02:05:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "admin@example.com",
+            "type": "User"
+          },
+          "target": [
+            {
+              "alternateId": "new-admin@example.com",
+              "type": "User"
+            },
+            {
+              "displayName": "Organization Administrator",
+              "type": "Role"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "ADMIN_ROLE_ASSIGNED",
+        "source": "okta.system_log",
+        "actor": "admin@example.com",
+        "occurredAt": "2026-06-06T02:10:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "admin@example.com",
+            "type": "User"
+          },
+          "target": [
+            {
+              "alternateId": "new-admin@example.com",
+              "type": "User"
+            },
+            {
+              "displayName": "APP_ADMIN",
+              "type": "Role"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "role.assignment.created",
+        "source": "okta.system_log",
+        "actor": "admin@example.com",
+        "occurredAt": "2026-06-06T02:15:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "admin@example.com",
+            "type": "User"
+          },
+          "target": [
+            {
+              "alternateId": "new-admin@example.com",
+              "type": "User"
+            },
+            {
+              "displayName": "Application Administrator",
+              "type": "Role"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "negative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.account.privilege.grant",
+      "source": "okta.system_log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T02:20:00.000Z",
+      "payload": {
+        "target": [
+          {
+            "alternateId": "analyst@example.com",
+            "type": "User"
+          },
+          {
+            "displayName": "HELP_DESK_ADMIN",
+            "type": "Role"
+          }
+        ],
+        "debugContext": {
+          "debugData": {
+            "role": "HELP_DESK_ADMIN"
+          }
+        }
+      }
+    }
+  },
+  "disabledCheck": "okta.admin_role_assigned"
+}

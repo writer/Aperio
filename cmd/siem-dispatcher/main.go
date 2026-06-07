@@ -18,6 +18,7 @@ func main() {
 	once := flag.Bool("once", false, "drain once and exit")
 	limit := flag.Int("limit", 25, "maximum deliveries to claim per drain")
 	interval := flag.Duration("interval", 5*time.Second, "poll interval")
+	organizationID := flag.String("organization", "", "optional organization scope for local validation")
 	flag.Parse()
 
 	cfg := config.FromEnv()
@@ -35,6 +36,14 @@ func main() {
 	db.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxIdleMinutes) * time.Minute)
 
 	dispatcher := siemdispatcher.New(db)
+	if *organizationID != "" {
+		dispatcher.SetOrganizationScope(*organizationID)
+	}
+	if enabled, err := siemdispatcher.EnableLocalCaptureFromEnv(dispatcher); err != nil {
+		log.Fatal(err)
+	} else if enabled {
+		log.Print("SIEM local capture smoke transport enabled")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

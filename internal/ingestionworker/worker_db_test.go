@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +15,17 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"github.com/writer/aperio/internal/telemetry"
+)
+
+const (
+	testIngestionWorkerEncryptionKey  = "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	testIngestionWorkerAccessToken    = "development-demo-provider-token"
+	testIngestionWorkerRefreshToken   = "development-demo-refresh-token"
+	testIngestionWorkerWebhookSecret  = "development-demo-webhook-secret"
+	testIngestionWorkerMailboxPrivKey = "-----BEGIN EXAMPLE PRIVATE KEY-----\ndevelopment-demo-mailbox-key\n-----END EXAMPLE PRIVATE KEY-----"
 )
 
 func openDBBackedIngestionWorkerDB(t *testing.T) *sql.DB {
@@ -53,6 +64,59 @@ func testWorkerID(prefix string) string {
 	return prefix + "_" + randomID()
 }
 
+func ensureIngestionWorkerTestEncryptionKey(t *testing.T) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY")) == "" {
+		t.Setenv("APERIO_ENCRYPTION_KEY", testIngestionWorkerEncryptionKey)
+	}
+}
+
+func encryptIngestionWorkerSecret(t *testing.T, orgID, integrationID, provider, externalAccountID, suffix, plaintext string, legacy bool) string {
+	t.Helper()
+	ensureIngestionWorkerTestEncryptionKey(t)
+	aad := runtimeutil.IntegrationSecretAAD(orgID, provider, externalAccountID, suffix)
+	if legacy {
+		aad = runtimeutil.LegacyIntegrationSecretAAD(orgID, integrationID, suffix)
+	}
+	encrypted, err := runtimeutil.EncryptString(plaintext, aad)
+	if err != nil {
+		t.Fatalf("encrypt %s credential fixture: %v", suffix, err)
+	}
+	return encrypted
+}
+
+func encryptIngestionWorkerMailboxKey(t *testing.T, orgID, integrationID, externalAccountID, plaintext string, legacy bool) string {
+	t.Helper()
+	ensureIngestionWorkerTestEncryptionKey(t)
+	aad := runtimeutil.IntegrationSecretAAD(orgID, "GOOGLE_WORKSPACE", externalAccountID, "gmail_scan_private_key")
+	if legacy {
+		aad = runtimeutil.LegacyIntegrationSecretAAD(orgID, integrationID, "google_mailbox_private_key")
+	}
+	encrypted, err := runtimeutil.EncryptString(plaintext, aad)
+	if err != nil {
+		t.Fatalf("encrypt Google mailbox credential fixture: %v", err)
+	}
+	return encrypted
+}
+
+func tamperIngestionWorkerEnvelopeTag(t *testing.T, encrypted string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatalf("decode credential envelope: %v", err)
+	}
+	var envelope runtimeutil.EncryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode credential envelope JSON: %v", err)
+	}
+	envelope.Tag = base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("encode tampered credential envelope: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
 func seedIngestionWorkerOrg(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	orgID := testWorkerID("org")
@@ -72,16 +136,29 @@ func seedIngestionWorkerOrg(t *testing.T, db *sql.DB) string {
 func seedIngestionWorkerIntegration(t *testing.T, db *sql.DB, orgID, provider, status string) string {
 	t.Helper()
 	integrationID := testWorkerID("int")
+	externalAccountID := integrationID
+	encryptedAccessToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "access_token", testIngestionWorkerAccessToken, false)
+	encryptedRefreshToken := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "refresh_token", testIngestionWorkerRefreshToken, false)
+	encryptedWebhookSecret := encryptIngestionWorkerSecret(t, orgID, integrationID, provider, externalAccountID, "webhook_secret", testIngestionWorkerWebhookSecret, false)
+	var googleMailboxClientEmail any
+	var encryptedGoogleMailboxPrivateKey any
+	if provider == "GOOGLE_WORKSPACE" {
+		googleMailboxClientEmail = "mailbox-scanner@example.com"
+		encryptedGoogleMailboxPrivateKey = encryptIngestionWorkerMailboxKey(t, orgID, integrationID, externalAccountID, testIngestionWorkerMailboxPrivKey, false)
+	}
 	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO integration_connections (
 			id, organization_id, provider, display_name, external_account_id, scopes, disabled_checks,
-			encrypted_access_token, status, mode, created_at, updated_at
+			encrypted_access_token, encrypted_refresh_token, encrypted_webhook_secret,
+			google_mailbox_scan_client_email, encrypted_google_mailbox_scan_private_key,
+			status, mode, created_at, updated_at
 		)
 		VALUES (
 			$1, $2, $3::"SaaSProvider", $4, $5, ARRAY[]::text[], ARRAY[]::text[],
-			'test-token', $6::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
+			$6, $7, $8, $9, $10,
+			$11::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
 		)
-	`, integrationID, orgID, provider, provider+" Worker Test", integrationID, status); err != nil {
+	`, integrationID, orgID, provider, provider+" Worker Test", externalAccountID, encryptedAccessToken, encryptedRefreshToken, encryptedWebhookSecret, googleMailboxClientEmail, encryptedGoogleMailboxPrivateKey, status); err != nil {
 		t.Fatalf("seed %s integration: %v", provider, err)
 	}
 	return integrationID
@@ -146,6 +223,91 @@ func ingestionJobNextAttemptAt(t *testing.T, db *sql.DB, jobID string) time.Time
 	return nextAttemptAt
 }
 
+func ingestionSideEffectCounts(t *testing.T, db *sql.DB, orgID string) (events int, findings int, deliveries int) {
+	t.Helper()
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ingested_events WHERE organization_id = $1`, orgID).Scan(&events); err != nil {
+		t.Fatalf("count ingested events: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM security_findings WHERE organization_id = $1`, orgID).Scan(&findings); err != nil {
+		t.Fatalf("count security findings: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM siem_deliveries WHERE organization_id = $1`, orgID).Scan(&deliveries); err != nil {
+		t.Fatalf("count SIEM deliveries: %v", err)
+	}
+	return events, findings, deliveries
+}
+
+func assertNoIngestionSideEffects(t *testing.T, db *sql.DB, orgID string) {
+	t.Helper()
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("expected no ingestion side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func seedOktaFixtureJob(t *testing.T, db *sql.DB, orgID, integrationID string, fixturePayload oktaFixturePayload) string {
+	t.Helper()
+	payloadJSON, err := json.Marshal(fixturePayload.Payload)
+	if err != nil {
+		t.Fatalf("marshal Okta fixture payload: %v", err)
+	}
+	return seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "OKTA", eventType: fixturePayload.EventType, status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+}
+
+func oktaJobPayloadForDB(t *testing.T, fixturePayload oktaFixturePayload, orgID, integrationID string) JobPayload {
+	t.Helper()
+	payload := fixturePayload.jobPayload(t)
+	payload.OrganizationID = orgID
+	payload.IntegrationID = integrationID
+	return payload
+}
+
+func seedGoogleFixtureJob(t *testing.T, db *sql.DB, orgID, integrationID string, fixturePayload googleFixturePayload) string {
+	t.Helper()
+	payloadJSON, err := json.Marshal(fixturePayload.Payload)
+	if err != nil {
+		t.Fatalf("marshal Google Workspace fixture payload: %v", err)
+	}
+	jobID := testWorkerID("job")
+	var actor sql.NullString
+	if strings.TrimSpace(fixturePayload.Actor) != "" {
+		actor = sql.NullString{String: fixturePayload.Actor, Valid: true}
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO ingestion_jobs (
+			id, organization_id, integration_id, provider, event_type, source, actor, occurred_at,
+			payload, status, attempts, max_attempts, next_attempt_at, lease_owner, lease_expires_at,
+			created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3, 'GOOGLE_WORKSPACE'::"SaaSProvider", $4, $5, $6, $7,
+			$8, 'QUEUED'::"IngestionJobStatus", 0, 3, NOW() - INTERVAL '1 minute', NULL,
+			NULL, NOW(), NOW()
+		)
+	`, jobID, orgID, integrationID, fixturePayload.EventType, fixturePayload.Source, actor, time.Now().UTC().Add(-time.Minute), payloadJSON); err != nil {
+		t.Fatalf("seed Google Workspace fixture job: %v", err)
+	}
+	return jobID
+}
+
+func googleJobPayloadForDB(t *testing.T, fixturePayload googleFixturePayload, orgID, integrationID string) JobPayload {
+	t.Helper()
+	payload := fixturePayload.jobPayload(t)
+	payload.OrganizationID = orgID
+	payload.IntegrationID = integrationID
+	return payload
+}
+
 func captureIngestionTelemetry(t *testing.T) (*bytes.Buffer, func()) {
 	t.Helper()
 	var sink bytes.Buffer
@@ -182,9 +344,43 @@ func requireTelemetryOutcome(t *testing.T, events []map[string]any, outcome stri
 }
 
 type recordingLifecyclePublisher struct {
-	t    *testing.T
-	db   *sql.DB
-	seen []FindingLifecycleEvent
+	t         *testing.T
+	db        *sql.DB
+	seen      []FindingLifecycleEvent
+	jobEvents []IngestionJobLifecycleEvent
+}
+
+func (p *recordingLifecyclePublisher) PublishIngestionJobLifecycle(ctx context.Context, event IngestionJobLifecycleEvent) error {
+	p.t.Helper()
+	var status string
+	var processedAt sql.NullTime
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text, processed_at
+		FROM ingestion_jobs
+		WHERE id = $1 AND organization_id = $2
+	`, event.JobID, event.OrganizationID).Scan(&status, &processedAt); err != nil {
+		p.t.Fatalf("ingestion job lifecycle event published before committed job was visible: %v", err)
+	}
+	switch event.Status {
+	case "running":
+		if status != "RUNNING" {
+			p.t.Fatalf("running lifecycle event saw job status %s", status)
+		}
+	case "succeeded":
+		if status != "SUCCEEDED" || !processedAt.Valid {
+			p.t.Fatalf("succeeded lifecycle event saw job status=%s processedAt=%v", status, processedAt)
+		}
+	case "failed":
+		if status != "FAILED" {
+			p.t.Fatalf("failed lifecycle event saw job status %s", status)
+		}
+	case "dead_letter":
+		if status != "DEAD_LETTER" {
+			p.t.Fatalf("dead-letter lifecycle event saw job status %s", status)
+		}
+	}
+	p.jobEvents = append(p.jobEvents, event)
+	return nil
 }
 
 func (p *recordingLifecyclePublisher) PublishFindingLifecycle(ctx context.Context, event FindingLifecycleEvent) error {
@@ -204,7 +400,7 @@ func (p *recordingLifecyclePublisher) PublishFindingLifecycle(ctx context.Contex
 	return nil
 }
 
-func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
+func TestDrainDeadLettersUnsupportedIngestionJobsWithoutSideEffects(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)
 	integrations := map[string]string{
@@ -212,6 +408,7 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		"SLACK":            seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED"),
 		"OKTA":             seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED"),
 		"GOOGLE_WORKSPACE": seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED"),
+		"MICROSOFT_365":    seedIngestionWorkerIntegration(t, db, orgID, "MICROSOFT_365", "CONNECTED"),
 	}
 
 	type unsupportedCase struct {
@@ -225,10 +422,11 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 	}
 	cases := []unsupportedCase{
 		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
-		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
-		{name: "okta fallback rule", provider: "OKTA", eventType: "ADMIN_ROLE_ASSIGNED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"},{"type":"Role","displayName":"Super Admin"}]}`)},
-		{name: "google fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EXTERNAL_SHARING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"resource":{"name":"Board Deck"},"parameters":{"visibility":"public_on_the_web"}}`)},
+		{name: "slack failed unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 1, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
+		{name: "okta unsupported event", provider: "OKTA", eventType: "USER_LIFECYCLE_DEACTIVATE", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"}]}`)},
+		{name: "google unsupported event", provider: "GOOGLE_WORKSPACE", eventType: "USER_LOGIN", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"parameters":{"forward_to":"external@example.com"}}`)},
 		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
+		{name: "unsupported provider", provider: "MICROSOFT_365", eventType: "USER_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"userPrincipalName":"user@example.com"}`)},
 	}
 
 	jobIDs := map[string]string{}
@@ -246,19 +444,54 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		}{orgID: orgID, integrationID: integrations[input.provider], provider: input.provider, eventType: input.eventType, status: input.status, attempts: input.attempts, maxAttempts: input.maxAttempts, payload: input.payload})
 	}
 
-	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 10)
+	publisher := &recordingLifecyclePublisher{t: t, db: db}
+	sink, restore := captureIngestionTelemetry(t)
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 10)
+	restore()
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
-		t.Fatalf("expected unsupported jobs to remain unprocessed, got %#v", result)
+	if result.Processed != len(cases) || result.Succeeded != 0 || result.Failed != len(cases) {
+		t.Fatalf("expected unsupported jobs to be dead-lettered without fallback, got %#v", result)
 	}
 
 	for _, input := range cases {
 		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobIDs[input.name])
-		if status != input.status || attempts != input.attempts || leaseOwner.Valid || processedAt.Valid || lastError.Valid {
-			t.Fatalf("%s changed: status=%s attempts=%d lease=%v processed=%v error=%v", input.name, status, attempts, leaseOwner, processedAt, lastError)
+		if status != "DEAD_LETTER" || attempts != input.attempts+1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+			t.Fatalf("%s state = status=%s attempts=%d lease=%v processed=%v error=%v", input.name, status, attempts, leaseOwner, processedAt, lastError)
 		}
+		if !strings.Contains(lastError.String, "unsupported ingestion work") || !strings.Contains(lastError.String, "final Go ingestion matrix") {
+			t.Fatalf("%s last_error = %q, want explicit final unsupported-work policy", input.name, lastError.String)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("unsupported work should not create event/finding/SIEM side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+	wideEvents := decodeWideEvents(t, sink)
+	deadLetters := 0
+	for _, event := range wideEvents {
+		if event["outcome"] == "dead_letter" {
+			deadLetters++
+			if event["error_kind"] != "unsupported" {
+				t.Fatalf("unsupported telemetry missing error_kind=unsupported: %#v", event)
+			}
+		}
+	}
+	if deadLetters != len(cases) {
+		t.Fatalf("expected unsupported dead-letter telemetry for every job, got %d events in %#v", deadLetters, wideEvents)
+	}
+	jobDeadLetters := 0
+	for _, event := range publisher.jobEvents {
+		if event.Status == "dead_letter" {
+			jobDeadLetters++
+			if event.SourceEventID != "" {
+				t.Fatalf("unsupported job lifecycle should not claim a source event id: %#v", event)
+			}
+		}
+	}
+	if jobDeadLetters != len(cases) {
+		t.Fatalf("expected dead-letter lifecycle events for unsupported jobs, got %#v", publisher.jobEvents)
 	}
 }
 
@@ -513,6 +746,652 @@ func TestDrainProcessesSupportedSlackDisabledCheckWithoutFinding(t *testing.T) {
 	}
 	if eventCount != 1 || findingCount != 0 {
 		t.Fatalf("disabled check should persist event only, got events=%d findings=%d", eventCount, findingCount)
+	}
+}
+
+func TestDrainPersistsSupportedOktaRuleSideEffects(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'okta-rule-side-effects.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	type expectedOktaFinding struct {
+		jobID   string
+		payload JobPayload
+		finding Finding
+		dedupe  string
+	}
+	expected := map[string]expectedOktaFinding{}
+	for _, fixture := range readOktaParityFixtures(t) {
+		jobID := seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload)
+		payload := oktaJobPayloadForDB(t, fixture.Positive.Payload, orgID, integrationID)
+		findings := Evaluate(payload, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected fixture %s to produce one finding, got %#v", fixture.Positive.ExpectedFinding.RuleID, findings)
+		}
+		finding := findings[0]
+		expected[finding.RuleID] = expectedOktaFinding{
+			jobID:   jobID,
+			payload: payload,
+			finding: finding,
+			dedupe:  DedupeKey(payload, finding),
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(expected))
+	if err != nil {
+		t.Fatalf("drain Okta rule jobs: %v", err)
+	}
+	if result.Processed != len(expected) || result.Succeeded != len(expected) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta rule drain result: %#v", result)
+	}
+
+	for ruleID, want := range expected {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, want.jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("%s job state = status=%s attempts=%d lease=%v processed=%v error=%v", ruleID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+
+		var persistedFindingID, title, severity string
+		var riskScore int
+		var rawEvidence json.RawMessage
+		if err := db.QueryRowContext(context.Background(), `
+			SELECT id, title, severity::text, risk_score, evidence
+			FROM security_findings
+			WHERE organization_id = $1 AND dedupe_key = $2
+		`, orgID, want.dedupe).Scan(&persistedFindingID, &title, &severity, &riskScore, &rawEvidence); err != nil {
+			t.Fatalf("query %s security finding: %v", ruleID, err)
+		}
+		var evidence map[string]any
+		if err := json.Unmarshal(rawEvidence, &evidence); err != nil {
+			t.Fatalf("decode %s security finding evidence: %v", ruleID, err)
+		}
+		if persistedFindingID == "" || title != want.finding.Title || severity != want.finding.Severity || riskScore != want.finding.RiskScore {
+			t.Fatalf("%s finding fields = id=%s title=%s severity=%s risk=%d", ruleID, persistedFindingID, title, severity, riskScore)
+		}
+		if evidence["ruleId"] != ruleID || evidence["target"] != want.finding.Target || evidence["sourceEventId"] == "" {
+			t.Fatalf("%s finding evidence missing required fields: %#v", ruleID, evidence)
+		}
+		for key, value := range want.finding.Evidence {
+			assertJSONEqual(t, evidence[key], value)
+		}
+	}
+
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(expected) || findings != len(expected) || deliveries != len(expected) {
+		t.Fatalf("expected Okta event/finding/delivery side effects for every rule, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesOktaDisabledChecksWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'okta-disabled-checks.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	fixtures := readOktaParityFixtures(t)
+	disabledChecks := make([]string, 0, len(fixtures))
+	jobIDs := []string{}
+	for _, fixture := range fixtures {
+		disabledChecks = append(disabledChecks, fixture.DisabledCheck)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET disabled_checks = $1::text[]
+		WHERE id = $2
+	`, postgresTextArray(disabledChecks), integrationID); err != nil {
+		t.Fatalf("disable Okta checks: %v", err)
+	}
+	for _, fixture := range fixtures {
+		jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload))
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Okta disabled checks: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta disabled-check drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("disabled-check job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("disabled Okta checks should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesOktaNegativeFixturesWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+
+	jobIDs := []string{}
+	for _, fixture := range readOktaParityFixtures(t) {
+		jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Negative.Payload))
+		for _, negative := range fixture.AdditionalNegatives {
+			jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, negative.Payload))
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Okta negative fixtures: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta negative drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("negative fixture job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("negative Okta fixtures should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainPersistsSupportedGoogleAdminOAuthRuleSideEffects(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET google_mailbox_scan_client_email = NULL,
+			encrypted_google_mailbox_scan_private_key = NULL
+		WHERE id = $1 AND organization_id = $2
+	`, integrationID, orgID); err != nil {
+		t.Fatalf("seed OAuth-only Google Workspace integration: %v", err)
+	}
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'google-admin-oauth-side-effects.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	type expectedGoogleFinding struct {
+		name    string
+		jobID   string
+		payload JobPayload
+		finding Finding
+		dedupe  string
+	}
+	expected := []expectedGoogleFinding{}
+	for _, fixture := range readGoogleParityFixtures(t) {
+		cases := []struct {
+			name    string
+			payload googleFixturePayload
+		}{
+			{name: fixture.Positive.ExpectedFinding.RuleID, payload: fixture.Positive.Payload},
+		}
+		for _, variant := range fixture.Variants {
+			cases = append(cases, struct {
+				name    string
+				payload googleFixturePayload
+			}{name: fixture.RuleID + "/" + variant.Name, payload: variant.Payload})
+		}
+		for _, item := range cases {
+			jobID := seedGoogleFixtureJob(t, db, orgID, integrationID, item.payload)
+			payload := googleJobPayloadForDB(t, item.payload, orgID, integrationID)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected fixture %s to produce one finding, got %#v", item.name, findings)
+			}
+			finding := findings[0]
+			expected = append(expected, expectedGoogleFinding{
+				name:    item.name,
+				jobID:   jobID,
+				payload: payload,
+				finding: finding,
+				dedupe:  DedupeKey(payload, finding),
+			})
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(expected))
+	if err != nil {
+		t.Fatalf("drain Google Workspace rule jobs: %v", err)
+	}
+	if result.Processed != len(expected) || result.Succeeded != len(expected) || result.Failed != 0 {
+		t.Fatalf("unexpected Google Workspace rule drain result: %#v", result)
+	}
+
+	seenEmptyScopeEvidence := false
+	for _, want := range expected {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, want.jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("%s job state = status=%s attempts=%d lease=%v processed=%v error=%v", want.name, status, attempts, leaseOwner, processedAt, lastError)
+		}
+
+		var persistedFindingID, title, severity string
+		var riskScore int
+		var rawEvidence json.RawMessage
+		if err := db.QueryRowContext(context.Background(), `
+			SELECT id, title, severity::text, risk_score, evidence
+			FROM security_findings
+			WHERE organization_id = $1 AND dedupe_key = $2
+		`, orgID, want.dedupe).Scan(&persistedFindingID, &title, &severity, &riskScore, &rawEvidence); err != nil {
+			t.Fatalf("query %s security finding: %v", want.name, err)
+		}
+		var evidence map[string]any
+		if err := json.Unmarshal(rawEvidence, &evidence); err != nil {
+			t.Fatalf("decode %s security finding evidence: %v", want.name, err)
+		}
+		if persistedFindingID == "" || title != want.finding.Title || severity != want.finding.Severity || riskScore != want.finding.RiskScore {
+			t.Fatalf("%s finding fields = id=%s title=%s severity=%s risk=%d", want.name, persistedFindingID, title, severity, riskScore)
+		}
+		if evidence["ruleId"] != want.finding.RuleID || evidence["target"] != want.finding.Target || evidence["sourceEventId"] == "" {
+			t.Fatalf("%s finding evidence missing required fields: %#v", want.name, evidence)
+		}
+		for key, value := range want.finding.Evidence {
+			assertJSONEqual(t, evidence[key], value)
+		}
+		if want.finding.RuleID == "google_workspace.risky_oauth_grant" && want.finding.Target == "Unknown Scope App" {
+			if evidence["scopeCount"] != float64(0) || evidence["matchedScopes"] != nil {
+				t.Fatalf("empty-scope risky OAuth evidence = %#v", evidence)
+			}
+			seenEmptyScopeEvidence = true
+		}
+	}
+	if !seenEmptyScopeEvidence {
+		t.Fatal("expected DB evidence coverage for empty-scope risky OAuth default-positive behavior")
+	}
+
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(expected) || findings != len(expected) || deliveries != len(expected) {
+		t.Fatalf("expected Google Workspace event/finding/delivery side effects for every case, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesGoogleAdminOAuthDisabledChecksWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'google-disabled-checks.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	fixtures := readGoogleParityFixtures(t)
+	disabledChecks := make([]string, 0, len(fixtures))
+	jobIDs := []string{}
+	for _, fixture := range fixtures {
+		disabledChecks = append(disabledChecks, fixture.DisabledCheck)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET disabled_checks = $1::text[]
+		WHERE id = $2
+	`, postgresTextArray(disabledChecks), integrationID); err != nil {
+		t.Fatalf("disable Google Workspace checks: %v", err)
+	}
+	for _, fixture := range fixtures {
+		jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload))
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Google Workspace disabled checks: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Google Workspace disabled-check drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("disabled-check job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("disabled Google Workspace checks should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainDeadLettersUnsupportedGoogleNegativeFixturesWithoutSideEffects(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+
+	jobIDs := []string{}
+	for _, fixture := range readGoogleParityFixtures(t) {
+		jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, fixture.Negative.Payload))
+		for _, negative := range fixture.AdditionalNegatives {
+			jobIDs = append(jobIDs, seedGoogleFixtureJob(t, db, orgID, integrationID, negative.Payload))
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Google Workspace negative fixtures: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != 0 || result.Failed != len(jobIDs) {
+		t.Fatalf("unexpected Google Workspace negative drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+			t.Fatalf("negative fixture job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+		if !strings.Contains(lastError.String, "unsupported ingestion work") {
+			t.Fatalf("negative fixture job %s last_error = %q", jobID, lastError.String)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 0 || findings != 0 || deliveries != 0 {
+		t.Fatalf("unsupported Google Workspace negative fixtures should have no side effects, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestSupportedIngestionCredentialGateAllowsCanonicalAndLegacyCredentials(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	canonicalIntegrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+	legacyIntegrationID := seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED")
+	legacyAccessToken := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "access_token", testIngestionWorkerAccessToken, true)
+	legacyRefreshToken := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "refresh_token", testIngestionWorkerRefreshToken, true)
+	legacyWebhookSecret := encryptIngestionWorkerSecret(t, orgID, legacyIntegrationID, "GITHUB", legacyIntegrationID, "webhook_secret", testIngestionWorkerWebhookSecret, true)
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET encrypted_access_token = $1, encrypted_refresh_token = $2, encrypted_webhook_secret = $3
+		WHERE id = $4
+	`, legacyAccessToken, legacyRefreshToken, legacyWebhookSecret, legacyIntegrationID); err != nil {
+		t.Fatalf("seed legacy credential envelopes: %v", err)
+	}
+
+	slackJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: canonicalIntegrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+	githubJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: legacyIntegrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/aperio","visibility":"public"}}`)})
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("drain canonical and legacy credential jobs: %v", err)
+	}
+	if result.Processed != 2 || result.Succeeded != 2 || result.Failed != 0 {
+		t.Fatalf("unexpected credential success drain result: %#v", result)
+	}
+	for _, jobID := range []string{slackJobID, githubJobID} {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("credential success job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != 2 || findings != 2 || deliveries != 0 {
+		t.Fatalf("expected canonical and legacy credentials to allow event/finding side effects only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestSupportedIngestionCredentialFailuresFailClosedAndRedact(t *testing.T) {
+	cases := []struct {
+		name          string
+		mutate        func(t *testing.T, db *sql.DB, orgID, integrationID string) string
+		clearKey      bool
+		wantErrorText string
+	}{
+		{
+			name: "missing encryption key",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				return testIngestionWorkerAccessToken
+			},
+			clearKey:      true,
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "missing credential value",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = '' WHERE id = $1`, integrationID); err != nil {
+					t.Fatalf("blank encrypted credential: %v", err)
+				}
+				return testIngestionWorkerAccessToken
+			},
+			wantErrorText: "integration credential is missing",
+		},
+		{
+			name: "malformed credential envelope",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				const malformed = "not-an-encrypted-envelope"
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, malformed, integrationID); err != nil {
+					t.Fatalf("malform encrypted credential: %v", err)
+				}
+				return malformed
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "tampered credential tag",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				tampered := tamperIngestionWorkerEnvelopeTag(t, encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "access_token", testIngestionWorkerAccessToken, false))
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, tampered, integrationID); err != nil {
+					t.Fatalf("tamper encrypted credential: %v", err)
+				}
+				return tampered
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "wrong aad credential",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET external_account_id = $1 WHERE id = $2`, integrationID+"-rotated", integrationID); err != nil {
+					t.Fatalf("rotate external account id: %v", err)
+				}
+				return testIngestionWorkerAccessToken
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+		{
+			name: "short decrypted credential",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				const shortToken = "short"
+				encrypted := encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "access_token", shortToken, false)
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_access_token = $1 WHERE id = $2`, encrypted, integrationID); err != nil {
+					t.Fatalf("seed short encrypted credential: %v", err)
+				}
+				return shortToken
+			},
+			wantErrorText: "integration credential failed integrity validation",
+		},
+		{
+			name: "tampered optional webhook secret",
+			mutate: func(t *testing.T, db *sql.DB, orgID, integrationID string) string {
+				tampered := tamperIngestionWorkerEnvelopeTag(t, encryptIngestionWorkerSecret(t, orgID, integrationID, "SLACK", integrationID, "webhook_secret", testIngestionWorkerWebhookSecret, false))
+				if _, err := db.ExecContext(context.Background(), `UPDATE integration_connections SET encrypted_webhook_secret = $1 WHERE id = $2`, tampered, integrationID); err != nil {
+					t.Fatalf("tamper encrypted webhook secret: %v", err)
+				}
+				return tampered
+			},
+			wantErrorText: "integration credential is unavailable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openDBBackedIngestionWorkerDB(t)
+			orgID := seedIngestionWorkerOrg(t, db)
+			integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+			destinationID := testWorkerID("dst")
+			if _, err := db.ExecContext(context.Background(), `
+				INSERT INTO siem_destinations (
+					id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+				)
+				VALUES ($1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'credential-gate.jsonl', ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW())
+			`, destinationID, orgID); err != nil {
+				t.Fatalf("seed SIEM destination: %v", err)
+			}
+			secretToScan := tc.mutate(t, db, orgID, integrationID)
+			if tc.clearKey {
+				t.Setenv("APERIO_ENCRYPTION_KEY", "")
+			}
+			jobID := seedIngestionWorkerJob(t, db, struct {
+				orgID         string
+				integrationID string
+				provider      string
+				eventType     string
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+				payload       json.RawMessage
+			}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+
+			sink, restore := captureIngestionTelemetry(t)
+			result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+			restore()
+			if err != nil {
+				t.Fatalf("drain credential failure case: %v", err)
+			}
+			if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected credential failure drain result: %#v", result)
+			}
+			status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+			if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+				t.Fatalf("credential failure job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+			}
+			if !strings.Contains(lastError.String, tc.wantErrorText) {
+				t.Fatalf("last_error = %q, want %q", lastError.String, tc.wantErrorText)
+			}
+			if len(lastError.String) > 500 {
+				t.Fatalf("last_error was not bounded: length=%d", len(lastError.String))
+			}
+			for _, leaked := range []string{testIngestionWorkerAccessToken, testIngestionWorkerRefreshToken, testIngestionWorkerWebhookSecret, testIngestionWorkerEncryptionKey, secretToScan} {
+				if strings.TrimSpace(leaked) != "" && strings.Contains(lastError.String, leaked) {
+					t.Fatalf("last_error leaked secret material %q in %q", leaked, lastError.String)
+				}
+				if strings.TrimSpace(leaked) != "" && strings.Contains(sink.String(), leaked) {
+					t.Fatalf("telemetry leaked secret material %q in %s", leaked, sink.String())
+				}
+			}
+			failureTelemetry := requireTelemetryOutcome(t, decodeWideEvents(t, sink), "failed")
+			if failureTelemetry["error_kind"] != "error" || strings.Contains(fmt.Sprint(failureTelemetry), testIngestionWorkerAccessToken) {
+				t.Fatalf("credential failure telemetry unsafe: %#v", failureTelemetry)
+			}
+			assertNoIngestionSideEffects(t, db, orgID)
+		})
+	}
+}
+
+func TestSupportedIngestionProviderGatesFailClosedBeforeSideEffects(t *testing.T) {
+	cases := []struct {
+		name         string
+		setup        func(t *testing.T, db *sql.DB, orgID string) (integrationID string, provider string)
+		wantErrorSub string
+	}{
+		{
+			name: "disabled integration",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				return seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "DISABLED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+		{
+			name: "wrong provider",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				return seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+		{
+			name: "cross tenant integration",
+			setup: func(t *testing.T, db *sql.DB, orgID string) (string, string) {
+				otherOrgID := seedIngestionWorkerOrg(t, db)
+				return seedIngestionWorkerIntegration(t, db, otherOrgID, "SLACK", "CONNECTED"), "SLACK"
+			},
+			wantErrorSub: "integration not found or not connected",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openDBBackedIngestionWorkerDB(t)
+			orgID := seedIngestionWorkerOrg(t, db)
+			integrationID, provider := tc.setup(t, db, orgID)
+			jobID := seedIngestionWorkerJob(t, db, struct {
+				orgID         string
+				integrationID string
+				provider      string
+				eventType     string
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+				payload       json.RawMessage
+			}{orgID: orgID, integrationID: integrationID, provider: provider, eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+
+			result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+			if err != nil {
+				t.Fatalf("drain provider gate case: %v", err)
+			}
+			if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected provider gate drain result: %#v", result)
+			}
+			status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+			if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, tc.wantErrorSub) {
+				t.Fatalf("provider gate job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+			}
+			assertNoIngestionSideEffects(t, db, orgID)
+		})
 	}
 }
 
@@ -796,6 +1675,218 @@ func TestDrainPersistsSupportedGitHubJobSideEffects(t *testing.T) {
 	}
 }
 
+func TestDrainSameJobRetryReusesSourceEventFindingAndDelivery(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'same-job-retry.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	payloadJSON := json.RawMessage(`{"repository":{"full_name":"writer/retry","visibility":"public"}}`)
+	jobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+
+	worker := &Worker{db: db, leaseOwner: "go-test-worker"}
+	result, err := worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("initial drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected initial drain result: %#v", result)
+	}
+
+	var firstEventID, firstFindingID, firstDeliveryID, firstDeliveryDedupe string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2
+	`, orgID, jobID).Scan(&firstEventID); err != nil {
+		t.Fatalf("query first ingested event: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id
+		FROM security_findings
+		WHERE organization_id = $1
+	`, orgID).Scan(&firstFindingID); err != nil {
+		t.Fatalf("query first finding: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, dedupe_key
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2
+	`, orgID, destinationID).Scan(&firstDeliveryID, &firstDeliveryDedupe); err != nil {
+		t.Fatalf("query first delivery: %v", err)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE ingestion_jobs
+		SET status = 'FAILED'::"IngestionJobStatus",
+			attempts = 1,
+			processed_at = NULL,
+			next_attempt_at = NOW() - INTERVAL '1 minute',
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_error = 'transient retry probe',
+			updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2
+	`, jobID, orgID); err != nil {
+		t.Fatalf("reset same job for retry: %v", err)
+	}
+
+	result, err = worker.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("retry drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected retry drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "SUCCEEDED" || attempts != 2 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("retried same job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+
+	var eventCount, findingCount, deliveryCount int
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2 AND id = $3
+	`, orgID, jobID, firstEventID).Scan(&eventCount); err != nil {
+		t.Fatalf("count retried event: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM security_findings
+		WHERE organization_id = $1 AND id = $2
+	`, orgID, firstFindingID).Scan(&findingCount); err != nil {
+		t.Fatalf("count retried finding: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2 AND id = $3 AND dedupe_key = $4
+	`, orgID, destinationID, firstDeliveryID, firstDeliveryDedupe).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count retried delivery: %v", err)
+	}
+	if eventCount != 1 || findingCount != 1 || deliveryCount != 1 {
+		t.Fatalf("same-job retry should reuse existing side effects, got events=%d findings=%d deliveries=%d", eventCount, findingCount, deliveryCount)
+	}
+
+	var sourceEventID string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT payload->'record'->>'sourceEventId'
+		FROM siem_deliveries
+		WHERE id = $1 AND organization_id = $2
+	`, firstDeliveryID, orgID).Scan(&sourceEventID); err != nil {
+		t.Fatalf("query retried delivery source event: %v", err)
+	}
+	if sourceEventID != firstEventID {
+		t.Fatalf("same-job retry delivery sourceEventId = %s, want %s", sourceEventID, firstEventID)
+	}
+}
+
+func TestDrainProcessesProducerStyleJobsAndRejectsMalformedPayloads(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+
+	producerJobID := testWorkerID("job")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO ingestion_jobs (
+			id, organization_id, integration_id, provider, event_type, source, actor, occurred_at,
+			payload, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, $3, 'SLACK'::"SaaSProvider", 'MFA_DISABLED',
+			'slack-real-producer', 'producer@example.com', $4, $5::jsonb, NOW(), NOW()
+		)
+	`, producerJobID, orgID, integrationID, time.Now().UTC().Add(-time.Minute), `{"user":{"email":"real-user@example.com"}}`); err != nil {
+		t.Fatalf("seed producer-style ingestion job: %v", err)
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain producer-style job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected producer-style drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, producerJobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("producer-style job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+	var eventSource, eventActor string
+	var eventPayload json.RawMessage
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT source, actor, payload
+		FROM ingested_events
+		WHERE organization_id = $1 AND ingestion_job_id = $2
+	`, orgID, producerJobID).Scan(&eventSource, &eventActor, &eventPayload); err != nil {
+		t.Fatalf("query producer-style ingested event: %v", err)
+	}
+	if eventSource != "slack-real-producer" || eventActor != "producer@example.com" || !strings.Contains(string(eventPayload), "real-user@example.com") {
+		t.Fatalf("producer-style event did not preserve source/actor/payload: source=%s actor=%s payload=%s", eventSource, eventActor, string(eventPayload))
+	}
+
+	malformedPayloads := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "json null", payload: json.RawMessage(`null`)},
+		{name: "array", payload: json.RawMessage(`[]`)},
+		{name: "string", payload: json.RawMessage(`"not an object"`)},
+		{name: "number", payload: json.RawMessage(`42`)},
+		{name: "boolean", payload: json.RawMessage(`true`)},
+	}
+	for _, malformed := range malformedPayloads {
+		malformedJobID := seedIngestionWorkerJob(t, db, struct {
+			orgID         string
+			integrationID string
+			provider      string
+			eventType     string
+			status        string
+			attempts      int
+			maxAttempts   int
+			leaseOwner    *string
+			payload       json.RawMessage
+		}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: malformed.payload})
+
+		result, err = (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("drain malformed %s payload job: %v", malformed.name, err)
+		}
+		if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+			t.Fatalf("unexpected malformed %s payload drain result: %#v", malformed.name, result)
+		}
+		status, attempts, leaseOwner, processedAt, lastError = ingestionJobState(t, db, malformedJobID)
+		if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "parse payload") {
+			t.Fatalf("malformed %s payload job state = status=%s attempts=%d lease=%v processed=%v error=%v", malformed.name, status, attempts, leaseOwner, processedAt, lastError)
+		}
+		events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+		if events != 1 || findings != 1 || deliveries != 0 {
+			t.Fatalf("malformed %s payload should not add side effects beyond producer job, got events=%d findings=%d deliveries=%d", malformed.name, events, findings, deliveries)
+		}
+	}
+}
+
 func TestDrainFansOutFindingsOnlyToSameTenantEligibleSubscribedDestinations(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgA := seedIngestionWorkerOrg(t, db)
@@ -930,6 +2021,7 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 
 	resolvedPayloadJSON, _, resolvedFinding, resolvedDedupe := payloadForRepo("writer/resolved")
 	mutedPayloadJSON, _, mutedFinding, mutedDedupe := payloadForRepo("writer/muted")
+	createdPayloadJSON, _, createdFinding, createdDedupe := payloadForRepo("writer/created")
 	resolvedFindingID := testWorkerID("fnd")
 	mutedFindingID := testWorkerID("fnd")
 	if _, err := db.ExecContext(context.Background(), `
@@ -965,16 +2057,27 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 		leaseOwner    *string
 		payload       json.RawMessage
 	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: mutedPayloadJSON})
+	createdJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: createdPayloadJSON})
 
 	publisher := &recordingLifecyclePublisher{t: t, db: db}
-	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 2)
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 3)
 	if err != nil {
 		t.Fatalf("drain lifecycle jobs: %v", err)
 	}
-	if result.Processed != 2 || result.Succeeded != 2 || result.Failed != 0 {
+	if result.Processed != 3 || result.Succeeded != 3 || result.Failed != 0 {
 		t.Fatalf("unexpected lifecycle drain result: %#v", result)
 	}
-	for _, jobID := range []string{resolvedJobID, mutedJobID} {
+	for _, jobID := range []string{resolvedJobID, mutedJobID, createdJobID} {
 		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
 		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
 			t.Fatalf("lifecycle job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
@@ -1007,12 +2110,59 @@ func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.
 		t.Fatalf("muted finding should remain muted with resolved_at preserved, got status=%s resolvedAt=%v", mutedStatus, mutedResolvedAt)
 	}
 
-	if len(publisher.seen) != 1 {
-		t.Fatalf("expected only reopened finding lifecycle event, got %#v", publisher.seen)
+	var createdFindingID string
+	var createdStatus string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, status::text
+		FROM security_findings
+		WHERE organization_id = $1 AND dedupe_key = $2
+	`, orgID, createdDedupe).Scan(&createdFindingID, &createdStatus); err != nil {
+		t.Fatalf("query created lifecycle finding: %v", err)
 	}
-	event := publisher.seen[0]
-	if event.FindingID != resolvedFindingID || event.OrganizationID != orgID || event.IntegrationID != integrationID || event.PreviousStatus != "RESOLVED" || event.NextStatus != "OPEN" || event.ResolutionNote != "Finding observed again during ingestion" {
-		t.Fatalf("unexpected lifecycle event: %#v", event)
+	if createdStatus != "OPEN" || createdFindingID == "" || createdFinding.RuleID == "" {
+		t.Fatalf("created finding state = id=%s status=%s rule=%s", createdFindingID, createdStatus, createdFinding.RuleID)
+	}
+
+	if len(publisher.seen) != 2 {
+		t.Fatalf("expected created and reopened finding lifecycle events only, got %#v", publisher.seen)
+	}
+	seenByFinding := map[string]FindingLifecycleEvent{}
+	for _, event := range publisher.seen {
+		seenByFinding[event.FindingID] = event
+	}
+	reopenedEvent := seenByFinding[resolvedFindingID]
+	if reopenedEvent.FindingID != resolvedFindingID || reopenedEvent.OrganizationID != orgID || reopenedEvent.IntegrationID != integrationID || reopenedEvent.PreviousStatus != "RESOLVED" || reopenedEvent.NextStatus != "OPEN" || reopenedEvent.ResolutionNote != "Finding observed again during ingestion" {
+		t.Fatalf("unexpected reopened lifecycle event: %#v", reopenedEvent)
+	}
+	createdEvent := seenByFinding[createdFindingID]
+	if createdEvent.FindingID != createdFindingID || createdEvent.PreviousStatus != "NEW" || createdEvent.NextStatus != "OPEN" || createdEvent.ResolutionNote != "Finding observed during ingestion" {
+		t.Fatalf("unexpected created lifecycle event: %#v", createdEvent)
+	}
+
+	refreshJobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: createdPayloadJSON})
+	result, err = (&Worker{db: db, leaseOwner: "go-test-worker", eventPublisher: publisher}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain lifecycle refresh job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected lifecycle refresh result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, refreshJobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("refresh job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+	if len(publisher.seen) != 2 {
+		t.Fatalf("routine refresh should not duplicate finding lifecycle events, got %#v", publisher.seen)
 	}
 }
 

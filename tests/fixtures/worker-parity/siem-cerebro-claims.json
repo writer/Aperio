@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "description": "Deterministic local Cerebro capture fixture for Go CEREBRO_CLAIMS parity. The endpoint is a synthetic capture host used only through injected transport plus an explicit endpoint-safety assertion; validation must never contact production Cerebro services.",
+  "destination": {
+    "id": "dst_cerebro_claims",
+    "organizationId": "org_cerebro_adapter",
+    "endpointUrl": "https://capture.aperio.test/cerebro",
+    "token": "fixture-cerebro-token",
+    "index": "writer-aperio-sspm"
+  },
+  "payload": {
+    "kind": "finding",
+    "organizationId": "org_cerebro_adapter",
+    "occurredAt": "2026-06-05T20:00:00.000Z",
+    "record": {
+      "schemaVersion": "aperio.finding.v1",
+      "findingId": "fnd_cerebro_123",
+      "ruleId": "github.public_repository_created",
+      "title": "Public GitHub repository created",
+      "description": "Repository visibility changed to public.",
+      "severity": "CRITICAL",
+      "riskScore": 95,
+      "target": "writer/public-demo",
+      "provider": "GITHUB",
+      "integrationId": "int_github",
+      "sourceEventId": "evt_cerebro_123",
+      "source": "github.audit",
+      "eventType": "repository.publicized",
+      "dedupeKey": "dedupe_cerebro_123"
+    }
+  },
+  "expected": {
+    "runtimeRequest": {
+      "method": "GET",
+      "url": "https://capture.aperio.test/cerebro/source-runtimes/writer-aperio-sspm",
+      "headers": {
+        "Accept": "application/json",
+        "Authorization": "Bearer fixture-cerebro-token"
+      },
+      "absentHeaders": ["Content-Type"]
+    },
+    "claimRequest": {
+      "method": "POST",
+      "url": "https://capture.aperio.test/cerebro/source-runtimes/writer-aperio-sspm/claims",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer fixture-cerebro-token"
+      },
+      "absentHeaders": ["Accept"],
+      "body": {
+        "runtime_id": "writer-aperio-sspm"
+      }
+    },
+    "claimCount": 11,
+    "sourceEventId": "evt_cerebro_123",
+    "findingId": "fnd_cerebro_123",
+    "dedupeKey": "dedupe_cerebro_123",
+    "findingURN": "urn:cerebro:org_cerebro_adapter:runtime:writer-aperio-sspm:finding:dedupe_cerebro_123"
+  }
+}

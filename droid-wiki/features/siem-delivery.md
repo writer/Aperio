@@ -8,8 +8,8 @@ Aperio sends canonical `aperio.finding.v1` envelopes to tenant-configured SIEM d
 | --- | --- |
 | `internal/bootstrap/compat_api.go` | SIEM catalog, destination CRUD, endpoint validation, test dispatch compatibility |
 | `packages/shared/src/siem.ts` | TypeScript SIEM catalog and schemas |
-| `workers/siem-dispatcher.ts` | Delivery leasing, retries, adapters, dead-letter behavior |
-| `workers/ingestion-worker.ts` | Enqueues delivery rows when findings are created/updated |
+| `internal/siemdispatcher` | Delivery leasing, retries, adapters, dead-letter behavior |
+| `internal/ingestionworker` | Enqueues delivery rows when findings are created/updated |
 | `apps/web/components/connectors/siem-page.tsx` | SIEM destination UI |
 
 ## Flow
@@ -21,4 +21,4 @@ flowchart LR
   Dispatcher --> Dest[Splunk / Panther / Elastic / Datadog / Webhook / JSONL]
 ```
 
-The dispatcher handles retry/backoff and adapter-specific payload shaping. Destination credentials must be written with the shared encryption envelope so the TypeScript dispatcher can decrypt values created by the Go API.
+The Go dispatcher handles retry/backoff and adapter-specific payload shaping. Destination credentials use the shared AES-256-GCM envelope and tenant/destination AAD so the Go API and Go SIEM dispatcher can exchange encrypted values without exposing plaintext.

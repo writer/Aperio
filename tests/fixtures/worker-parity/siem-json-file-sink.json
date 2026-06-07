@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "description": "Deterministic JSON_FILE sink fixture proving Go appends canonical JSONL inside APERIO_SIEM_EXPORT_DIR without truncating existing lines or allowing path traversal.",
+  "destination": {
+    "id": "dst_json_file",
+    "organizationId": "org_json_file",
+    "filePath": "tenant-a/nested/findings.jsonl"
+  },
+  "payloads": [
+    {
+      "kind": "finding",
+      "organizationId": "org_json_file",
+      "occurredAt": "2026-06-05T20:00:00.000Z",
+      "record": {
+        "findingId": "fnd_json_1",
+        "dedupeKey": "dedupe_json_1",
+        "sourceEventId": "evt_json_1",
+        "status": "OPEN",
+        "title": "First JSONL finding",
+        "severity": "HIGH"
+      }
+    },
+    {
+      "kind": "finding",
+      "organizationId": "org_json_file",
+      "occurredAt": "2026-06-05T20:01:00.000Z",
+      "record": {
+        "findingId": "fnd_json_2",
+        "dedupeKey": "dedupe_json_2",
+        "sourceEventId": "evt_json_2",
+        "status": "OPEN",
+        "title": "Second JSONL finding",
+        "severity": "CRITICAL"
+      }
+    }
+  ],
+  "preexistingLine": {
+    "schema_version": "aperio.finding.v1",
+    "source": "aperio",
+    "producer": "aperio.sspm",
+    "destination_id": "dst_json_file",
+    "organization_id": "org_json_file",
+    "kind": "finding",
+    "occurred_at": "2026-06-05T19:59:00.000Z",
+    "record": {
+      "findingId": "fnd_existing",
+      "sourceEventId": "evt_existing"
+    }
+  },
+  "unsafePaths": ["../escape.jsonl", "/tmp/aperio-escape.jsonl"]
+}

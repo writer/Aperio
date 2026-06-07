@@ -34,6 +34,12 @@ type githubParityFixture struct {
 			DedupeKey   string         `json:"dedupeKey"`
 		} `json:"expectedFinding"`
 	} `json:"positive"`
+	Alias struct {
+		Payload githubFixturePayload `json:"payload"`
+	} `json:"alias"`
+	CanonicalPrivateNegative struct {
+		Payload githubFixturePayload `json:"payload"`
+	} `json:"canonicalPrivateNegative"`
 	Negative struct {
 		Payload githubFixturePayload `json:"payload"`
 	} `json:"negative"`
@@ -85,6 +91,98 @@ type slackFixturePayload struct {
 	Payload        map[string]any `json:"payload"`
 }
 
+type oktaParityFixture struct {
+	Positive struct {
+		Payload         oktaFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"positive"`
+	Aliases []struct {
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"aliases"`
+	Negative struct {
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"negative"`
+	AdditionalNegatives []struct {
+		Name    string             `json:"name"`
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"additionalNegatives"`
+	DisabledCheck string `json:"disabledCheck"`
+}
+
+type oktaFixturePayload struct {
+	OrganizationID string         `json:"organizationId"`
+	IntegrationID  string         `json:"integrationId"`
+	Provider       string         `json:"provider"`
+	EventType      string         `json:"eventType"`
+	Source         string         `json:"source"`
+	Actor          string         `json:"actor"`
+	OccurredAt     string         `json:"occurredAt"`
+	Payload        map[string]any `json:"payload"`
+}
+
+type googleRulesFixture struct {
+	Rules []googleParityFixture `json:"rules"`
+}
+
+type googleParityFixture struct {
+	RuleID   string `json:"ruleId"`
+	Positive struct {
+		Payload         googleFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"positive"`
+	Variants []struct {
+		Name            string               `json:"name"`
+		Payload         googleFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"variants"`
+	Negative struct {
+		Payload googleFixturePayload `json:"payload"`
+	} `json:"negative"`
+	AdditionalNegatives []struct {
+		Name    string               `json:"name"`
+		Payload googleFixturePayload `json:"payload"`
+	} `json:"additionalNegatives"`
+	DisabledCheck string `json:"disabledCheck"`
+}
+
+type googleFixturePayload struct {
+	OrganizationID string         `json:"organizationId"`
+	IntegrationID  string         `json:"integrationId"`
+	Provider       string         `json:"provider"`
+	EventType      string         `json:"eventType"`
+	Source         string         `json:"source"`
+	Actor          string         `json:"actor"`
+	OccurredAt     string         `json:"occurredAt"`
+	Payload        map[string]any `json:"payload"`
+}
+
 func readGitHubParityFixture(t *testing.T) githubParityFixture {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "github-public-repository.json"))
@@ -111,12 +209,63 @@ func readSlackParityFixture(t *testing.T) slackParityFixture {
 	return fixture
 }
 
+func readOktaParityFixture(t *testing.T, name string) oktaParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", name))
+	if err != nil {
+		t.Fatalf("read Okta parity fixture %s: %v", name, err)
+	}
+	var fixture oktaParityFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode Okta parity fixture %s: %v", name, err)
+	}
+	return fixture
+}
+
+func readOktaParityFixtures(t *testing.T) []oktaParityFixture {
+	t.Helper()
+	fixtureNames := []string{
+		"okta-admin-role-assigned.json",
+		"okta-mfa-factor-reset.json",
+		"okta-password-policy-weakened.json",
+		"okta-suspicious-signin.json",
+	}
+	fixtures := make([]oktaParityFixture, 0, len(fixtureNames))
+	for _, name := range fixtureNames {
+		fixtures = append(fixtures, readOktaParityFixture(t, name))
+	}
+	return fixtures
+}
+
+func readGoogleParityFixtures(t *testing.T) []googleParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "google-admin-oauth-rules.json"))
+	if err != nil {
+		t.Fatalf("read Google Workspace parity fixture: %v", err)
+	}
+	var fixture googleRulesFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode Google Workspace parity fixture: %v", err)
+	}
+	return fixture.Rules
+}
+
 func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
 	cases := map[string]string{
-		"repository.publicized":        "REPOSITORY_PUBLICIZED",
-		" two-factor auth disabled ":   "TWO_FACTOR_AUTH_DISABLED",
-		"//public-repository-created/": "PUBLIC_REPOSITORY_CREATED",
-		"mfa.disabled":                 "MFA_DISABLED",
+		"repository.publicized":             "REPOSITORY_PUBLICIZED",
+		" two-factor auth disabled ":        "TWO_FACTOR_AUTH_DISABLED",
+		"//public-repository-created/":      "PUBLIC_REPOSITORY_CREATED",
+		"mfa.disabled":                      "MFA_DISABLED",
+		"user.account.privilege.grant":      "USER_ACCOUNT_PRIVILEGE_GRANT",
+		"user.mfa.factor.reset_all":         "USER_MFA_FACTOR_RESET_ALL",
+		"policy.lifecycle.update":           "POLICY_LIFECYCLE_UPDATE",
+		"user.session.start":                "USER_SESSION_START",
+		"external.sharing.enabled":          "EXTERNAL_SHARING_ENABLED",
+		"risky.oauth.grant":                 "RISKY_OAUTH_GRANT",
+		"email.forwarding.enabled":          "EMAIL_FORWARDING_ENABLED",
+		"mailbox.delegation.granted":        "MAILBOX_DELEGATION_GRANTED",
+		"legacy.mail.auth.used":             "LEGACY_MAIL_AUTH_USED",
+		"forwarding.delegate.send.as.combo": "FORWARDING_DELEGATE_SEND_AS_COMBO",
 	}
 	for input, want := range cases {
 		if got := normalizeEventType(input); got != want {
@@ -161,6 +310,65 @@ func (p slackFixturePayload) jobPayload(t *testing.T) JobPayload {
 	}
 }
 
+func (p oktaFixturePayload) jobPayload(t *testing.T) JobPayload {
+	t.Helper()
+	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
+	if err != nil {
+		t.Fatalf("parse fixture occurredAt: %v", err)
+	}
+	return JobPayload{
+		OrganizationID: p.OrganizationID,
+		IntegrationID:  p.IntegrationID,
+		Provider:       p.Provider,
+		EventType:      p.EventType,
+		Source:         p.Source,
+		Actor:          p.Actor,
+		OccurredAt:     occurredAt,
+		Payload:        p.Payload,
+	}
+}
+
+func (p googleFixturePayload) jobPayload(t *testing.T) JobPayload {
+	t.Helper()
+	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
+	if err != nil {
+		t.Fatalf("parse fixture occurredAt: %v", err)
+	}
+	return JobPayload{
+		OrganizationID: p.OrganizationID,
+		IntegrationID:  p.IntegrationID,
+		Provider:       p.Provider,
+		EventType:      p.EventType,
+		Source:         p.Source,
+		Actor:          p.Actor,
+		OccurredAt:     occurredAt,
+		Payload:        p.Payload,
+	}
+}
+
+func assertJSONEqual(t *testing.T, got any, want any) {
+	t.Helper()
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal got JSON: %v", err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal want JSON: %v", err)
+	}
+	var gotNormalized any
+	var wantNormalized any
+	if err := json.Unmarshal(gotJSON, &gotNormalized); err != nil {
+		t.Fatalf("normalize got JSON: %v", err)
+	}
+	if err := json.Unmarshal(wantJSON, &wantNormalized); err != nil {
+		t.Fatalf("normalize want JSON: %v", err)
+	}
+	if !reflect.DeepEqual(gotNormalized, wantNormalized) {
+		t.Fatalf("JSON mismatch: got %#v, want %#v", gotNormalized, wantNormalized)
+	}
+}
+
 func TestEvaluateGitHubPublicRepository(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -187,6 +395,13 @@ func TestEvaluateGitHubPublicRepository(t *testing.T) {
 		t.Fatalf("evidence = %#v, want %#v", findings[0].Evidence, fixture.Positive.ExpectedFinding.Evidence)
 	}
 
+	aliasFindings := Evaluate(fixture.Alias.Payload.jobPayload(t), nil)
+	if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+		t.Fatalf("expected canonical event alias to produce GitHub public repository finding, got %#v", aliasFindings)
+	}
+	if got := Evaluate(fixture.CanonicalPrivateNegative.Payload.jobPayload(t), nil); len(got) != 0 {
+		t.Fatalf("expected canonical private repository-created payload to produce no findings, got %#v", got)
+	}
 	if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
 		t.Fatalf("expected private repository negative to produce no findings, got %#v", got)
 	}
@@ -236,6 +451,117 @@ func TestEvaluateSlackMFADisabled(t *testing.T) {
 	}
 }
 
+func TestEvaluateOktaRules(t *testing.T) {
+	for _, fixture := range readOktaParityFixtures(t) {
+		t.Run(fixture.Positive.ExpectedFinding.RuleID, func(t *testing.T) {
+			payload := fixture.Positive.Payload.jobPayload(t)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected one finding, got %d", len(findings))
+			}
+			finding := findings[0]
+			if finding.RuleID != fixture.Positive.ExpectedFinding.RuleID {
+				t.Fatalf("rule id = %s", finding.RuleID)
+			}
+			if finding.Title != fixture.Positive.ExpectedFinding.Title {
+				t.Fatalf("title = %s", finding.Title)
+			}
+			if finding.Description != fixture.Positive.ExpectedFinding.Description {
+				t.Fatalf("description = %s", finding.Description)
+			}
+			if finding.Target != fixture.Positive.ExpectedFinding.Target {
+				t.Fatalf("target = %s", finding.Target)
+			}
+			if finding.Severity != fixture.Positive.ExpectedFinding.Severity || finding.RiskScore != fixture.Positive.ExpectedFinding.RiskScore {
+				t.Fatalf("unexpected severity/risk: %#v", finding)
+			}
+			assertJSONEqual(t, finding.Evidence, fixture.Positive.ExpectedFinding.Evidence)
+			if got := DedupeKey(payload, finding); got != fixture.Positive.ExpectedFinding.DedupeKey {
+				t.Fatalf("dedupe key = %s, want TS-compatible hash", got)
+			}
+			for _, alias := range fixture.Aliases {
+				aliasFindings := Evaluate(alias.Payload.jobPayload(t), nil)
+				if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+					t.Fatalf("expected alias %s to produce %s finding, got %#v", alias.Payload.EventType, fixture.Positive.ExpectedFinding.RuleID, aliasFindings)
+				}
+			}
+			if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
+				t.Fatalf("expected negative fixture to produce no findings, got %#v", got)
+			}
+			for _, negative := range fixture.AdditionalNegatives {
+				if got := Evaluate(negative.Payload.jobPayload(t), nil); len(got) != 0 {
+					t.Fatalf("expected negative fixture %q to produce no findings, got %#v", negative.Name, got)
+				}
+			}
+			if got := Evaluate(payload, []string{fixture.DisabledCheck}); len(got) != 0 {
+				t.Fatalf("expected disabled check to produce no findings, got %#v", got)
+			}
+		})
+	}
+}
+
+func TestEvaluateGoogleWorkspaceAdminOAuthRules(t *testing.T) {
+	for _, fixture := range readGoogleParityFixtures(t) {
+		t.Run(fixture.Positive.ExpectedFinding.RuleID, func(t *testing.T) {
+			payload := fixture.Positive.Payload.jobPayload(t)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected one finding, got %d", len(findings))
+			}
+			finding := findings[0]
+			if finding.RuleID != fixture.Positive.ExpectedFinding.RuleID {
+				t.Fatalf("rule id = %s", finding.RuleID)
+			}
+			if finding.Title != fixture.Positive.ExpectedFinding.Title {
+				t.Fatalf("title = %s", finding.Title)
+			}
+			if finding.Description != fixture.Positive.ExpectedFinding.Description {
+				t.Fatalf("description = %s", finding.Description)
+			}
+			if finding.Target != fixture.Positive.ExpectedFinding.Target {
+				t.Fatalf("target = %s", finding.Target)
+			}
+			if finding.Severity != fixture.Positive.ExpectedFinding.Severity || finding.RiskScore != fixture.Positive.ExpectedFinding.RiskScore {
+				t.Fatalf("unexpected severity/risk: %#v", finding)
+			}
+			assertJSONEqual(t, finding.Evidence, fixture.Positive.ExpectedFinding.Evidence)
+			if got := DedupeKey(payload, finding); got != fixture.Positive.ExpectedFinding.DedupeKey {
+				t.Fatalf("dedupe key = %s, want TS-compatible hash", got)
+			}
+			for _, variant := range fixture.Variants {
+				variantPayload := variant.Payload.jobPayload(t)
+				variantFindings := Evaluate(variantPayload, nil)
+				if len(variantFindings) != 1 || variantFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+					t.Fatalf("expected variant %q to produce %s finding, got %#v", variant.Name, fixture.Positive.ExpectedFinding.RuleID, variantFindings)
+				}
+				variantFinding := variantFindings[0]
+				if variantFinding.Title != variant.ExpectedFinding.Title ||
+					variantFinding.Description != variant.ExpectedFinding.Description ||
+					variantFinding.Target != variant.ExpectedFinding.Target ||
+					variantFinding.Severity != variant.ExpectedFinding.Severity ||
+					variantFinding.RiskScore != variant.ExpectedFinding.RiskScore {
+					t.Fatalf("variant %q finding = %#v, want %#v", variant.Name, variantFinding, variant.ExpectedFinding)
+				}
+				assertJSONEqual(t, variantFinding.Evidence, variant.ExpectedFinding.Evidence)
+				if got := DedupeKey(variantPayload, variantFinding); got != variant.ExpectedFinding.DedupeKey {
+					t.Fatalf("variant %q dedupe key = %s, want TS-compatible hash", variant.Name, got)
+				}
+			}
+			if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
+				t.Fatalf("expected negative fixture to produce no findings, got %#v", got)
+			}
+			for _, negative := range fixture.AdditionalNegatives {
+				if got := Evaluate(negative.Payload.jobPayload(t), nil); len(got) != 0 {
+					t.Fatalf("expected negative fixture %q to produce no findings, got %#v", negative.Name, got)
+				}
+			}
+			if got := Evaluate(payload, []string{fixture.DisabledCheck}); len(got) != 0 {
+				t.Fatalf("expected disabled check to produce no findings, got %#v", got)
+			}
+		})
+	}
+}
+
 func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -255,6 +581,18 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	payload.Provider = "SLACK"
 	if DedupeKey(payload, finding) != first {
 		t.Fatal("dedupe key should exclude provider to match the TypeScript worker")
+	}
+	oktaFixture := readOktaParityFixture(t, "okta-admin-role-assigned.json")
+	oktaPayload := oktaFixture.Positive.Payload.jobPayload(t)
+	oktaFinding := Evaluate(oktaPayload, nil)[0]
+	if got := DedupeKey(oktaPayload, oktaFinding); got != oktaFixture.Positive.ExpectedFinding.DedupeKey {
+		t.Fatalf("Okta dedupe key = %s, want TS-compatible dedupeTarget hash", got)
+	}
+	googleFixture := readGoogleParityFixtures(t)[3]
+	googlePayload := googleFixture.Variants[2].Payload.jobPayload(t)
+	googleFinding := Evaluate(googlePayload, nil)[0]
+	if got := DedupeKey(googlePayload, googleFinding); got != googleFixture.Variants[2].ExpectedFinding.DedupeKey {
+		t.Fatalf("Google risky OAuth empty-scope dedupe key = %s, want TS-compatible dedupeTarget hash", got)
 	}
 }
 
@@ -301,6 +639,11 @@ func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
 		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
 	}
 
+	unsupported := ingestionJobWideEvent(base, errUnsupportedIngestionWork, time.Millisecond)
+	if unsupported.Dimensions["outcome"] != "dead_letter" || unsupported.Dimensions["error_kind"] != "unsupported" {
+		t.Fatalf("unexpected unsupported-work telemetry: %#v", unsupported.Dimensions)
+	}
+
 	var sink bytes.Buffer
 	restore := telemetry.SetOutput(&sink)
 	emitIngestionJobWideEvent(base, nil, time.Millisecond)
@@ -310,8 +653,147 @@ func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
 	}
 }
 
+func TestIntegrationConfigValidatesProviderCredentialShapes(t *testing.T) {
+	ensureIngestionWorkerTestEncryptionKey(t)
+	baseJob := func(provider, eventType string) job {
+		return job{
+			ID:             "job_1",
+			OrganizationID: "org_1",
+			IntegrationID:  "int_1",
+			Provider:       provider,
+			EventType:      eventType,
+		}
+	}
+	baseConfig := func(provider string, legacy bool) integrationConfig {
+		return integrationConfig{
+			ID:                     "int_1",
+			OrganizationID:         "org_1",
+			Provider:               provider,
+			ExternalAccountID:      "acct_1",
+			EncryptedAccessToken:   encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "access_token", testIngestionWorkerAccessToken, legacy),
+			EncryptedRefreshToken:  sql.NullString{String: encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "refresh_token", testIngestionWorkerRefreshToken, legacy), Valid: true},
+			EncryptedWebhookSecret: sql.NullString{String: encryptIngestionWorkerSecret(t, "org_1", "int_1", provider, "acct_1", "webhook_secret", testIngestionWorkerWebhookSecret, legacy), Valid: true},
+		}
+	}
+
+	t.Run("GitHub canonical credential envelope with refresh and webhook succeeds", func(t *testing.T) {
+		config := baseConfig("GITHUB", false)
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); err != nil {
+			t.Fatalf("validate GitHub canonical config: %v", err)
+		}
+	})
+
+	t.Run("GitHub legacy credential envelope with refresh and webhook succeeds", func(t *testing.T) {
+		config := baseConfig("GITHUB", true)
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); err != nil {
+			t.Fatalf("validate GitHub legacy config: %v", err)
+		}
+	})
+
+	t.Run("Slack access token without optional secrets succeeds", func(t *testing.T) {
+		config := integrationConfig{
+			ID:                   "int_1",
+			OrganizationID:       "org_1",
+			Provider:             "SLACK",
+			ExternalAccountID:    "acct_1",
+			EncryptedAccessToken: encryptIngestionWorkerSecret(t, "org_1", "int_1", "SLACK", "acct_1", "access_token", testIngestionWorkerAccessToken, false),
+		}
+		if err := config.validateForJob(baseJob("SLACK", "MFA_DISABLED")); err != nil {
+			t.Fatalf("validate Slack access-only config: %v", err)
+		}
+	})
+
+	t.Run("Okta missing refresh token fails provider config validation", func(t *testing.T) {
+		config := baseConfig("OKTA", false)
+		config.EncryptedRefreshToken = sql.NullString{}
+		if err := config.validateForJob(baseJob("OKTA", "ADMIN_ROLE_ASSIGNED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Okta missing refresh error = %v", err)
+		}
+	})
+
+	t.Run("tampered refresh token fails closed", func(t *testing.T) {
+		config := baseConfig("GITHUB", false)
+		config.EncryptedRefreshToken = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, config.EncryptedRefreshToken.String), Valid: true}
+		if err := config.validateForJob(baseJob("GITHUB", "PUBLIC_REPOSITORY_CREATED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("tampered refresh error = %v", err)
+		}
+	})
+
+	t.Run("tampered webhook secret fails closed", func(t *testing.T) {
+		config := baseConfig("SLACK", false)
+		config.EncryptedWebhookSecret = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, config.EncryptedWebhookSecret.String), Valid: true}
+		if err := config.validateForJob(baseJob("SLACK", "MFA_DISABLED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("tampered webhook error = %v", err)
+		}
+	})
+
+	t.Run("Google OAuth-only mailbox audit events do not require service account scan config", func(t *testing.T) {
+		for _, eventType := range []string{
+			"EMAIL_FORWARDING_ENABLED",
+			"MAILBOX_DELEGATION_GRANTED",
+			"LEGACY_MAIL_AUTH_USED",
+			"FORWARDING_DELEGATE_SEND_AS_COMBO",
+		} {
+			config := baseConfig("GOOGLE_WORKSPACE", false)
+			if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", eventType)); err != nil {
+				t.Fatalf("validate Google OAuth-only config for %s: %v", eventType, err)
+			}
+		}
+	})
+
+	t.Run("Google mailbox canonical service account config succeeds", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); err != nil {
+			t.Fatalf("validate Google mailbox canonical config: %v", err)
+		}
+	})
+
+	t.Run("Google mailbox legacy service account config succeeds", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", true)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, true),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "MAILBOX_DELEGATION_GRANTED")); err != nil {
+			t.Fatalf("validate Google mailbox legacy config: %v", err)
+		}
+	})
+
+	t.Run("Google mailbox optional service account config requires both fields when partially configured", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Google mailbox missing private key error = %v", err)
+		}
+		config = baseConfig("GOOGLE_WORKSPACE", false)
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Google mailbox missing client email error = %v", err)
+		}
+	})
+
+	t.Run("Google mailbox tampered private key fails closed", func(t *testing.T) {
+		config := baseConfig("GOOGLE_WORKSPACE", false)
+		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
+		encrypted := encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false)
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{String: tamperIngestionWorkerEnvelopeTag(t, encrypted), Valid: true}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationCredentialUnavailable) {
+			t.Fatalf("Google mailbox tampered key error = %v", err)
+		}
+	})
+}
+
 func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
-	state := &failureDriverState{}
+	state := newFailureDriverState(t, "")
 	driverName := fmt.Sprintf("ingestion_failure_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -351,7 +833,7 @@ func TestProcessMarksJobFailureWhenInsertFails(t *testing.T) {
 }
 
 func TestDrainCountsRecordedJobFailureAsFailed(t *testing.T) {
-	state := &failureDriverState{}
+	state := newFailureDriverState(t, "")
 	driverName := fmt.Sprintf("ingestion_drain_failure_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -371,7 +853,7 @@ func TestDrainCountsRecordedJobFailureAsFailed(t *testing.T) {
 }
 
 func TestFindingsForJobHonorsDisabledChecks(t *testing.T) {
-	state := &failureDriverState{disabledChecksJSON: `["github.public_repository_created"]`}
+	state := newFailureDriverState(t, `["github.public_repository_created"]`)
 	driverName := fmt.Sprintf("ingestion_disabled_%d", time.Now().UnixNano())
 	sql.Register(driverName, &failureDriver{state: state})
 	db, err := sql.Open(driverName, "")
@@ -405,11 +887,30 @@ func TestFindingsForJobHonorsDisabledChecks(t *testing.T) {
 	}
 }
 
+func newFailureDriverState(t *testing.T, disabledChecksJSON string) *failureDriverState {
+	t.Helper()
+	return &failureDriverState{
+		disabledChecksJSON:        disabledChecksJSON,
+		integrationExternalID:     "int_1",
+		encryptedAccessToken:      encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "access_token", testIngestionWorkerAccessToken, false),
+		encryptedRefreshToken:     encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "refresh_token", testIngestionWorkerRefreshToken, false),
+		encryptedWebhookSecret:    encryptIngestionWorkerSecret(t, "org_1", "int_1", "GITHUB", "int_1", "webhook_secret", testIngestionWorkerWebhookSecret, false),
+		googleMailboxClientEmail:  nil,
+		encryptedGoogleMailboxKey: nil,
+	}
+}
+
 type failureDriverState struct {
-	mu                 sync.Mutex
-	execs              [][]driver.NamedValue
-	rolledBack         bool
-	disabledChecksJSON string
+	mu                        sync.Mutex
+	execs                     [][]driver.NamedValue
+	rolledBack                bool
+	disabledChecksJSON        string
+	integrationExternalID     string
+	encryptedAccessToken      string
+	encryptedRefreshToken     string
+	encryptedWebhookSecret    string
+	googleMailboxClientEmail  any
+	encryptedGoogleMailboxKey any
 }
 
 func (s *failureDriverState) failureUpdate() (string, string, string) {
@@ -451,12 +952,37 @@ func (c *failureConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, err
 }
 
 func (c *failureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	if strings.Contains(query, "array_to_json(disabled_checks)") {
+	if strings.Contains(query, "FROM integration_connections") {
 		disabled := c.state.disabledChecksJSON
 		if disabled == "" {
 			disabled = "[]"
 		}
-		return &singleValueRows{columns: []string{"disabled_checks"}, values: [][]driver.Value{{disabled}}}, nil
+		return &singleValueRows{
+			columns: []string{
+				"id",
+				"organization_id",
+				"provider",
+				"external_account_id",
+				"disabled_checks",
+				"encrypted_access_token",
+				"encrypted_refresh_token",
+				"encrypted_webhook_secret",
+				"google_mailbox_scan_client_email",
+				"encrypted_google_mailbox_scan_private_key",
+			},
+			values: [][]driver.Value{{
+				"int_1",
+				"org_1",
+				"GITHUB",
+				c.state.integrationExternalID,
+				disabled,
+				c.state.encryptedAccessToken,
+				c.state.encryptedRefreshToken,
+				c.state.encryptedWebhookSecret,
+				c.state.googleMailboxClientEmail,
+				c.state.encryptedGoogleMailboxKey,
+			}},
+		}, nil
 	}
 	if strings.Contains(query, "RETURNING id, organization_id, integration_id") {
 		payload, _ := json.Marshal(map[string]any{"repository": map[string]any{"full_name": "writer/aperio", "visibility": "public"}})

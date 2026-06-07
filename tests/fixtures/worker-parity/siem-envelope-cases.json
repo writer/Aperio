@@ -3,6 +3,7 @@
   "cases": [
     {
       "name": "finding",
+      "expectedStream": "FINDINGS",
       "destinationId": "dst_1",
       "organizationId": "org_1",
       "payload": {
@@ -36,6 +37,7 @@
     },
     {
       "name": "event",
+      "expectedStream": "EVENTS",
       "destinationId": "dst_1",
       "organizationId": "org_1",
       "payload": {
@@ -65,6 +67,7 @@
     },
     {
       "name": "audit_log",
+      "expectedStream": "AUDIT_LOGS",
       "destinationId": "dst_1",
       "organizationId": "org_1",
       "payload": {

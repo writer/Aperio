@@ -43,8 +43,6 @@ import {
 } from "../ui/table";
 import { formatRelative } from "../../lib/format";
 
-const allStreams: SiemStream[] = ["FINDINGS", "EVENTS", "AUDIT_LOGS"];
-
 export function SiemPage() {
   const { toast } = useToast();
   const [catalog, setCatalog] = useState<SiemDestinationDefinition[]>([]);
@@ -269,7 +267,7 @@ function SiemDialog({
     if (definition) {
       setName(`${definition.name} destination`);
       setFields({});
-      setStreams(definition.defaultStreams);
+      setStreams([...definition.defaultStreams]);
       setError("");
     }
   }, [definition]);
@@ -356,7 +354,7 @@ function SiemDialog({
 
           <Field label="Streams">
             <div className="flex flex-wrap gap-2">
-              {allStreams.map((stream) => {
+              {definition.defaultStreams.map((stream) => {
                 const checked = streams.includes(stream);
                 return (
                   <button

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,19 @@ type IngestionRuleState =
 
 type IngestionRuleMatrix = {
   version: number;
+  finalCutoverPlan?: {
+    status: string;
+    defaultsFlippedInThisFeature: boolean;
+    fixture: string;
+    localHarness?: string;
+    goDefaultRequires?: string[];
+  };
+  unsupportedWorkPolicy?: {
+    state: string;
+    action: string;
+    reason: string;
+    tests: string[];
+  };
   source: string;
   rules: Array<{
     ruleId: string;
@@ -41,75 +54,82 @@ function sorted(values: Iterable<string>) {
   return [...values].sort((a, b) => a.localeCompare(b));
 }
 
-function uniqueMatches(source: string, pattern: RegExp) {
-  return sorted(new Set([...source.matchAll(pattern)].map((match) => match[1])));
-}
-
-function sectionForRule(source: string, ruleId: string) {
-  const start = source.indexOf(`disabled.has("${ruleId}")`);
-  assert.notEqual(start, -1, `missing disabled-check gate for ${ruleId}`);
-  const end = source.indexOf(`ruleId: "${ruleId}"`, start);
-  assert.notEqual(end, -1, `missing finding rule ID for ${ruleId}`);
-  return source.slice(start, end);
-}
-
-function providerForRule(source: string, ruleId: string) {
-  const section = sectionForRule(source, ruleId);
-  const provider = section.match(/payload\.provider === "([^"]+)"/)?.[1];
-  assert.ok(provider, `missing provider predicate for ${ruleId}`);
-  return provider;
-}
-
-function aliasesForRule(source: string, ruleId: string) {
-  return [...sectionForRule(source, ruleId).matchAll(/normalizedEvent === "([^"]+)"/g)].map(
-    (match) => match[1]
-  );
-}
-
 function goClaimAllowlistPairs(source: string) {
   const pairs = new Set<string>();
-  for (const match of source.matchAll(/provider = '([^']+)'\s+AND event_type = '([^']+)'/g)) {
-    pairs.add(`${match[1]}:${match[2]}`);
-  }
-  for (const match of source.matchAll(/provider = '([^']+)'\s+AND event_type IN \(([^)]+)\)/g)) {
+  const block = source.match(
+    /var supportedIngestionEventTypes = map\[string\]\[\]string\{([\s\S]*?)\n\}/
+  )?.[1];
+  assert.ok(block, "Go worker must expose the final supported ingestion matrix");
+  for (const match of block.matchAll(/"([^"]+)":\s*\{([\s\S]*?)\n\t\},/g)) {
     const provider = match[1];
-    for (const eventType of match[2].matchAll(/'([^']+)'/g)) {
+    for (const eventType of match[2].matchAll(/"([^"]+)"/g)) {
       pairs.add(`${provider}:${eventType[1]}`);
     }
   }
   return sorted(pairs);
 }
 
-test("ingestion rule ownership matrix exactly matches TypeScript rule IDs and aliases", () => {
+function filesUnder(relativeDir: string, predicate: (relativePath: string) => boolean): string[] {
+  const absoluteDir = path.join(repoRoot, relativeDir);
+  return readdirSync(absoluteDir).flatMap((entry) => {
+    const relativePath = path.join(relativeDir, entry);
+    const absolutePath = path.join(repoRoot, relativePath);
+    const stat = statSync(absolutePath);
+    if (stat.isDirectory()) {
+      return filesUnder(relativePath, predicate);
+    }
+    return predicate(relativePath) ? [relativePath] : [];
+  });
+}
+
+const expectedRuleIds = [
+  "github.public_repository_created",
+  "google_workspace.admin_external_recovery_email",
+  "google_workspace.admin_mfa_not_enforced",
+  "google_workspace.admin_role_granted",
+  "google_workspace.email_forwarding_enabled",
+  "google_workspace.external_sharing_enabled",
+  "google_workspace.forwarding_delegate_send_as_combo",
+  "google_workspace.legacy_mail_auth_used",
+  "google_workspace.mailbox_delegation_granted",
+  "google_workspace.risky_oauth_grant",
+  "google_workspace.super_admin_granted",
+  "okta.admin_role_assigned",
+  "okta.mfa_factor_reset",
+  "okta.password_policy_weakened",
+  "okta.suspicious_signin",
+  "slack.mfa_disabled"
+];
+
+test("ingestion rule matrix is fully unblocked for Go default", () => {
   const matrix = readJson<IngestionRuleMatrix>(
     "tests/fixtures/worker-parity/ingestion-rule-matrix.json"
   );
-  const source = readRepoFile("workers/ingestion-worker.ts");
-  const disabledRuleIds = uniqueMatches(source, /disabled\.has\("([^"]+)"\)/g);
-  const findingRuleIds = uniqueMatches(source, /ruleId: "([^"]+)"/g);
   const matrixRuleIds = sorted(matrix.rules.map((rule) => rule.ruleId));
 
-  assert.deepEqual(disabledRuleIds, findingRuleIds, "every detector rule must have a disabled-check gate");
-  assert.deepEqual(matrixRuleIds, findingRuleIds, "matrix must enumerate every TypeScript detector rule");
+  assert.equal(matrix.finalCutoverPlan?.status, "ingestion-go-default-enforced");
+  assert.equal(matrix.finalCutoverPlan?.defaultsFlippedInThisFeature, true);
+  assert.match(matrix.source, /^internal\/ingestionworker\/worker\.go:/);
+  assert.deepEqual(matrixRuleIds, expectedRuleIds, "matrix must enumerate every Go-owned detector rule");
 
   const seenProviders = new Set<string>();
   for (const rule of matrix.rules) {
     seenProviders.add(rule.provider);
-    assert.equal(rule.provider, providerForRule(source, rule.ruleId), `${rule.ruleId} provider drift`);
-    assert.deepEqual(
-      rule.typescriptEventAliases,
-      aliasesForRule(source, rule.ruleId),
-      `${rule.ruleId} normalized event alias drift`
+    assert.equal(rule.state, "go-default", `${rule.ruleId} must be Go-default after cutover`);
+    assert.equal(rule.goDefaultBlocked, false, `${rule.ruleId} must not block Go default`);
+    assert.deepEqual(rule.cutoverBlockers, [], `${rule.ruleId} must not carry stale blockers`);
+    assert.ok(rule.goClaimedEventTypes.length > 0, `${rule.ruleId} must have Go-claimed event types`);
+    assert.ok(
+      rule.fixtures.every((fixture) => fixture.startsWith("tests/fixtures/worker-parity/")),
+      `${rule.ruleId} must use deterministic worker-parity fixtures`
     );
-    assert.ok(rule.goDefaultBlocked, `${rule.ruleId} should not be Go-default while blockers remain`);
-    assert.notEqual(rule.state, "go-default", `${rule.ruleId} cannot be Go-default in this slice`);
-    assert.notEqual(rule.state, "removable", `${rule.ruleId} cannot be removable in this slice`);
-    assert.ok(rule.cutoverBlockers.length > 0, `${rule.ruleId} needs explicit cutover blockers`);
+    assert.ok(rule.tests.includes("internal/ingestionworker/worker_test.go"));
+    assert.ok(rule.tests.includes("internal/ingestionworker/worker_db_test.go"));
   }
   assert.deepEqual(sorted(seenProviders), ["GITHUB", "GOOGLE_WORKSPACE", "OKTA", "SLACK"]);
 });
 
-test("Go ingestion claim allowlist matches only matrix-backed parity slices", () => {
+test("Go ingestion supported-work allowlist matches only matrix-backed parity slices", () => {
   const matrix = readJson<IngestionRuleMatrix>(
     "tests/fixtures/worker-parity/ingestion-rule-matrix.json"
   );
@@ -121,15 +141,15 @@ test("Go ingestion claim allowlist matches only matrix-backed parity slices", ()
     )
   );
   assert.deepEqual(goClaimAllowlistPairs(goSource), matrixClaimPairs);
+  assert.equal(matrix.unsupportedWorkPolicy?.state, "final-no-fallback");
+  assert.equal(matrix.unsupportedWorkPolicy?.action, "dead_letter_without_side_effects");
+  assert.match(matrix.unsupportedWorkPolicy?.reason ?? "", /deleted TypeScript fallback/);
+  assert.match(goSource, /errUnsupportedIngestionWork/);
+  assert.match(goSource, /deadLetterUnsupported/);
+  assert.doesNotMatch(goSource, /provider = '[^']+'\s+AND event_type IN/);
 
   for (const rule of matrix.rules) {
-    if (rule.goClaimedEventTypes.length === 0) {
-      assert.equal(rule.state, "typescript-reference", `${rule.ruleId} has no Go claims and should stay fallback`);
-      assert.deepEqual(rule.fixtures, [], `${rule.ruleId} should not cite Go fixtures before parity`);
-      continue;
-    }
-
-    assert.equal(rule.state, "go-parity", `${rule.ruleId} claimed slices must be go-parity only`);
+    assert.equal(rule.state, "go-default", `${rule.ruleId} claimed slices must be Go-default`);
     assert.ok(
       rule.fixtures.every((fixture) => fixture.startsWith("tests/fixtures/worker-parity/")),
       `${rule.ruleId} must use shared worker-parity fixtures`
@@ -140,12 +160,34 @@ test("Go ingestion claim allowlist matches only matrix-backed parity slices", ()
   }
 });
 
-test("TypeScript ingestion remains the unsuffixed reference runtime", () => {
+test("unsuffixed ingestion commands run Go and the TypeScript runtime is absent", () => {
   const packageJson = readJson<{ scripts: Record<string, string> }>("package.json");
   const makefile = readRepoFile("Makefile");
+  const ingestionCommand = packageJson.scripts["worker:ingestion"];
 
-  assert.equal(packageJson.scripts["worker:ingestion"], "tsx workers/ingestion-worker.ts");
-  assert.match(packageJson.scripts["worker:ingestion:go"], /go run \.\/cmd\/ingestion-worker/);
-  assert.match(makefile, /worker-ingestion: require-env[\s\S]*npx tsx workers\/ingestion-worker\.ts/);
-  assert.match(makefile, /worker-ingestion-go: require-env[\s\S]*go run \.\/cmd\/ingestion-worker/);
+  assert.match(ingestionCommand, /node scripts\/dev-config\.mjs go-database-url/);
+  assert.match(ingestionCommand, /node scripts\/dev-env\.mjs go run \.\/cmd\/ingestion-worker/);
+  assert.doesNotMatch(ingestionCommand, /\btsx\b|workers\/ingestion-worker\.ts/);
+  assert.equal(packageJson.scripts["worker:ingestion:go"], "npm run worker:ingestion --");
+
+  assert.match(makefile, /worker-ingestion: require-env ## Run the Go ingestion worker/);
+  assert.match(makefile, /worker-ingestion: require-env[\s\S]*go run \.\/cmd\/ingestion-worker \$\(GO_WORKER_ARGS\)/);
+  assert.match(makefile, /worker-ingestion-go: worker-ingestion ## Alias for the Go ingestion worker/);
+  assert.doesNotMatch(makefile, /npx tsx workers\/ingestion-worker\.ts/);
+
+  assert.equal(existsSync(path.join(repoRoot, "workers", "ingestion-worker.ts")), false);
+});
+
+test("tests and executable scripts no longer import the deleted ingestion runtime", () => {
+  const deletedRuntimeImport = /^\s*import(?:\s+type)?[\s\S]*?from\s+["']\.\.\/workers\/ingestion-worker["'];?/m;
+  const deletedRuntimeExecution = /\btsx\s+workers\/ingestion-worker\.ts\b/;
+  const executableSurfaces = [
+    ...filesUnder("tests", (file) => file.endsWith(".test.ts") && file !== "tests/ingestion-parity-matrix.test.ts"),
+    ...filesUnder("scripts", (file) => /\.(?:mjs|ts)$/.test(file))
+  ];
+
+  const offenders = executableSurfaces.filter((file) => deletedRuntimeImport.test(readRepoFile(file)));
+  assert.deepEqual(offenders, [], "deleted TypeScript ingestion runtime must not remain a test or script oracle");
+  assert.equal(deletedRuntimeExecution.test(readRepoFile("package.json")), false);
+  assert.equal(deletedRuntimeExecution.test(readRepoFile("Makefile")), false);
 });

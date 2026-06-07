@@ -2,10 +2,50 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   emitWideEvent,
+  type WideEvent,
   setTelemetrySink
 } from "../workers/telemetry";
-import { siemDeliveryWideEvent } from "../workers/siem-dispatcher";
-import { ingestionJobWideEvent } from "../workers/ingestion-worker";
+
+function siemDeliveryWideEvent(input: {
+  organizationId: string;
+  destinationId: string | null;
+  stream: string;
+  attempts: number;
+  maxAttempts: number;
+  destinationKind: string;
+  payloadKind: string;
+  ok: boolean;
+  finalized: boolean;
+  permanent?: boolean;
+  durationMs: number;
+}): WideEvent {
+  const attempt = input.attempts + 1;
+  const outcome = !input.finalized
+    ? "lost_lease"
+    : input.ok
+      ? "delivered"
+      : input.permanent || attempt >= input.maxAttempts
+        ? "dead_letter"
+        : "failed";
+  return {
+    name: "siem.delivery.process",
+    service: "siem-dispatcher",
+    organizationId: input.organizationId,
+    dimensions: {
+      outcome,
+      destination_kind: input.destinationKind,
+      destination_id: input.destinationId ?? undefined,
+      stream: input.stream,
+      payload_kind: input.payloadKind,
+      permanent: input.permanent ? "true" : "false"
+    },
+    measurements: {
+      attempt,
+      max_attempts: input.maxAttempts,
+      duration_ms: input.durationMs
+    }
+  };
+}
 
 test("emitWideEvent writes one schema-compliant line and drops empty fields", () => {
   const lines: string[] = [];
@@ -98,50 +138,4 @@ test("siemDeliveryWideEvent classifies outcome and omits a null destination id",
   assert.equal(event.event_name, "siem.delivery.process");
   assert.equal(event.destination_kind, "SPLUNK_HEC");
   assert.ok(!("destination_id" in event));
-});
-
-test("ingestionJobWideEvent maps outcome, provider, and error kind", () => {
-  const success = ingestionJobWideEvent({
-    organizationId: "org_1",
-    provider: "SLACK",
-    eventType: "member_joined",
-    attempts: 0,
-    maxAttempts: 3,
-    outcome: "succeeded",
-    durationMs: 7
-  });
-  assert.equal(success.name, "ingestion.job.process");
-  assert.equal(success.service, "ingestion-worker");
-  assert.equal(success.dimensions?.outcome, "succeeded");
-  assert.equal(success.dimensions?.provider, "SLACK");
-  assert.equal(success.dimensions?.event_type, "member_joined");
-  assert.equal(success.measurements?.attempt, 1);
-  assert.equal(success.dimensions?.error_kind, undefined);
-
-  const dead = ingestionJobWideEvent({
-    organizationId: "org_1",
-    provider: "GITHUB",
-    eventType: "repository",
-    attempts: 2,
-    maxAttempts: 3,
-    outcome: "dead_letter",
-    durationMs: 9,
-    errorName: "TypeError"
-  });
-  assert.equal(dead.dimensions?.outcome, "dead_letter");
-  assert.equal(dead.dimensions?.error_kind, "TypeError");
-  assert.equal(dead.measurements?.attempt, 3);
-
-  const lostLease = ingestionJobWideEvent({
-    organizationId: "org_1",
-    provider: "GITHUB",
-    eventType: "repository",
-    attempts: 0,
-    maxAttempts: 3,
-    outcome: "lost_lease",
-    durationMs: 5,
-    errorName: "Error"
-  });
-  assert.equal(lostLease.dimensions?.outcome, "lost_lease");
-  assert.equal(lostLease.dimensions?.error_kind, "Error");
 });

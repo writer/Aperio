@@ -83,7 +83,7 @@ test("smoke harness exports the canonical localhost route matrix and report sect
   ]);
 });
 
-test("worker smoke commands are bounded Go transition smokes", async () => {
+test("worker smoke commands are bounded Go default smokes", async () => {
   const smoke = await loadSmokeHarness();
 
   assert.deepEqual(
@@ -94,14 +94,31 @@ test("worker smoke commands are bounded Go transition smokes", async () => {
     [
       {
         command: "npm",
-        args: ["run", "worker:ingestion:go", "--", "-once", "-limit", "1"]
+        args: ["run", "worker:ingestion", "--", "-once", "-limit", "1"]
       },
       {
         command: "npm",
-        args: ["run", "worker:siem:go", "--", "-once", "-limit", "1"]
+        args: ["run", "worker:siem", "--", "-once", "-limit", "1"]
       }
     ]
   );
+});
+
+test("smoke harness exercises the SIEM connector browser CRUD flow", async () => {
+  const smoke = await loadSmokeHarness();
+  const report = smoke.createInitialReport();
+  const harness = readRepoFile("scripts/smoke-e2e.mjs");
+
+  assert.equal(report.browser.siemConnectors, null);
+  assert.equal(
+    report.safeMutations[0].surface,
+    "/siem-connectors CRUD/test-ping/delete"
+  );
+  assert.match(harness, /async function runSiemConnectorCrudFlow/);
+  assert.match(harness, /ListSiemDestinations/);
+  assert.match(harness, /DeleteSiemDestination/);
+  assert.match(harness, /worker:siem/);
+  assert.doesNotMatch(harness, /worker:siem:go/);
 });
 
 test("browser launch startup failures clean up Chrome and temp profile", () => {

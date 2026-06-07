@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "description": "Deterministic local-only fixtures for foundation cutover characterization. Values are synthetic and must never require production provider or SIEM credentials.",
+  "credentialEnvelope": {
+    "keyEnv": "APERIO_ENCRYPTION_KEY",
+    "testKey": "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+    "aad": "org_demo:GITHUB:writer:access_token",
+    "wrongAad": "org_demo:GITHUB:writer:refresh_token",
+    "goWrittenEnvelope": "eyJ2ZXJzaW9uIjoxLCJhbGdvcml0aG0iOiJhZXMtMjU2LWdjbSIsIml2IjoiTVRJek5EVTJOemc1TURFeSIsInRhZyI6Im1sUjJUS1QyMmdsMHBOOTRNa0NYX3ciLCJjaXBoZXJ0ZXh0IjoiN1Qta25Jc0lRakVsOW1XQWRNSjNfUDJQaDE5X3RVellFaDgifQ",
+    "expectedPlaintext": "demo-provider-token-GITHUB",
+    "malformedEnvelope": "not-a-valid-envelope"
+  },
+  "ingestion": {
+    "job": {
+      "organizationId": "org_cutover_fixture",
+      "integrationId": "int_cutover_github",
+      "provider": "GITHUB",
+      "eventType": "PUBLIC_REPOSITORY_CREATED",
+      "source": "local.fixture",
+      "actor": "octocat@example.test",
+      "occurredAt": "2026-06-06T12:00:00.000Z",
+      "payload": {
+        "repository": {
+          "full_name": "writer/aperio-fixture",
+          "visibility": "public",
+          "private": false
+        }
+      }
+    },
+    "disabledCheck": "github.public_repository_created",
+    "expectedFindingRuleId": "github.public_repository_created",
+    "noProductionProviders": [
+      "api.github.com",
+      "slack.com",
+      "okta.com",
+      "googleapis.com"
+    ]
+  },
+  "siem": {
+    "captureEndpoint": "https://capture.aperio.test/siem",
+    "request": {
+      "method": "POST",
+      "url": "https://capture.aperio.test/siem",
+      "headers": {
+        "content-type": "application/json",
+        "x-aperio-fixture": "foundation-cutover"
+      },
+      "body": {
+        "schema_version": "aperio.finding.v1",
+        "source": "aperio",
+        "producer": "aperio.sspm",
+        "destination_id": "dst_cutover_fixture",
+        "organization_id": "org_cutover_fixture",
+        "kind": "finding",
+        "occurred_at": "2026-06-06T12:00:00.000Z",
+        "record": {
+          "id": "fnd_cutover_fixture",
+          "ruleId": "github.public_repository_created",
+          "sourceEventId": "evt_cutover_fixture"
+        }
+      }
+    },
+    "noProductionDestinations": [
+      "http-inputs.splunkcloud.com",
+      "panther.com",
+      "datadoghq.com",
+      "elastic-cloud.com"
+    ]
+  },
+  "mcp": {
+    "requests": [
+      {
+        "name": "initialize",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "initialize",
+          "params": {
+            "protocolVersion": "2024-11-05"
+          }
+        }
+      },
+      {
+        "name": "ping",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "ping"
+        }
+      },
+      {
+        "name": "tools/list",
+        "message": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "tools/list"
+        }
+      }
+    ],
+    "approvedTools": [
+      {
+        "name": "aperio.register_agent",
+        "required": [
+          "organizationId",
+          "key",
+          "name"
+        ]
+      },
+      {
+        "name": "aperio.create_task",
+        "required": [
+          "organizationId",
+          "taskType",
+          "title"
+        ]
+      },
+      {
+        "name": "aperio.send_message",
+        "required": [
+          "organizationId",
+          "content"
+        ]
+      },
+      {
+        "name": "aperio.list_tasks",
+        "required": [
+          "organizationId"
+        ]
+      },
+      {
+        "name": "aperio.propose_remediation",
+        "required": [
+          "organizationId",
+          "action",
+          "rationale",
+          "payload"
+        ]
+      },
+      {
+        "name": "aperio.enqueue_siem_payload",
+        "required": [
+          "organizationId",
+          "record"
+        ]
+      }
+    ]
+  },
+  "commandOwnership": {
+    "currentDefaults": {
+      "package-script:worker:ingestion": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
+      "package-script:worker:siem": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/siem-dispatcher",
+      "package-script:mcp:broker": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/mcp-broker",
+      "make-target:worker-ingestion": "go run ./cmd/ingestion-worker",
+      "make-target:worker-siem": "go run ./cmd/siem-dispatcher",
+      "make-target:mcp": "go run ./cmd/mcp-broker"
+    },
+    "strictAliasContains": {
+      "package-script:worker:siem:go": "npm run worker:siem --",
+      "make-target:worker-siem-go": "worker-siem-go: worker-siem"
+    }
+  }
+}

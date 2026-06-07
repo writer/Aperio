@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { dedupeKey, evaluateSecurityRules } from "../workers/ingestion-worker";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,42 +50,45 @@ function readFixture(): SlackParityFixture {
   ) as SlackParityFixture;
 }
 
-function payloadFromFixture(input: SlackPayloadFixture) {
-  return {
-    ...input,
-    occurredAt: new Date(input.occurredAt)
-  };
+function expectedDedupeKey(
+  payload: SlackPayloadFixture,
+  expected: SlackParityFixture["positive"]["expectedFinding"]
+) {
+  const subject =
+    typeof expected.evidence.subject === "string"
+      ? expected.evidence.subject
+      : expected.target;
+  return createHash("sha256")
+    .update([payload.organizationId, payload.integrationId, expected.ruleId, subject].join(":"))
+    .digest("hex");
 }
 
-test("Slack MFA disabled rule matches the shared worker parity fixture", () => {
+test("Slack MFA disabled fixture captures the Go-owned positive finding", () => {
   const fixture = readFixture();
-  const payload = payloadFromFixture(fixture.positive.payload);
-  const findings = evaluateSecurityRules(payload);
+  const { payload, expectedFinding } = fixture.positive;
 
-  assert.equal(findings.length, 1);
-  const [finding] = findings;
-  assert.equal(finding.ruleId, fixture.positive.expectedFinding.ruleId);
-  assert.equal(finding.title, fixture.positive.expectedFinding.title);
-  assert.equal(finding.description, fixture.positive.expectedFinding.description);
-  assert.equal(finding.severity, fixture.positive.expectedFinding.severity);
-  assert.equal(finding.riskScore, fixture.positive.expectedFinding.riskScore);
-  assert.equal(finding.target, fixture.positive.expectedFinding.target);
-  assert.deepEqual(finding.evidence, fixture.positive.expectedFinding.evidence);
-  assert.equal(dedupeKey(payload, finding), fixture.positive.expectedFinding.dedupeKey);
+  assert.equal(payload.provider, "SLACK");
+  assert.equal(payload.eventType, "mfa.disabled");
+  assert.equal(payload.payload.user?.["email"], "user@example.com");
+  assert.equal(expectedFinding.ruleId, fixture.disabledCheck);
+  assert.equal(expectedFinding.title, "Slack multi-factor authentication disabled");
+  assert.equal(expectedFinding.severity, "CRITICAL");
+  assert.equal(expectedFinding.riskScore, 90);
+  assert.equal(expectedFinding.target, "user@example.com");
+  assert.deepEqual(expectedFinding.evidence, {
+    user: "user@example.com",
+    subject: "user@example.com"
+  });
+  assert.equal(expectedFinding.dedupeKey, expectedDedupeKey(payload, expectedFinding));
 });
 
-test("Slack parity fixture covers alias, non-detection, and disabled-check cases", () => {
+test("Slack parity fixture covers alias, non-detection, and disabled-check metadata", () => {
   const fixture = readFixture();
 
-  const aliasFindings = evaluateSecurityRules(payloadFromFixture(fixture.alias.payload));
-  assert.equal(aliasFindings.length, 1);
-  assert.equal(aliasFindings[0].ruleId, fixture.positive.expectedFinding.ruleId);
-  assert.equal(aliasFindings[0].target, fixture.positive.expectedFinding.target);
-
-  assert.equal(evaluateSecurityRules(payloadFromFixture(fixture.negative.payload)).length, 0);
-  assert.equal(
-    evaluateSecurityRules(payloadFromFixture(fixture.positive.payload), [fixture.disabledCheck])
-      .length,
-    0
-  );
+  assert.equal(fixture.alias.payload.provider, "SLACK");
+  assert.equal(fixture.alias.payload.eventType, "two-factor auth disabled");
+  assert.equal(fixture.alias.payload.payload.user?.["email"], fixture.positive.expectedFinding.target);
+  assert.equal(fixture.negative.payload.provider, "SLACK");
+  assert.equal(fixture.negative.payload.eventType, "user_login");
+  assert.equal(fixture.disabledCheck, fixture.positive.expectedFinding.ruleId);
 });

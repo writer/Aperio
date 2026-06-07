@@ -6,11 +6,11 @@ Aperio reads runtime configuration from environment variables. Use `.env.example
 
 | Variable | Consumed by | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Go API, Prisma, workers, MCP | Postgres connection string |
+| `DATABASE_URL` | Go API, Prisma, workers, MCP | Canonical Postgres connection string; Prisma may include `?schema=public` |
 | `APERIO_CONNECT_ADDR` | `cmd/aperio/main.go` | Go API listen address, `:4100` locally |
 | `APERIO_WEB_ORIGIN` | Go API | Credentialed CORS origin and web callback origin |
 | `NEXT_PUBLIC_CONNECT_API_BASE_URL` | `apps/web/lib/api.ts` | Browser base URL for ConnectRPC |
-| `APERIO_ENCRYPTION_KEY` | `packages/security`, Go compatibility handlers | AES-256-GCM credential encryption key |
+| `APERIO_ENCRYPTION_KEY` | `internal/runtimeutil`, Go API/workers/MCP, `packages/security` | AES-256-GCM credential encryption key |
 | `APERIO_AUTH_SECRET` | Go API | Session/email token HMAC secret |
 | `APERIO_SESSION_TTL_HOURS` | Go API | Absolute session lifetime |
 | `APERIO_SESSION_IDLE_MINUTES` | Go API | Idle session timeout |
@@ -25,6 +25,10 @@ npm run worker:ingestion
 npm run worker:siem
 npm run mcp:broker
 ```
+
+The Go API, ingestion worker, SIEM dispatcher, and MCP broker are the default runtime commands. Worker and MCP package scripts load local `.env` values through `scripts/dev-env.mjs` and set `DATABASE_URL` from `scripts/dev-config.mjs go-database-url`, which removes Prisma-only parameters and adds `sslmode=disable` for local pgx clients.
+
+Credential-bearing runtime paths share the Go primitives in `internal/runtimeutil`. The same AES-256-GCM envelope is readable by allowed TypeScript frontend/test/tooling surfaces through `packages/security`; malformed, wrong-AAD, missing-key, or tampered envelopes fail closed without plaintext logs.
 
 ## Integrations
 

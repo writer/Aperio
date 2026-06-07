@@ -22,9 +22,9 @@ If a web call fails, check `apps/web/lib/api.ts` to see whether it uses a typed 
 | Auth/session issue | `internal/bootstrap/compat_api.go`, `user_sessions` rows |
 | CORS failure | `APERIO_WEB_ORIGIN`, Go CORS handling in `internal/bootstrap` |
 | Connector save/force-sync issue | `internal/bootstrap/compat_api.go`, `IntegrationConnection`, `IngestionJob` |
-| Ingestion did not create findings | `workers/ingestion-worker.ts`, ingestion job status, event payload |
-| SIEM delivery failed | `workers/siem-dispatcher.ts`, `SiemDelivery`, destination credentials |
-| MCP tool failure | `apps/mcp/src/server.ts` |
+| Ingestion did not create findings | `internal/ingestionworker`, ingestion job status, event payload |
+| SIEM delivery failed | `internal/siemdispatcher`, `SiemDelivery`, destination credentials |
+| MCP tool failure | `internal/mcpbroker` |
 
 ## Generated code
 

@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "intent": "Final Go-default ownership, deletion, artifact-audit, and guardrail evidence checklist.",
+  "defaultsFlippedInThisFeature": true,
+  "status": "final-go-default-enforced",
+  "requiredEvidenceKinds": [
+    "package-script-dump",
+    "make-dry-run",
+    "bounded-default-worker-smoke",
+    "stdio-mcp-smoke",
+    "local-fixture-or-capture-harness",
+    "deleted-runtime-file-audit",
+    "typescript-runtime-negative-guardrail",
+    "hidden-selector-negative-guardrail",
+    "executable-artifact-audit",
+    "allowed-typescript-inventory",
+    "credential-redaction-negative"
+  ],
+  "surfaces": [
+    {
+      "id": "npm-worker-ingestion-default",
+      "surface": "package-script:worker:ingestion",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/ingestion-worker",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "package-script-dump",
+        "bounded-default-worker-smoke",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "npm-worker-siem-default",
+      "surface": "package-script:worker:siem",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/siem-dispatcher",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/siem-dispatcher",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "package-script-dump",
+        "bounded-default-worker-smoke",
+        "local-fixture-or-capture-harness",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "npm-mcp-broker-default",
+      "surface": "package-script:mcp:broker",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/mcp-broker",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/mcp-broker",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "package-script-dump",
+        "stdio-mcp-smoke",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-worker-ingestion-default",
+      "surface": "make-target:worker-ingestion",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/ingestion-worker",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/ingestion-worker",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "make-dry-run",
+        "bounded-default-worker-smoke",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-worker-siem-default",
+      "surface": "make-target:worker-siem",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/siem-dispatcher",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/siem-dispatcher",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "make-dry-run",
+        "bounded-default-worker-smoke",
+        "local-fixture-or-capture-harness",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-mcp-default",
+      "surface": "make-target:mcp",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/mcp-broker",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/mcp-broker",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "make-dry-run",
+        "stdio-mcp-smoke",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "typescript-ingestion-runtime-deletion",
+      "surface": "repo-file:workers/ingestion-worker.ts",
+      "currentState": "removed",
+      "targetState": "removed",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "typescript-runtime-negative-guardrail",
+        "local-fixture-or-capture-harness"
+      ]
+    },
+    {
+      "id": "typescript-siem-runtime-deletion",
+      "surface": "repo-file:workers/siem-dispatcher.ts",
+      "currentState": "removed",
+      "targetState": "removed",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "typescript-runtime-negative-guardrail",
+        "local-fixture-or-capture-harness"
+      ]
+    },
+    {
+      "id": "typescript-mcp-runtime-deletion",
+      "surface": "repo-file:apps/mcp/src/server.ts",
+      "currentState": "removed",
+      "targetState": "removed",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "stdio-mcp-smoke",
+        "typescript-runtime-negative-guardrail"
+      ]
+    },
+    {
+      "id": "suffixed-go-worker-command-cleanup",
+      "surface": "package-script:worker:*:go and make-target:worker-*-go",
+      "currentState": "removed-or-strict-alias",
+      "targetState": "removed-or-strict-alias",
+      "blockedBy": [],
+      "requiredEvidence": [
+        "package-script-dump",
+        "make-dry-run",
+        "typescript-runtime-negative-guardrail"
+      ]
+    }
+  ]
+}

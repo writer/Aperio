@@ -43,7 +43,7 @@ npm run worker:siem
 npm run mcp:broker
 ```
 
-The Go API listens on `http://localhost:4100`, and the web console listens on `http://localhost:3000`.
+The Go API listens on `http://localhost:4100`, and the web console listens on `http://localhost:3000`. The ingestion worker, SIEM dispatcher, and stdio MCP broker commands are Go-owned defaults; they load local `.env` values and derive a pgx-safe Postgres DSN from `DATABASE_URL` before starting.
 
 ## Health checks
 
@@ -53,7 +53,18 @@ The Go API listens on `http://localhost:4100`, and the web console listens on `h
 
 ## Validation
 
+Use targeted checks while iterating, then run the aggregate verifier before a PR or release:
+
 ```bash
+npm run verify
+```
+
+That preflight includes generated-client drift checks, TypeScript typecheck, migration guardrails, API/contract tests, Prisma validation, Go tests, DB-backed Go tests, Go/protobuf linting, web build, bounded Go worker and SIEM smokes, E2E smoke, production audit, and leak check.
+
+Common targeted checks:
+
+```bash
+npm run guardrails:migration
 npm run typecheck
 npm run test:api
 npm run test:go

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -81,14 +81,12 @@ test("SIEM adapter ownership matrix covers every declared destination kind", () 
   const matrixKinds = sorted(matrix.adapters.map((adapter) => adapter.kind));
   const sharedKinds = sorted(siemCatalog.map((definition) => definition.kind));
   const goCatalogKinds = uniqueMatches(readRepoFile("internal/bootstrap/catalog.go"), /Kind:\s*"([A-Z_]+)"/g);
-  const tsDispatcherKinds = uniqueMatches(readRepoFile("workers/siem-dispatcher.ts"), /case\s+"([A-Z_]+)":/g);
   const goDispatcherSource = readRepoFile("internal/siemdispatcher/dispatcher.go");
   const goDispatcherKinds = uniqueMatches(goDispatcherSource, /case\s+"([A-Z_]+)":/g);
 
   assert.deepEqual(matrixKinds, prismaSiemKinds(), "matrix must match Prisma SiemKind enum");
   assert.deepEqual(matrixKinds, sharedKinds, "matrix must match TypeScript shared SIEM catalog");
   assert.deepEqual(matrixKinds, goCatalogKinds, "matrix must match Go SIEM catalog");
-  assert.deepEqual(matrixKinds, tsDispatcherKinds, "matrix must match TypeScript dispatcher send paths");
   assert.deepEqual(
     sorted(matrix.adapters.filter((adapter) => adapter.goDispatcher).map((adapter) => adapter.kind)),
     goDispatcherKinds,
@@ -101,37 +99,44 @@ test("SIEM adapter ownership matrix covers every declared destination kind", () 
   );
 });
 
-test("SIEM adapter matrix preserves TypeScript fallback and blocks premature cutover", () => {
+test("SIEM adapter matrix marks every declared adapter Go-owned", () => {
   const matrix = readJson<SiemAdapterMatrix>(
     "tests/fixtures/worker-parity/siem-adapter-matrix.json"
   );
+  const httpAdapterKinds = new Set<SiemKindKey>([
+    "SPLUNK_HEC",
+    "PANTHER",
+    "PANOPTICON",
+    "ELASTIC",
+    "DATADOG",
+    "GENERIC_WEBHOOK"
+  ]);
 
   for (const adapter of matrix.adapters) {
     assert.equal(adapter.prismaKind, true, `${adapter.kind} must be present in Prisma`);
     assert.equal(adapter.sharedCatalog, true, `${adapter.kind} must be present in TS shared catalog`);
     assert.equal(adapter.goCatalog, true, `${adapter.kind} must be present in Go catalog`);
-    assert.equal(adapter.typescriptDispatcher, true, `${adapter.kind} must have a TS reference path`);
-    assert.notEqual(adapter.state, "go-default", `${adapter.kind} cannot be Go-default in this slice`);
-    assert.notEqual(adapter.state, "removable", `${adapter.kind} cannot be removable in this slice`);
-    assert.ok(adapter.cutoverBlockers.length > 0, `${adapter.kind} needs explicit cutover blockers`);
-
-    if (adapter.goClaimed) {
-      assert.equal(adapter.state, "go-parity", `${adapter.kind} Go claims must remain go-parity`);
-      assert.equal(adapter.goDispatcher, true, `${adapter.kind} claims require a Go send path`);
+    assert.equal(adapter.typescriptDispatcher, false, `${adapter.kind} must not retain a TS dispatcher path`);
+    assert.equal(adapter.state, "go-default", `${adapter.kind} must be marked Go-owned/default`);
+    assert.equal(adapter.goDispatcher, true, `${adapter.kind} must have a Go send path`);
+    assert.equal(adapter.goClaimed, true, `${adapter.kind} must be claimed by the Go dispatcher`);
+    assert.deepEqual(adapter.cutoverBlockers, [], `${adapter.kind} must not retain adapter ownership blockers`);
+    assert.ok(
+      adapter.fixtures.includes("tests/fixtures/worker-parity/siem-envelope-cases.json"),
+      `${adapter.kind} must cite canonical envelope/stream fixtures`
+    );
+    assert.ok(
+      adapter.fixtures.includes("tests/fixtures/worker-parity/siem-local-adapter-harness.json"),
+      `${adapter.kind} must cite local adapter harness fixtures`
+    );
+    if (httpAdapterKinds.has(adapter.kind)) {
       assert.ok(
-        adapter.fixtures.every((fixture) => fixture.startsWith("tests/fixtures/worker-parity/")),
-        `${adapter.kind} Go parity must cite shared fixtures`
+        adapter.fixtures.includes("tests/fixtures/worker-parity/siem-http-adapter-requests.json"),
+        `${adapter.kind} must cite deterministic HTTP request capture fixtures`
       );
-      assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_test.go"));
-      assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_db_test.go"));
-    } else {
-      assert.equal(
-        adapter.state,
-        "typescript-reference",
-        `${adapter.kind} unclaimed adapters must remain TypeScript fallback`
-      );
-      assert.equal(adapter.goDispatcher, false, `${adapter.kind} must not advertise unclaimed Go support`);
     }
+    assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_test.go"));
+    assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_db_test.go"));
   }
 });
 
@@ -153,12 +158,36 @@ test("SIEM adapter matrix mirrors shared catalog required fields and streams", (
   }
 });
 
-test("TypeScript SIEM dispatcher remains the unsuffixed reference runtime", () => {
+test("/siem-connectors renders only adapter default stream toggles", () => {
+  const source = readRepoFile("apps/web/components/connectors/siem-page.tsx");
+  assert.match(
+    source,
+    /definition\.defaultStreams\.map\(\(stream\)/,
+    "SIEM connector dialog must render stream toggles from the selected adapter definition"
+  );
+  assert.doesNotMatch(
+    source,
+    /allStreams\.map/,
+    "SIEM connector dialog must not render every global stream for restricted-stream adapters"
+  );
+  const restrictedKinds = siemCatalog
+    .filter((definition) => definition.defaultStreams.length === 1)
+    .map((definition) => definition.kind);
+  assert.ok(restrictedKinds.includes("ELASTIC"), "Elasticsearch must remain a restricted-stream adapter fixture");
+  assert.ok(restrictedKinds.includes("JSON_FILE"), "JSON_FILE must remain a restricted-stream adapter fixture");
+});
+
+test("SIEM dispatcher defaults run Go and the TypeScript runtime is absent", () => {
   const packageJson = readJson<{ scripts: Record<string, string> }>("package.json");
   const makefile = readRepoFile("Makefile");
 
-  assert.equal(packageJson.scripts["worker:siem"], "tsx workers/siem-dispatcher.ts");
-  assert.match(packageJson.scripts["worker:siem:go"], /go run \.\/cmd\/siem-dispatcher/);
-  assert.match(makefile, /worker-siem: require-env[\s\S]*npx tsx workers\/siem-dispatcher\.ts/);
-  assert.match(makefile, /worker-siem-go: require-env[\s\S]*go run \.\/cmd\/siem-dispatcher/);
+  assert.match(packageJson.scripts["worker:siem"], /go run \.\/cmd\/siem-dispatcher/);
+  assert.equal(packageJson.scripts["worker:siem:go"], "npm run worker:siem --");
+  assert.match(makefile, /worker-siem: require-env[\s\S]*go run \.\/cmd\/siem-dispatcher/);
+  assert.match(makefile, /worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker/);
+  assert.equal(
+    existsSync(path.join(repoRoot, "workers/siem-dispatcher.ts")),
+    false,
+    "TypeScript SIEM dispatcher runtime must be deleted"
+  );
 });

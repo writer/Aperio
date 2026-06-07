@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/writer/aperio/internal/runtimeutil"
 )
 
 // Config contains the small runtime surface the Go service needs today. It is
@@ -28,9 +30,14 @@ type Config struct {
 // values, such as DATABASE_URL, are validated by cmd/aperio so tests can build a
 // Config without a database.
 func FromEnv() Config {
+	_, _ = runtimeutil.LoadLocalEnv(false)
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if safeURL, err := runtimeutil.PGXSafeDatabaseURL(databaseURL); err == nil {
+		databaseURL = safeURL
+	}
 	return Config{
 		Addr:               env("APERIO_CONNECT_ADDR", ":4100"),
-		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DatabaseURL:        databaseURL,
 		SessionIdleMinutes: envInt("APERIO_SESSION_IDLE_MINUTES", 120),
 		WebOrigin:          strings.TrimRight(env("APERIO_WEB_ORIGIN", "http://localhost:3000"), "/"),
 		MaxOpenConns:       envInt("APERIO_CONNECT_DB_MAX_OPEN_CONNS", 10),

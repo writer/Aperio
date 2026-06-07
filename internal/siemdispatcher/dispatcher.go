@@ -1,9 +1,8 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,18 +21,36 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/scrypt"
+	"github.com/writer/aperio/internal/runtimeutil"
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 const (
 	leaseDuration        = 5 * time.Minute
 	networkTimeout       = 4 * time.Second
-	encryptionAlgorithm  = "aes-256-gcm"
-	encryptionKeyBytes   = 32
-	encryptionNonceBytes = 12
+	encryptionAlgorithm  = runtimeutil.CredentialAlgorithm
+	encryptionNonceBytes = runtimeutil.CredentialNonceBytes
+	maxAttemptsMessage   = "max delivery attempts exhausted"
 )
 
 var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
+
+type permanentSendError struct {
+	message string
+}
+
+func (e permanentSendError) Error() string {
+	return e.message
+}
+
+type httpStatusError struct {
+	statusCode int
+	statusText string
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("%d %s", e.statusCode, e.statusText)
+}
 
 type Payload struct {
 	Kind           string         `json:"kind"`
@@ -65,6 +82,7 @@ type Dispatcher struct {
 	organizationID      string
 	httpClient          *http.Client
 	endpointSafetyCheck func(context.Context, string) error
+	claimPublisher      ClaimFanoutPublisher
 }
 
 type delivery struct {
@@ -88,13 +106,14 @@ type destination struct {
 	EncryptedToken sql.NullString
 }
 
-type encryptedEnvelope struct {
-	Version    int    `json:"version"`
-	Algorithm  string `json:"algorithm"`
-	IV         string `json:"iv"`
-	Tag        string `json:"tag"`
-	Ciphertext string `json:"ciphertext"`
+type sendResult struct {
+	CerebroClaims    []cerebroClaim
+	CerebroRuntimeID string
+	FindingID        string
+	DedupeKey        string
 }
+
+type encryptedEnvelope = runtimeutil.EncryptedEnvelope
 
 type endpointResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
@@ -106,14 +125,33 @@ func New(db *sql.DB) *Dispatcher {
 		hostname = "unknown-host"
 	}
 	return &Dispatcher{
-		db:         db,
-		leaseOwner: fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
+		db:             db,
+		leaseOwner:     fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
+		claimPublisher: NewEnvClaimFanoutPublisher(),
 	}
 }
 
-// SetOrganizationForTesting scopes drain queries to one organization in DB-backed tests.
-func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
+// SetOrganizationScope scopes drain queries to one organization for bounded
+// local validation runs and DB-backed tests.
+func (d *Dispatcher) SetOrganizationScope(organizationID string) {
 	d.organizationID = organizationID
+}
+
+// SetOrganizationForTesting preserves the existing DB-backed test helper name.
+func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
+	d.SetOrganizationScope(organizationID)
+}
+
+// SetHTTPClientForTesting installs a deterministic local transport for DB-backed
+// surface tests so adapter drains can be proven without contacting real SIEMs.
+func (d *Dispatcher) SetHTTPClientForTesting(client *http.Client) {
+	d.httpClient = client
+}
+
+// SetEndpointSafetyCheckForTesting injects the local harness safety gate used by
+// DB-backed surface tests while keeping production endpoint safety enabled by default.
+func (d *Dispatcher) SetEndpointSafetyCheckForTesting(check func(context.Context, string) error) {
+	d.endpointSafetyCheck = check
 }
 
 func StableDeliveryKey(payload Payload, destinationID string, stream string) string {
@@ -171,9 +209,13 @@ func (d *Dispatcher) Drain(ctx context.Context, limit int) (Result, error) {
 }
 
 func (d *Dispatcher) retireExhausted(ctx context.Context) error {
-	_, err := d.db.ExecContext(ctx, `
+	rows, err := d.db.QueryContext(ctx, `
 		UPDATE siem_deliveries
-		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
+		SET status = 'DEAD_LETTER',
+		    lease_owner = NULL,
+		    lease_expires_at = NULL,
+		    last_error = $2,
+		    updated_at = NOW()
 		WHERE attempts >= max_attempts
 		  AND ($1 = '' OR organization_id = $1)
 		  AND status IN ('PENDING', 'FAILED', 'PROCESSING')
@@ -185,12 +227,45 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 			FROM siem_destinations dst
 			WHERE dst.id = siem_deliveries.destination_id
 			  AND dst.organization_id = siem_deliveries.organization_id
-			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+			  AND dst.kind IN ('SPLUNK_HEC', 'PANTHER', 'PANOPTICON', 'ELASTIC', 'DATADOG', 'GENERIC_WEBHOOK', 'CEREBRO_CLAIMS', 'JSON_FILE')
 			  AND siem_deliveries.stream = ANY(dst.streams)
 		    )
 		  )
-	`, d.organizationID)
-	return err
+		RETURNING id,
+		          organization_id,
+		          destination_id,
+		          stream::text,
+		          payload,
+		          attempts,
+		          max_attempts,
+		          (
+		            SELECT dst.kind::text
+		            FROM siem_destinations dst
+		            WHERE dst.id = siem_deliveries.destination_id
+		              AND dst.organization_id = siem_deliveries.organization_id
+		          )
+	`, d.organizationID, maxAttemptsMessage)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item delivery
+		var destinationKind sql.NullString
+		if err := rows.Scan(&item.ID, &item.OrganizationID, &item.DestinationID, &item.Stream, &item.Payload, &item.Attempts, &item.MaxAttempts, &destinationKind); err != nil {
+			return err
+		}
+		payload, _ := parsePayload(item.Payload)
+		dest := destination{}
+		if item.DestinationID.Valid {
+			dest.ID = item.DestinationID.String
+		}
+		if destinationKind.Valid {
+			dest.Kind = destinationKind.String
+		}
+		emitSIEMDeliveryWideEventForAttempt(item, payload, dest, errors.New(maxAttemptsMessage), false, 0, item.Attempts)
+	}
+	return rows.Err()
 }
 
 func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
@@ -211,7 +286,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 						WHERE dst.id = sd.destination_id
 						AND dst.organization_id = sd.organization_id
 						AND dst.status IN ('ACTIVE', 'ERROR')
-						AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+						AND dst.kind IN ('SPLUNK_HEC', 'PANTHER', 'PANOPTICON', 'ELASTIC', 'DATADOG', 'GENERIC_WEBHOOK', 'CEREBRO_CLAIMS', 'JSON_FILE')
 						AND sd.stream = ANY(dst.streams)
 					)
 			  )
@@ -240,45 +315,78 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 	return deliveries, rows.Err()
 }
 
-func (d *Dispatcher) process(ctx context.Context, item delivery) error {
+func (d *Dispatcher) process(ctx context.Context, item delivery) (processErr error) {
+	startedAt := time.Now()
+	payload := Payload{}
+	dest := destination{}
+	permanentFailure := false
+	var telemetryErr error
+	defer func() {
+		errForTelemetry := processErr
+		if telemetryErr != nil {
+			errForTelemetry = telemetryErr
+		}
+		emitSIEMDeliveryWideEvent(item, payload, dest, errForTelemetry, permanentFailure, time.Since(startedAt))
+	}()
+
 	payload, err := parsePayload(item.Payload)
 	if err != nil {
-		return d.failDelivery(ctx, item, true, err.Error())
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, err.Error())
+		return processErr
 	}
 	if payload.OrganizationID != item.OrganizationID {
-		return d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
+		return processErr
 	}
-	return d.processPayload(ctx, item, payload)
-}
-
-func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload Payload) error {
+	expectedStream, err := StreamForKind(payload.Kind)
+	if err != nil {
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, err.Error())
+		return processErr
+	}
+	if item.Stream != expectedStream {
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, fmt.Sprintf("delivery stream does not match payload kind: %s requires %s", payload.Kind, expectedStream))
+		return processErr
+	}
 	if !item.DestinationID.Valid {
-		return d.failDelivery(ctx, item, true, "destination not configured")
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, "destination not configured")
+		return processErr
 	}
-	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String, item.Stream)
+	dest, err = d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String, item.Stream)
 	if err != nil {
 		permanent, message := destinationLoadFailure(err)
-		return d.failDelivery(ctx, item, permanent, message)
+		permanentFailure = permanent
+		processErr = d.failDelivery(ctx, item, permanent, message)
+		return processErr
 	}
-	switch dest.Kind {
-	case "JSON_FILE":
-		err = writeJSONFile(dest, payload)
-	case "GENERIC_WEBHOOK":
-		err = d.sendGenericWebhook(ctx, dest, payload)
-	default:
-		err = fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
-	}
+	sendOutcome, err := d.sendForKind(ctx, dest, payload)
 	if err != nil {
-		return d.fail(ctx, item, false, err.Error())
+		permanent := isPermanentSendFailure(err)
+		permanentFailure = permanent
+		message := safeSIEMFailureMessageForDestination(err.Error(), dest)
+		if finishErr := d.finish(ctx, item, false, permanent, message); finishErr != nil {
+			processErr = finishErr
+			return processErr
+		}
+		d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, false, message)
+		telemetryErr = err
+		processErr = errors.New(message)
+		return processErr
 	}
 	if err := d.finish(ctx, item, true, false, ""); err != nil {
-		return err
+		processErr = err
+		return processErr
 	}
 	_, _ = d.db.ExecContext(ctx, `
 		UPDATE siem_destinations
 		SET last_delivery_at = NOW(), deliveries_ok = deliveries_ok + 1, last_error = NULL, status = 'ACTIVE', updated_at = NOW()
 		WHERE id = $1 AND organization_id = $2
 	`, dest.ID, dest.OrganizationID)
+	d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, true, "")
 	return nil
 }
 
@@ -291,10 +399,11 @@ func (d *Dispatcher) failDelivery(ctx context.Context, item delivery, permanent 
 }
 
 func (d *Dispatcher) failWithHealth(ctx context.Context, item delivery, permanent bool, message string, updateDestinationHealth bool) error {
-	if err := d.finish(ctx, item, false, permanent, message, updateDestinationHealth); err != nil {
+	safeMessage := safeSIEMFailureMessage(message)
+	if err := d.finish(ctx, item, false, permanent, safeMessage, updateDestinationHealth); err != nil {
 		return err
 	}
-	return errors.New(message)
+	return errors.New(safeMessage)
 }
 
 func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string, stream string) (destination, error) {
@@ -314,14 +423,30 @@ func destinationLoadFailure(err error) (bool, string) {
 	return false, err.Error()
 }
 
+func permanentAdapterError(message string) error {
+	return permanentSendError{message: message}
+}
+
+func isPermanentSendFailure(err error) bool {
+	var permanent permanentSendError
+	if errors.As(err, &permanent) {
+		return true
+	}
+	var statusErr httpStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.statusCode >= http.StatusMultipleChoices && statusErr.statusCode < http.StatusInternalServerError
+	}
+	return false
+}
+
 func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string, updateDestinationHealth ...bool) error {
 	attempts := item.Attempts + 1
 	if ok {
 		res, err := d.db.ExecContext(ctx, `
 			UPDATE siem_deliveries
 			SET status = 'DELIVERED', attempts = $1, delivered_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
-			WHERE id = $2 AND lease_owner = $3
-		`, attempts, item.ID, d.leaseOwner)
+			WHERE id = $2 AND lease_owner = $3 AND organization_id = $4
+		`, attempts, item.ID, d.leaseOwner, item.OrganizationID)
 		if err != nil {
 			return err
 		}
@@ -334,12 +459,13 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 	if permanent || attempts >= item.MaxAttempts {
 		status = "DEAD_LETTER"
 	}
+	safeMessage := safeSIEMFailureMessage(message)
 	nextAttemptAt := time.Now().UTC().Add(nextRetryDelay(attempts))
 	res, err := d.db.ExecContext(ctx, `
 		UPDATE siem_deliveries
 		SET status = $1, attempts = $2, next_attempt_at = $3, lease_owner = NULL, lease_expires_at = NULL, last_error = $4, updated_at = NOW()
-		WHERE id = $5 AND lease_owner = $6
-	`, status, attempts, nextAttemptAt, truncate(message, 500), item.ID, d.leaseOwner)
+		WHERE id = $5 AND lease_owner = $6 AND organization_id = $7
+	`, status, attempts, nextAttemptAt, safeMessage, item.ID, d.leaseOwner, item.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -355,7 +481,7 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 			UPDATE siem_destinations
 			SET deliveries_fail = deliveries_fail + 1, last_error = $1, status = 'ERROR', updated_at = NOW()
 			WHERE id = $2 AND organization_id = $3
-		`, truncate(message, 500), item.DestinationID.String, item.OrganizationID)
+		`, safeMessage, item.DestinationID.String, item.OrganizationID)
 	}
 	return nil
 }
@@ -387,6 +513,19 @@ func BuildEnvelope(destID string, orgID string, payload Payload) Envelope {
 	}
 }
 
+func StreamForKind(kind string) (string, error) {
+	switch kind {
+	case "finding":
+		return "FINDINGS", nil
+	case "event":
+		return "EVENTS", nil
+	case "audit_log":
+		return "AUDIT_LOGS", nil
+	default:
+		return "", errors.New("invalid delivery kind")
+	}
+}
+
 func writeJSONFile(dest destination, payload Payload) error {
 	if !dest.FilePath.Valid || strings.TrimSpace(dest.FilePath.String) == "" {
 		return errors.New("file_path is not configured")
@@ -395,7 +534,21 @@ func writeJSONFile(dest destination, payload Payload) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	root, err := siemExportRoot()
+	if err != nil {
+		return err
+	}
+	parent := filepath.Dir(path)
+	if err := rejectSymlinkPath(root, parent, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if err := rejectSymlinkPath(root, parent, true); err != nil {
+		return err
+	}
+	if err := rejectSymlinkPath(root, path, true); err != nil {
 		return err
 	}
 	encoded, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
@@ -411,9 +564,139 @@ func writeJSONFile(dest destination, payload Payload) error {
 	return err
 }
 
+func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload Payload) (sendResult, error) {
+	switch dest.Kind {
+	case "SPLUNK_HEC":
+		return sendResult{}, d.sendSplunk(ctx, dest, payload)
+	case "PANTHER":
+		return sendResult{}, d.sendPanther(ctx, dest, payload)
+	case "PANOPTICON":
+		return sendResult{}, d.sendPanopticon(ctx, dest, payload)
+	case "ELASTIC":
+		return sendResult{}, d.sendElastic(ctx, dest, payload)
+	case "DATADOG":
+		return sendResult{}, d.sendDatadog(ctx, dest, payload)
+	case "GENERIC_WEBHOOK":
+		return sendResult{}, d.sendGenericWebhook(ctx, dest, payload)
+	case "CEREBRO_CLAIMS":
+		return d.sendCerebroClaims(ctx, dest, payload)
+	case "JSON_FILE":
+		return sendResult{}, writeJSONFile(dest, payload)
+	default:
+		return sendResult{}, permanentAdapterError(fmt.Sprintf("unsupported Go SIEM destination kind %s", dest.Kind))
+	}
+}
+
+func (d *Dispatcher) sendSplunk(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return permanentAdapterError("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing HEC token")
+	if err != nil {
+		return err
+	}
+	body := map[string]any{
+		"event":      BuildEnvelope(dest.ID, dest.OrganizationID, payload),
+		"sourcetype": "aperio:" + payload.Kind,
+		"source":     "aperio",
+	}
+	if dest.Index.Valid && strings.TrimSpace(dest.Index.String) != "" {
+		body["index"] = strings.TrimSpace(dest.Index.String)
+	}
+	if occurredAt, err := time.Parse(time.RFC3339Nano, payload.OccurredAt); err == nil {
+		body["time"] = occurredAt.Unix()
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"authorization": "Splunk " + token,
+	}, encoded)
+}
+
+func (d *Dispatcher) sendPanther(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return permanentAdapterError("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing Panther API token")
+	if err != nil {
+		return err
+	}
+	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"x-api-key": token,
+	}, bodyBytes)
+}
+
+func (d *Dispatcher) sendPanopticon(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return permanentAdapterError("endpoint not configured")
+	}
+	headers := map[string]string{}
+	token, err := optionalDestinationToken(dest)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(token) != "" {
+		headers["authorization"] = "Bearer " + token
+	}
+	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
+}
+
+func (d *Dispatcher) sendElastic(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return permanentAdapterError("endpoint not configured")
+	}
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return permanentAdapterError("Elasticsearch index missing")
+	}
+	token, err := requireDestinationToken(dest, "missing Elasticsearch API key")
+	if err != nil {
+		return err
+	}
+	body := strings.Join([]string{
+		mustMarshalString(map[string]any{"index": map[string]any{"_index": strings.TrimSpace(dest.Index.String)}}),
+		mustMarshalString(BuildEnvelope(dest.ID, dest.OrganizationID, payload)),
+		"",
+	}, "\n")
+	return d.postWithContentType(ctx, dest.EndpointURL.String, "application/x-ndjson", map[string]string{
+		"authorization": "ApiKey " + token,
+	}, []byte(body))
+}
+
+func (d *Dispatcher) sendDatadog(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return permanentAdapterError("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing DD-API-KEY")
+	if err != nil {
+		return err
+	}
+	bodyBytes, err := json.Marshal([]map[string]any{{
+		"ddsource": "aperio",
+		"service":  "aperio-" + payload.Kind,
+		"ddtags":   "org:" + dest.OrganizationID,
+		"message":  BuildEnvelope(dest.ID, dest.OrganizationID, payload),
+	}})
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"DD-API-KEY": token,
+	}, bodyBytes)
+}
+
 func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
 	if err != nil {
@@ -423,7 +706,7 @@ func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, p
 	if dest.EncryptedToken.Valid && strings.TrimSpace(dest.EncryptedToken.String) != "" {
 		token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
 		if err != nil {
-			return errors.New("SIEM token decrypt failed")
+			return permanentAdapterError("SIEM token decrypt failed")
 		}
 		signature := hmac.New(sha256.New, []byte(token))
 		_, _ = signature.Write(bodyBytes)
@@ -432,17 +715,75 @@ func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, p
 	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
 }
 
+func (d *Dispatcher) sendCerebroClaims(ctx context.Context, dest destination, payload Payload) (sendResult, error) {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return sendResult{}, permanentAdapterError("Cerebro API URL missing")
+	}
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return sendResult{}, permanentAdapterError("Cerebro source runtime ID is not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing Cerebro API token")
+	if err != nil {
+		return sendResult{}, err
+	}
+	runtimeID := strings.TrimSpace(dest.Index.String)
+	runtimePath := "/source-runtimes/" + url.PathEscape(runtimeID)
+	headers := map[string]string{"authorization": "Bearer " + token}
+	if err := d.getJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath), headers); err != nil {
+		return sendResult{}, fmt.Errorf("Cerebro runtime check failed: %w", err)
+	}
+	claims, err := buildCerebroClaims(dest, payload)
+	if err != nil {
+		return sendResult{}, err
+	}
+	result := sendResult{
+		CerebroClaims:    claims,
+		CerebroRuntimeID: runtimeID,
+		FindingID:        firstString(payload.Record["findingId"], payload.Record["id"]),
+		DedupeKey:        firstString(payload.Record["dedupeKey"]),
+	}
+	bodyBytes, err := json.Marshal(map[string]any{
+		"runtime_id": runtimeID,
+		"claims":     claims,
+	})
+	if err != nil {
+		return result, err
+	}
+	if err := d.postJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath+"/claims"), headers, bodyBytes); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[string]string, body []byte) error {
+	return d.postWithContentType(ctx, endpoint, "application/json", headers, body)
+}
+
+func (d *Dispatcher) postWithContentType(ctx context.Context, endpoint string, contentType string, headers map[string]string, body []byte) error {
+	return d.doHTTPRequest(ctx, http.MethodPost, endpoint, contentType, headers, body)
+}
+
+func (d *Dispatcher) getJSON(ctx context.Context, endpoint string, headers map[string]string) error {
+	requestHeaders := map[string]string{"accept": "application/json"}
+	for key, value := range headers {
+		requestHeaders[key] = value
+	}
+	return d.doHTTPRequest(ctx, http.MethodGet, endpoint, "", requestHeaders, nil)
+}
+
+func (d *Dispatcher) doHTTPRequest(ctx context.Context, method string, endpoint string, contentType string, headers map[string]string, body []byte) error {
 	if err := d.checkEndpoint(ctx, endpoint); err != nil {
-		return err
+		return permanentAdapterError(err.Error())
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, networkTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(requestCtx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("content-type", "application/json")
+	if contentType != "" {
+		req.Header.Set("content-type", contentType)
+	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -457,7 +798,7 @@ func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[
 		if statusText == "" {
 			statusText = "HTTP error"
 		}
-		return fmt.Errorf("%d %s", res.StatusCode, statusText)
+		return httpStatusError{statusCode: res.StatusCode, statusText: statusText}
 	}
 	return nil
 }
@@ -477,6 +818,166 @@ func (d *Dispatcher) webhookHTTPClient() *http.Client {
 
 func blockWebhookRedirect(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
+}
+
+type cerebroEntityRef struct {
+	URN        string `json:"urn"`
+	EntityType string `json:"entity_type"`
+	Label      string `json:"label"`
+}
+
+type cerebroClaim struct {
+	ID          string            `json:"id,omitempty"`
+	SubjectURN  string            `json:"subject_urn"`
+	SubjectRef  cerebroEntityRef  `json:"subject_ref"`
+	Predicate   string            `json:"predicate"`
+	ObjectURN   string            `json:"object_urn,omitempty"`
+	ObjectRef   *cerebroEntityRef `json:"object_ref,omitempty"`
+	ObjectValue string            `json:"object_value,omitempty"`
+	ClaimType   string            `json:"claim_type"`
+	Status      string            `json:"status"`
+	SourceEvent string            `json:"source_event_id,omitempty"`
+	ObservedAt  string            `json:"observed_at"`
+	Attributes  map[string]string `json:"attributes,omitempty"`
+}
+
+func buildCerebroClaims(dest destination, payload Payload) ([]cerebroClaim, error) {
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return nil, errors.New("Cerebro source runtime ID is not configured")
+	}
+	runtimeID := strings.TrimSpace(dest.Index.String)
+	provider := firstString(payload.Record["provider"])
+	if provider == "" {
+		provider = "APERIO"
+	}
+	title := firstString(payload.Record["title"])
+	if title == "" {
+		title = payload.Kind + " from Aperio"
+	}
+	findingID := firstString(payload.Record["dedupeKey"], payload.Record["sourceEventId"])
+	if findingID == "" {
+		sum := hmac.New(sha256.New, []byte(dest.OrganizationID))
+		encoded, _ := json.Marshal(payload.Record)
+		_, _ = sum.Write(encoded)
+		findingID = hex.EncodeToString(sum.Sum(nil))
+	}
+	targetLabel := firstString(payload.Record["target"])
+	if targetLabel == "" {
+		targetLabel = title
+	}
+	integrationID := firstString(payload.Record["integrationId"])
+	if integrationID == "" {
+		integrationID = "aperio"
+	}
+	finding := cerebroRef(dest.OrganizationID, runtimeID, "finding", findingID, title)
+	target := cerebroRef(dest.OrganizationID, runtimeID, "asset", provider+":"+targetLabel, targetLabel)
+	integration := cerebroRef(dest.OrganizationID, runtimeID, "integration", integrationID, provider)
+	attributes := map[string]string{
+		"aperio_schema": schemaVersion(payload.Kind),
+		"aperio_kind":   payload.Kind,
+	}
+	for _, key := range []string{"ruleId", "dedupeKey", "sourceEventId", "source", "eventType"} {
+		if value := firstString(payload.Record[key]); value != "" {
+			attributes[key] = value
+		}
+	}
+	claims := []cerebroClaim{
+		existsClaim(finding, payload, attributes),
+		existsClaim(target, payload, map[string]string{"provider": provider}),
+		existsClaim(integration, payload, map[string]string{"provider": provider}),
+		relationClaim(finding, "affects", target, payload),
+		relationClaim(finding, "observed_by", integration, payload),
+		attributeClaim(finding, "title", title, payload),
+		attributeClaim(finding, "provider", provider, payload),
+	}
+	for _, key := range []string{"severity", "riskScore", "status", "ruleId"} {
+		if value := firstString(payload.Record[key]); value != "" {
+			claims = append(claims, attributeClaim(finding, key, value, payload))
+		}
+	}
+	if description := firstString(payload.Record["description"]); description != "" {
+		claims = append(claims, attributeClaim(finding, "description", description, payload))
+	}
+	return claims, nil
+}
+
+func cerebroRef(organizationID, runtimeID, entityType, externalID, label string) cerebroEntityRef {
+	encodedExternalID := encodeURIComponentExternalID(externalID)
+	return cerebroEntityRef{
+		URN:        strings.Join([]string{"urn", "cerebro", organizationID, "runtime", runtimeID, entityType, encodedExternalID}, ":"),
+		EntityType: entityType,
+		Label:      label,
+	}
+}
+
+func encodeURIComponentExternalID(value string) string {
+	const upperHex = "0123456789ABCDEF"
+	var builder strings.Builder
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' ||
+			character == '_' ||
+			character == '.' ||
+			character == '!' ||
+			character == '~' ||
+			character == '*' ||
+			character == '\'' ||
+			character == '(' ||
+			character == ')' {
+			builder.WriteByte(character)
+			continue
+		}
+		if character == ' ' {
+			builder.WriteByte('-')
+			continue
+		}
+		builder.WriteByte('%')
+		builder.WriteByte(upperHex[character>>4])
+		builder.WriteByte(upperHex[character&0x0f])
+	}
+	return builder.String()
+}
+
+func claimBase(payload Payload, attributes map[string]string) cerebroClaim {
+	return cerebroClaim{
+		Status:      "asserted",
+		SourceEvent: firstString(payload.Record["sourceEventId"]),
+		ObservedAt:  payload.OccurredAt,
+		Attributes:  attributes,
+	}
+}
+
+func existsClaim(subject cerebroEntityRef, payload Payload, attributes map[string]string) cerebroClaim {
+	claim := claimBase(payload, attributes)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = "exists"
+	claim.ClaimType = "existence"
+	return claim
+}
+
+func attributeClaim(subject cerebroEntityRef, predicate string, value string, payload Payload) cerebroClaim {
+	claim := claimBase(payload, nil)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = predicate
+	claim.ObjectValue = value
+	claim.ClaimType = "attribute"
+	return claim
+}
+
+func relationClaim(subject cerebroEntityRef, predicate string, object cerebroEntityRef, payload Payload) cerebroClaim {
+	claim := claimBase(payload, nil)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = predicate
+	claim.ObjectURN = object.URN
+	claim.ObjectRef = &object
+	claim.ClaimType = "relation"
+	return claim
 }
 
 func safeWebhookTransport() http.RoundTripper {
@@ -536,7 +1037,7 @@ func (d *Dispatcher) checkEndpoint(ctx context.Context, endpoint string) error {
 	return assertSafeEndpointURL(ctx, endpoint)
 }
 
-func normalizeFilePath(raw string) (string, error) {
+func siemExportRoot() (string, error) {
 	root := strings.TrimSpace(os.Getenv("APERIO_SIEM_EXPORT_DIR"))
 	if root == "" {
 		cwd, err := os.Getwd()
@@ -546,6 +1047,14 @@ func normalizeFilePath(raw string) (string, error) {
 		root = filepath.Join(cwd, "var", "siem-exports")
 	}
 	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func normalizeFilePath(raw string) (string, error) {
+	root, err := siemExportRoot()
 	if err != nil {
 		return "", err
 	}
@@ -566,6 +1075,55 @@ func normalizeFilePath(raw string) (string, error) {
 		return "", fmt.Errorf("invalid SIEM export path: file path must stay within %s", root)
 	}
 	return candidate, nil
+}
+
+func rejectSymlinkPath(root string, target string, includeTarget bool) error {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if info, err := os.Lstat(root); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid SIEM export path: export root symlinks are not allowed")
+		}
+		if !info.IsDir() {
+			return errors.New("invalid SIEM export path: export root is not a directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return fmt.Errorf("invalid SIEM export path: file path must stay within %s", root)
+	}
+	if relative == "." {
+		return nil
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	limit := len(parts)
+	if !includeTarget {
+		limit--
+	}
+	current := root
+	for index := 0; index < limit; index++ {
+		part := parts[index]
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid SIEM export path: symlink path components are not allowed")
+		}
+		if !info.IsDir() && index < limit-1 {
+			return errors.New("invalid SIEM export path: path component is not a directory")
+		}
+	}
+	return nil
 }
 
 func assertSafeEndpointURL(ctx context.Context, raw string) error {
@@ -661,95 +1219,37 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 func destinationTokenAAD(dest destination) string {
-	return dest.OrganizationID + ":siem:" + dest.ID + ":token"
+	return runtimeutil.SIEMDestinationTokenAAD(dest.OrganizationID, dest.ID)
+}
+
+func optionalDestinationToken(dest destination) (string, error) {
+	if !dest.EncryptedToken.Valid || strings.TrimSpace(dest.EncryptedToken.String) == "" {
+		return "", nil
+	}
+	token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
+	if err != nil {
+		return "", permanentAdapterError("SIEM token decrypt failed")
+	}
+	return token, nil
+}
+
+func requireDestinationToken(dest destination, missingMessage string) (string, error) {
+	token, err := optionalDestinationToken(dest)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", permanentAdapterError(missingMessage)
+	}
+	return token, nil
 }
 
 func decryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
-	if err != nil {
-		return "", err
-	}
-	var envelope encryptedEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return "", err
-	}
-	if envelope.Version != 1 || envelope.Algorithm != encryptionAlgorithm {
-		return "", errors.New("unsupported encrypted value")
-	}
-	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
-	if err != nil {
-		return "", err
-	}
-	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		return "", err
-	}
-	key, err := resolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(iv) != gcm.NonceSize() {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	sealed := append(ciphertext, tag...)
-	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
+	return runtimeutil.DecryptString(encrypted, additionalAuthenticatedData)
 }
 
 func resolveEncryptionKey() ([]byte, error) {
-	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
-	if raw == "" {
-		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
-	}
-	switch {
-	case strings.HasPrefix(raw, "base64:"):
-		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "base64url:"):
-		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "hex:"):
-		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	default:
-		if os.Getenv("NODE_ENV") == "production" {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
-		}
-		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, encryptionKeyBytes)
-	}
+	return runtimeutil.ResolveEncryptionKeyFromEnv()
 }
 
 func boundedLimit(limit int) int {
@@ -760,6 +1260,227 @@ func boundedLimit(limit int) int {
 		return 1000
 	}
 	return limit
+}
+
+func emitSIEMDeliveryWideEvent(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration) {
+	telemetry.EmitWide(siemDeliveryWideEvent(item, payload, dest, processErr, permanent, duration))
+}
+
+func emitSIEMDeliveryWideEventForAttempt(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration, attempt int) {
+	telemetry.EmitWide(siemDeliveryWideEventForAttempt(item, payload, dest, processErr, permanent, duration, attempt))
+}
+
+func siemDeliveryWideEvent(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration) telemetry.WideEvent {
+	return siemDeliveryWideEventForAttempt(item, payload, dest, processErr, permanent, duration, item.Attempts+1)
+}
+
+func siemDeliveryWideEventForAttempt(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration, attempt int) telemetry.WideEvent {
+	destinationID := dest.ID
+	if destinationID == "" && item.DestinationID.Valid {
+		destinationID = item.DestinationID.String
+	}
+	dimensions := map[string]string{
+		"outcome":        siemDeliveryOutcome(item, processErr, permanent),
+		"stream":         item.Stream,
+		"payload_kind":   payload.Kind,
+		"destination_id": destinationID,
+	}
+	if dest.Kind != "" {
+		dimensions["destination_kind"] = dest.Kind
+	}
+	if processErr != nil {
+		dimensions["error_kind"] = siemDeliveryErrorKind(processErr, permanent)
+		if permanence := siemDeliveryPermanence(item, processErr, permanent); permanence != "" {
+			dimensions["permanence"] = permanence
+		}
+	}
+	if attempt < 0 {
+		attempt = 0
+	}
+	return telemetry.WideEvent{
+		Name:         "siem.delivery.process",
+		Service:      "siem-dispatcher",
+		Organization: item.OrganizationID,
+		Dimensions:   dimensions,
+		Measurements: map[string]int64{
+			"attempt":      int64(attempt),
+			"max_attempts": int64(item.MaxAttempts),
+			"duration_ms":  duration.Milliseconds(),
+		},
+	}
+}
+
+func siemDeliveryOutcome(item delivery, processErr error, permanent bool) string {
+	if processErr == nil {
+		return "delivered"
+	}
+	if errors.Is(processErr, errDeliveryLeaseLost) {
+		return "lost_lease"
+	}
+	if isTimeoutError(processErr) && item.Attempts+1 < item.MaxAttempts {
+		return "timeout"
+	}
+	if permanent || item.Attempts+1 >= item.MaxAttempts {
+		return "dead_letter"
+	}
+	return "retryable_failed"
+}
+
+func siemDeliveryPermanence(item delivery, processErr error, permanent bool) string {
+	if processErr == nil || errors.Is(processErr, errDeliveryLeaseLost) {
+		return ""
+	}
+	if permanent {
+		return "permanent"
+	}
+	if item.Attempts+1 >= item.MaxAttempts {
+		return "exhausted"
+	}
+	return "retryable"
+}
+
+func siemDeliveryErrorKind(processErr error, permanent bool) string {
+	if processErr == nil {
+		return ""
+	}
+	if errors.Is(processErr, errDeliveryLeaseLost) {
+		return "lease_lost"
+	}
+	if isTimeoutError(processErr) {
+		return "timeout"
+	}
+	var statusErr httpStatusError
+	if errors.As(processErr, &statusErr) {
+		if statusErr.statusCode >= http.StatusInternalServerError {
+			return "http_5xx"
+		}
+		return "http_4xx"
+	}
+	message := strings.ToLower(processErr.Error())
+	switch {
+	case strings.Contains(message, "max delivery attempts"):
+		return "max_attempts"
+	case strings.Contains(message, "invalid delivery"):
+		return "invalid_payload"
+	case strings.Contains(message, "payload organization mismatch"):
+		return "tenant_mismatch"
+	case strings.Contains(message, "destination"):
+		return "destination"
+	case strings.Contains(message, "decrypt") || strings.Contains(message, "not configured") || permanent:
+		return "permanent"
+	default:
+		return "error"
+	}
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func safeSIEMFailureMessage(message string) string {
+	return truncate(runtimeutil.RedactText(message, siemRedactionSecretsFromEnv()...), 500)
+}
+
+func safeSIEMFailureMessageForDestination(message string, dest destination) string {
+	sanitized := message
+	if dest.EndpointURL.Valid {
+		endpoint := strings.TrimSpace(dest.EndpointURL.String)
+		if endpoint != "" {
+			redactedEndpoint := runtimeutil.RedactDSN(endpoint)
+			if redactedEndpoint != "" && redactedEndpoint != endpoint {
+				sanitized = strings.ReplaceAll(sanitized, endpoint, redactedEndpoint)
+			}
+		}
+	}
+	secrets := append(siemRedactionSecretsFromEnv(), siemRedactionSecretsFromDestination(dest)...)
+	return truncate(runtimeutil.RedactText(sanitized, secrets...), 500)
+}
+
+func siemRedactionSecretsFromEnv() []string {
+	envNames := []string{
+		"APERIO_ENCRYPTION_KEY",
+		"DATABASE_URL",
+		"APERIO_TEST_DATABASE_URL",
+		"APERIO_NATS_URL",
+		"APERIO_AUTH_SECRET",
+	}
+	secrets := []string{}
+	for _, name := range envNames {
+		raw := strings.TrimSpace(os.Getenv(name))
+		if raw == "" {
+			continue
+		}
+		secrets = append(secrets, raw)
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if parsed.User != nil {
+			if password, ok := parsed.User.Password(); ok {
+				secrets = append(secrets, password)
+			}
+		}
+		query := parsed.Query()
+		for key, values := range query {
+			if !siemSensitiveKey(key) {
+				continue
+			}
+			secrets = append(secrets, values...)
+		}
+	}
+	return secrets
+}
+
+func siemRedactionSecretsFromDestination(dest destination) []string {
+	secrets := []string{}
+	if dest.EndpointURL.Valid {
+		raw := strings.TrimSpace(dest.EndpointURL.String)
+		if parsed, err := url.Parse(raw); err == nil {
+			if parsed.User != nil {
+				if userInfo := parsed.User.String(); userInfo != "" {
+					secrets = append(secrets, userInfo)
+				}
+				if username := parsed.User.Username(); username != "" {
+					secrets = append(secrets, username)
+				}
+				if password, ok := parsed.User.Password(); ok {
+					secrets = append(secrets, password)
+				}
+			}
+			query := parsed.Query()
+			for key, values := range query {
+				if !siemSensitiveKey(key) {
+					continue
+				}
+				for _, value := range values {
+					if strings.TrimSpace(value) != "" {
+						secrets = append(secrets, value, key+"="+value)
+					}
+				}
+			}
+		}
+	}
+	if token, err := optionalDestinationToken(dest); err == nil && strings.TrimSpace(token) != "" {
+		secrets = append(secrets, token)
+	}
+	return secrets
+}
+
+func siemSensitiveKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
+	return strings.Contains(normalized, "password") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "api-key") ||
+		normalized == "key" ||
+		strings.Contains(normalized, "credential")
 }
 
 func schemaVersion(kind string) string {
@@ -787,6 +1508,15 @@ func firstString(values ...any) string {
 		}
 	}
 	return ""
+}
+
+func mustMarshalString(value any) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
+}
+
+func joinEndpointPath(baseURL string, path string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
 func nextRetryDelay(attempt int) time.Duration {

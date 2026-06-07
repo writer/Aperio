@@ -28,7 +28,7 @@ A finding is a `SecurityFinding` row in `packages/db/prisma/schema.prisma`. Find
 
 ## Dedupe key
 
-The dedupe key is the SHA-256 hash built in `workers/ingestion-worker.ts`. It keeps repeated observations of the same rule and target from creating duplicate finding rows.
+The dedupe key is the SHA-256 hash built in `internal/ingestionworker`. It keeps repeated observations of the same rule and target from creating duplicate finding rows.
 
 ## Disabled check
 
@@ -40,15 +40,15 @@ A SIEM destination is a configured outbound sink in `SiemDestination`. The catal
 
 ## SIEM delivery
 
-A SIEM delivery is one durable outbox row in `SiemDelivery`. `workers/siem-dispatcher.ts` retries failed rows and eventually marks them `DEAD_LETTER`.
+A SIEM delivery is one durable outbox row in `SiemDelivery`. `internal/siemdispatcher` retries failed rows and eventually marks them `DEAD_LETTER`.
 
 ## Canonical envelope
 
-The canonical envelope is the payload shape built in `workers/siem-dispatcher.ts`, such as `aperio.finding.v1`. It standardizes what leaves the system regardless of the target SIEM.
+The canonical envelope is the payload shape built in `internal/siemdispatcher`, such as `aperio.finding.v1`. It standardizes what leaves the system regardless of the target SIEM.
 
 ## Agent
 
-An agent is a registered actor in the A2A model. `packages/shared/src/a2a.ts` defines the schemas, `packages/db/prisma/schema.prisma` stores the data, and `internal/bootstrap/compat_api.go` plus `apps/mcp/src/server.ts` expose it.
+An agent is a registered actor in the A2A model. `packages/shared/src/a2a.ts` defines the schemas, `packages/db/prisma/schema.prisma` stores the data, and `internal/bootstrap/compat_api.go` plus `internal/mcpbroker` expose it.
 
 ## Agent task
 

@@ -1,113 +1,188 @@
 {
   "version": 1,
-  "source": "Prisma SiemKind enum, packages/shared SIEM catalog, internal/bootstrap Go catalog, TypeScript dispatcher send paths, and Go dispatcher support/claim allowlist",
+  "finalCutoverPlan": {
+    "status": "siem-go-default-enforced",
+    "defaultsFlippedInThisFeature": true,
+    "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
+    "localHarness": "tests/fixtures/worker-parity/siem-local-adapter-harness.json",
+    "goDefaultRequires": [
+      "every adapter row is go-default in the matrix and Go dispatcher claim/send allowlist",
+      "local request-capture or JSONL fixtures cover each supported destination kind without production endpoints",
+      "canonical envelope fixtures cover finding, event, and audit_log schema versions plus stream mapping",
+      "bounded unsuffixed SIEM worker smoke drains local fixtures through the Go default command"
+    ]
+  },
+  "source": "Prisma SiemKind enum, packages/shared SIEM catalog, internal/bootstrap Go catalog, and Go dispatcher send/claim allowlist",
   "adapters": [
     {
       "kind": "SPLUNK_HEC",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires vendor HEC request/response parity and deterministic local failure/retry evidence before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "PANTHER",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS", "EVENTS"],
-      "requiredFields": ["endpointUrl", "token"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires Panther HTTP-source auth/header parity and local request-capture evidence before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS",
+        "EVENTS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "PANOPTICON",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS", "EVENTS"],
-      "requiredFields": ["endpointUrl"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires Panopticon contract confirmation or deterministic local request-capture evidence before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS",
+        "EVENTS"
+      ],
+      "requiredFields": [
+        "endpointUrl"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "ELASTIC",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token", "index"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires NDJSON bulk-body, API-key auth, timeout, and retry/dead-letter parity before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token",
+        "index"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "DATADOG",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires Datadog body wrapper, DD-API-KEY auth, and deterministic local request-capture evidence before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "GENERIC_WEBHOOK",
-      "state": "go-parity",
-      "owner": "Explicit Go SIEM dispatcher parity with TypeScript fallback/default preserved",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
-        "tests/fixtures/worker-parity/siem-generic-webhook-delivery.json"
+        "tests/fixtures/worker-parity/siem-generic-webhook-delivery.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
         "tests/siem-adapter-matrix.test.ts",
@@ -115,44 +190,60 @@
         "internal/siemdispatcher/dispatcher_test.go",
         "internal/siemdispatcher/dispatcher_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Unsuffixed worker:siem remains TypeScript reference/default until the follow-on DB health, retry, tenant, and smoke milestone passes."
-      ]
+      "cutoverBlockers": []
     },
     {
       "kind": "CEREBRO_CLAIMS",
-      "state": "typescript-reference",
-      "owner": "TypeScript SIEM dispatcher reference/fallback",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
-      "goDispatcher": false,
-      "goClaimed": false,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token", "index"],
-      "fixtures": [],
-      "tests": ["tests/siem-adapter-matrix.test.ts"],
-      "cutoverBlockers": [
-        "Requires local Cerebro/NATS claim fanout proof, runtime checks, and best-effort event-publish parity before Go claim expansion."
-      ]
+      "typescriptDispatcher": false,
+      "goDispatcher": true,
+      "goClaimed": true,
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token",
+        "index"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/siem-cerebro-claims.json",
+        "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+      ],
+      "tests": [
+        "tests/siem-adapter-matrix.test.ts",
+        "internal/siemdispatcher/dispatcher_test.go",
+        "internal/siemdispatcher/dispatcher_db_test.go"
+      ],
+      "cutoverBlockers": []
     },
     {
       "kind": "JSON_FILE",
-      "state": "go-parity",
-      "owner": "Explicit Go SIEM dispatcher local file-sink parity with TypeScript fallback/default preserved",
+      "state": "go-default",
+      "owner": "Go SIEM dispatcher send and claim path",
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["filePath"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "filePath"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
-        "tests/fixtures/worker-parity/siem-finding-delivery.json"
+        "tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "tests/fixtures/worker-parity/siem-json-file-sink.json",
+        "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
         "tests/siem-adapter-matrix.test.ts",
@@ -160,9 +251,7 @@
         "internal/siemdispatcher/dispatcher_test.go",
         "internal/siemdispatcher/dispatcher_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Unsuffixed worker:siem remains TypeScript reference/default until final SIEM cutover criteria are satisfied."
-      ]
+      "cutoverBlockers": []
     }
   ]
 }

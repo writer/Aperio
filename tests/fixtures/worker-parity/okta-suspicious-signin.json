@@ -1,0 +1,121 @@
+{
+  "positive": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.session.start",
+      "source": "okta.system_log",
+      "actor": "employee@example.com",
+      "occurredAt": "2026-06-06T05:00:00.000Z",
+      "payload": {
+        "actor": {
+          "alternateId": "employee@example.com",
+          "type": "User"
+        },
+        "client": {
+          "ipAddress": "203.0.113.10"
+        },
+        "securityContext": {
+          "risk": "HIGH",
+          "isProxy": true
+        },
+        "outcome": {
+          "result": "SUCCESS",
+          "reason": "Suspicious proxy sign-in"
+        }
+      }
+    },
+    "expectedFinding": {
+      "ruleId": "okta.suspicious_signin",
+      "title": "Okta suspicious sign-in detected",
+      "description": "Okta flagged sign-in activity with threat, proxy, or high-risk indicators.",
+      "severity": "MEDIUM",
+      "riskScore": 62,
+      "target": "employee@example.com",
+      "evidence": {
+        "user": "employee@example.com",
+        "ipAddress": "203.0.113.10",
+        "risk": "HIGH",
+        "actor": "employee@example.com",
+        "subject": "employee@example.com:203.0.113.10"
+      },
+      "dedupeKey": "7ca957555c9a5362d6716d5a2ba91d38c0b2aecbe96844eb986c185cb975fa4d"
+    }
+  },
+  "aliases": [
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "SECURITY_THREAT_DETECTED",
+        "source": "okta.system_log",
+        "actor": "employee@example.com",
+        "occurredAt": "2026-06-06T05:05:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "employee@example.com",
+            "type": "User"
+          },
+          "debugContext": {
+            "debugData": {
+              "threatSuspected": true,
+              "ipAddress": "203.0.113.11"
+            }
+          }
+        }
+      }
+    },
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "user.authentication.failed",
+        "source": "okta.system_log",
+        "actor": "employee@example.com",
+        "occurredAt": "2026-06-06T05:10:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "employee@example.com",
+            "type": "User"
+          },
+          "outcome": {
+            "result": "FAILURE",
+            "reason": "Impossible travel risk"
+          }
+        }
+      }
+    }
+  ],
+  "negative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.session.start",
+      "source": "okta.system_log",
+      "actor": "employee@example.com",
+      "occurredAt": "2026-06-06T05:15:00.000Z",
+      "payload": {
+        "actor": {
+          "alternateId": "employee@example.com",
+          "type": "User"
+        },
+        "client": {
+          "ipAddress": "203.0.113.10"
+        },
+        "securityContext": {
+          "risk": "LOW",
+          "isProxy": false
+        },
+        "outcome": {
+          "result": "SUCCESS",
+          "reason": "Successful sign-in"
+        }
+      }
+    }
+  },
+  "disabledCheck": "okta.suspicious_signin"
+}

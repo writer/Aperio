@@ -57,7 +57,8 @@ const categories = [
     patterns: [
       /^apps\/api\/src\/routes\/integrations\.ts$/,
       /^packages\/shared\/src\/connectors\.ts$/,
-      /^workers\/ingestion-worker\.ts$/,
+      /^cmd\/ingestion-worker\//,
+      /^internal\/ingestionworker\//,
     ],
   },
   {

@@ -1,39 +1,83 @@
 {
   "version": 1,
+  "finalCutoverPlan": {
+    "status": "final-go-default-enforced",
+    "defaultsFlippedInThisFeature": true,
+    "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
+    "tracks": [
+      "package scripts",
+      "Make targets",
+      "backend worker runtime files",
+      "MCP runtime files",
+      "bounded worker smoke commands",
+      "MCP stdio smoke commands",
+      "deleted TypeScript runtime evidence",
+      "executable artifact audit",
+      "allowed TypeScript inventory"
+    ],
+    "requiredEvidenceKinds": [
+      "package-script-dump",
+      "make-dry-run",
+      "bounded-default-worker-smoke",
+      "stdio-mcp-smoke",
+      "deleted-runtime-file-audit",
+      "typescript-runtime-negative-guardrail",
+      "hidden-selector-negative-guardrail",
+      "executable-artifact-audit",
+      "allowed-typescript-inventory",
+      "local-fixture-or-capture-harness"
+    ]
+  },
   "entries": [
     {
-      "id": "package-workers-typescript-reference",
-      "state": "typescript-reference",
+      "id": "package-siem-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "package-script:worker:ingestion",
-        "package-script:worker:siem"
+        "package-script:worker:siem",
+        "package-script:worker:siem:go"
       ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "Unsuffixed worker commands remain the TypeScript reference/fallback runtimes until slice matrices prove Go default or removability.",
+      "owner": "Go SIEM dispatcher default runtime",
+      "rationale": "The unsuffixed SIEM worker command runs the Go dispatcher with shared local env and pgx-safe DATABASE_URL handling; the suffixed command is a strict alias to the same default.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "source:workers/ingestion-worker.ts",
-        "source:workers/siem-dispatcher.ts"
+        "test:tests/siem-adapter-matrix.test.ts",
+        "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
       ]
     },
     {
-      "id": "package-go-worker-transition-smokes",
-      "state": "go-parity",
+      "id": "package-ingestion-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "package-script:worker:ingestion:go",
-        "package-script:worker:siem:go",
-        "package-script:smoke:workers:go"
+        "package-script:worker:ingestion",
+        "package-script:worker:ingestion:go"
       ],
-      "owner": "Explicit Go worker transition commands",
-      "rationale": "Go workers are runnable only through suffixed transition commands and bounded one-shot smokes while TypeScript remains fallback.",
+      "owner": "Go ingestion worker default runtime",
+      "rationale": "The unsuffixed ingestion worker command now runs the Go worker with the shared local env and pgx-safe DATABASE_URL path; the suffixed command is only an alias to the same default.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
-        "command:npm run smoke:workers:go"
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
+        "command:npm run worker:ingestion -- -once -limit 1"
+      ]
+    },
+    {
+      "id": "package-go-worker-default-smokes",
+      "state": "go-default",
+      "covers": [
+        "package-script:smoke:workers:go",
+        "package-script:smoke:siem:adapters"
       ],
-      "rollback": "Use the unsuffixed TypeScript worker commands without changing production/default entrypoints."
+      "owner": "Bounded Go worker default smokes",
+      "rationale": "The aggregate worker smoke uses unsuffixed Go ingestion and SIEM defaults, then runs per-adapter SIEM safe-smokes through npm run worker:siem.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:tests/e2e-smoke-contract.test.ts",
+        "script:scripts/smoke-siem-adapters.ts",
+        "command:npm run smoke:workers:go",
+        "command:npm run smoke:siem:adapters"
+      ]
     },
     {
       "id": "package-go-api-runtime",
@@ -48,25 +92,27 @@
         "test:internal/bootstrap/app_test.go",
         "test:internal/bootstrap/typed_compat_test.go",
         "validator:npm run test:go"
-      ],
-      "rollback": "Revert the API entrypoint change or use the previous committed Go API/runtime bundle."
+      ]
     },
     {
-      "id": "package-mcp-typescript-reference",
-      "state": "typescript-reference",
+      "id": "package-mcp-broker-go-default",
+      "state": "go-default",
       "covers": [
         "package-script:mcp:broker"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP stdio backend process remains TypeScript-owned and is not part of this Go cutover slice.",
+      "owner": "Go MCP broker default runtime",
+      "rationale": "The unsuffixed MCP command runs the Go stdio broker with shared local env and pgx-safe DATABASE_URL handling; deleted TypeScript MCP runtime paths are not executable from package scripts.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
-        "command:npm run mcp:broker"
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/tools_db_test.go",
+        "command:npm run mcp:broker",
+        "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
       ]
     },
     {
       "id": "package-proto-contract-tools",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:proto:*",
         "package-script:verify:go"
@@ -80,7 +126,7 @@
     },
     {
       "id": "package-core-validation-and-dev-tools",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:build:web",
         "package-script:typecheck",
@@ -106,70 +152,97 @@
       ]
     },
     {
-      "id": "package-dev-web-orchestration",
-      "state": "out-of-scope-this-mission",
+      "id": "package-go-dev-stack",
+      "state": "go-default",
       "covers": [
         "package-script:dev",
-        "package-script:dev:app",
+        "package-script:dev:app"
+      ],
+      "owner": "Go API plus Next.js local dev stack",
+      "rationale": "The local dev stack launches the Go API entrypoint with the Next.js frontend; it does not expose a TypeScript backend selector.",
+      "evidence": [
+        "source:scripts/dev.mjs",
+        "source:cmd/aperio/main.go",
+        "command:npm run dev"
+      ]
+    },
+    {
+      "id": "package-frontend-dev-and-setup-tooling",
+      "state": "allowed-typescript",
+      "covers": [
         "package-script:dev:setup",
         "package-script:dev:web"
       ],
-      "owner": "Local development orchestration",
-      "rationale": "Development orchestration and the Next.js frontend runtime are not backend cutover targets in this mission.",
+      "owner": "Next.js frontend and local setup tooling",
+      "rationale": "These commands are limited to frontend development or local setup and do not execute backend, worker, or MCP TypeScript runtimes.",
       "evidence": [
-        "source:scripts/dev.mjs",
-        "source:apps/web"
+        "source:apps/web",
+        "source:scripts/dev.mjs"
       ]
     },
     {
-      "id": "make-workers-typescript-reference",
-      "state": "typescript-reference",
+      "id": "make-siem-worker-go-default",
+      "state": "go-default",
+      "covers": [
+        "make-target:worker-siem",
+        "make-target:worker-siem-go"
+      ],
+      "owner": "Go SIEM dispatcher default Make target",
+      "rationale": "The unsuffixed Make SIEM target runs the Go dispatcher with GO_WORKER_ARGS support, and the suffixed target is a strict alias.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:make -n worker-siem GO_WORKER_ARGS=\"-once -limit 1\"",
+        "command:make worker-siem GO_WORKER_ARGS=\"-once -limit 1\""
+      ]
+    },
+    {
+      "id": "make-ingestion-worker-go-default",
+      "state": "go-default",
       "covers": [
         "make-target:worker-ingestion",
-        "make-target:worker-siem"
+        "make-target:worker-ingestion-go"
       ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "Unsuffixed Make worker targets intentionally mirror the TypeScript reference/fallback npm commands.",
+      "owner": "Go ingestion worker default Make target",
+      "rationale": "The unsuffixed Make ingestion target now runs the Go worker with GO_WORKER_ARGS support, and the suffixed target is a strict alias.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "source:Makefile"
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "command:make -n worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\"",
+        "command:make worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\""
       ]
     },
     {
-      "id": "make-go-worker-transition-smokes",
-      "state": "go-parity",
+      "id": "make-go-worker-default-smokes",
+      "state": "go-default",
       "covers": [
-        "make-target:worker-ingestion-go",
-        "make-target:worker-siem-go",
         "make-target:smoke-workers-go"
       ],
-      "owner": "Explicit Go worker transition commands",
-      "rationale": "Make exposes Go workers only as explicit transition/smoke targets with bounded -once -limit 1 execution.",
+      "owner": "Bounded Go worker default Make smokes",
+      "rationale": "smoke-workers-go runs bounded unsuffixed Go worker defaults and the per-adapter SIEM safe-smoke harness.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "script:scripts/smoke-siem-adapters.ts",
         "command:make smoke-workers-go"
-      ],
-      "rollback": "Run make worker-ingestion or make worker-siem to use TypeScript fallback/reference workers."
+      ]
     },
     {
-      "id": "make-mcp-typescript-reference",
-      "state": "typescript-reference",
+      "id": "make-mcp-broker-go-default",
+      "state": "go-default",
       "covers": [
         "make-target:mcp"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP broker remains a TypeScript backend process and is not flipped by Go worker/API cutover.",
+      "owner": "Go MCP broker default Make target",
+      "rationale": "The unsuffixed Make MCP target runs the Go stdio broker through the shared local env and pgx-safe DATABASE_URL path.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:make -n mcp",
+        "command:make mcp",
         "source:Makefile"
       ]
     },
     {
       "id": "make-contract-validation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:generate",
         "make-target:generate-check",
@@ -184,7 +257,7 @@
     },
     {
       "id": "make-quality-validation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:fmt",
         "make-target:fmt-check",
@@ -213,19 +286,44 @@
       ]
     },
     {
+      "id": "make-go-api-dev-stack",
+      "state": "go-default",
+      "covers": [
+        "make-target:dev",
+        "make-target:api",
+        "make-target:_run-api"
+      ],
+      "owner": "Go API Make dev stack",
+      "rationale": "Make dev and api targets launch the Go API entrypoint and do not expose a TypeScript backend selector.",
+      "evidence": [
+        "source:Makefile",
+        "command:make -n api",
+        "command:make -n dev"
+      ]
+    },
+    {
+      "id": "make-frontend-dev-tooling",
+      "state": "allowed-typescript",
+      "covers": [
+        "make-target:web",
+        "make-target:_run-web"
+      ],
+      "owner": "Next.js frontend Make targets",
+      "rationale": "These Make targets run only the allowed TypeScript frontend development server.",
+      "evidence": [
+        "source:Makefile",
+        "source:apps/web"
+      ]
+    },
+    {
       "id": "make-dev-infra-orchestration",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:help",
         "make-target:setup",
         "make-target:env",
         "make-target:install",
         "make-target:doctor",
-        "make-target:dev",
-        "make-target:api",
-        "make-target:web",
-        "make-target:_run-api",
-        "make-target:_run-web",
         "make-target:up",
         "make-target:down",
         "make-target:ps",
@@ -244,7 +342,7 @@
         "make-target:require-env"
       ],
       "owner": "Local development and infrastructure orchestration",
-      "rationale": "Setup, local infra, seed, and cleanup targets support validation but are not migration cutover surfaces.",
+      "rationale": "Setup, local infra, seed, and cleanup targets support deterministic validation but do not select backend, worker, or MCP TypeScript runtimes.",
       "evidence": [
         "source:Makefile",
         "source:docker-compose.yml",
@@ -253,7 +351,7 @@
     },
     {
       "id": "scripts-local-dev-orchestration",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:scripts/dev*.mjs",
         "repo-file:scripts/seed.ts"
@@ -269,18 +367,20 @@
     },
     {
       "id": "scripts-validation-and-droid-context",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:scripts/droid-*.mjs",
         "repo-file:scripts/leak-check.mjs",
-        "repo-file:scripts/check-backup-readiness.ts"
+        "repo-file:scripts/check-backup-readiness.ts",
+        "repo-file:scripts/smoke-siem-adapters.ts"
       ],
       "owner": "Review, secret hygiene, and readiness scripts",
-      "rationale": "Review context and leak/readiness scripts are validation/evidence helpers, not backend runtime ownership.",
+      "rationale": "Review context, leak/readiness scripts, and local validation smokes are validation/evidence helpers, not backend runtime ownership switches.",
       "evidence": [
         "source:scripts/leak-check.mjs",
         "workflow:.github/workflows/leak-check.yml",
-        "source:scripts/droid-review-preflight.mjs"
+        "source:scripts/droid-review-preflight.mjs",
+        "script:scripts/smoke-siem-adapters.ts"
       ]
     },
     {
@@ -295,54 +395,109 @@
         "source:cmd/aperio/main.go",
         "test:internal/bootstrap/app_test.go",
         "validator:go test ./..."
-      ],
-      "rollback": "Revert the API command/runtime change to the previous committed Go API entrypoint."
-    },
-    {
-      "id": "cmd-go-worker-transition",
-      "state": "go-parity",
-      "covers": [
-        "repo-file:cmd/ingestion-worker/*.go",
-        "repo-file:cmd/siem-dispatcher/*.go"
-      ],
-      "owner": "Explicit Go worker transition entrypoints",
-      "rationale": "Go worker commands expose one-shot smoke flags and remain explicit until worker slice cutover criteria are proven.",
-      "evidence": [
-        "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
-        "command:npm run smoke:workers:go"
-      ],
-      "rollback": "Use TypeScript worker reference commands and leave unsupported work for fallback processing."
-    },
-    {
-      "id": "workers-typescript-reference-runtime",
-      "state": "typescript-reference",
-      "covers": [
-        "repo-file:workers/*.ts"
-      ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "TypeScript ingestion, SIEM dispatcher, event bus, and telemetry remain the reference/fallback semantics for worker parity.",
-      "evidence": [
-        "test:tests/github-rules.test.ts",
-        "test:tests/siem-dispatcher.test.ts",
-        "test:tests/worker-telemetry.test.ts",
-        "source:workers/ingestion-worker.ts",
-        "source:workers/siem-dispatcher.ts"
       ]
     },
     {
-      "id": "mcp-typescript-reference-runtime",
-      "state": "typescript-reference",
+      "id": "cmd-ingestion-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "repo-file:apps/mcp/src/*.ts"
+        "repo-file:cmd/ingestion-worker/*.go"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP broker is a TypeScript backend process and is not a Go migration default in this mission.",
+      "owner": "Go ingestion worker default entrypoint",
+      "rationale": "cmd/ingestion-worker is the default ingestion worker entrypoint and exposes bounded one-shot smoke flags.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
-        "command:npm run mcp:broker"
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:internal/ingestionworker/worker_test.go",
+        "command:npm run worker:ingestion -- -once -limit 1"
+      ]
+    },
+    {
+      "id": "cmd-go-siem-worker-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:cmd/siem-dispatcher/*.go"
+      ],
+      "owner": "Go SIEM dispatcher default entrypoint",
+      "rationale": "cmd/siem-dispatcher is the default SIEM dispatcher entrypoint, exposes bounded one-shot smoke flags, and supports the local capture smoke harness without contacting production endpoints.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:internal/siemdispatcher/dispatcher_test.go",
+        "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
+      ]
+    },
+    {
+      "id": "cmd-mcp-broker-go-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:cmd/mcp-broker/*.go"
+      ],
+      "owner": "Go MCP broker default entrypoint",
+      "rationale": "cmd/mcp-broker is the default stdio MCP broker entrypoint after the unsuffixed npm and Make command cutover.",
+      "evidence": [
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/catalog_test.go",
+        "test:internal/mcpbroker/mcpbroker_db_test.go",
+        "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
+      ]
+    },
+    {
+      "id": "workers-ingestion-runtime-removed",
+      "state": "removed",
+      "covers": [
+        "repo-file:workers/ingestion-worker.ts"
+      ],
+      "owner": "Deleted TypeScript ingestion runtime",
+      "rationale": "The TypeScript ingestion worker runtime has been deleted after Go parity/default cutover; tests use fixtures and Go coverage rather than importing it as a hidden oracle.",
+      "evidence": [
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:test ! -e workers/ingestion-worker.ts"
+      ]
+    },
+    {
+      "id": "workers-siem-runtime-removed",
+      "state": "removed",
+      "covers": [
+        "repo-file:workers/siem-dispatcher.ts"
+      ],
+      "owner": "Deleted TypeScript SIEM dispatcher runtime",
+      "rationale": "The TypeScript SIEM dispatcher runtime has been deleted after Go adapter/default cutover; tests use fixtures and Go coverage rather than importing it as a hidden oracle.",
+      "evidence": [
+        "test:tests/siem-adapter-matrix.test.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:test ! -e workers/siem-dispatcher.ts"
+      ]
+    },
+    {
+      "id": "workers-typescript-validation-helpers",
+      "state": "allowed-typescript",
+      "covers": [
+        "repo-file:workers/event-bus.ts",
+        "repo-file:workers/telemetry.ts"
+      ],
+      "owner": "TypeScript worker validation helpers",
+      "rationale": "The remaining workers/*.ts files are shared event-bus/telemetry helpers used by TypeScript validation surfaces, not executable backend worker entrypoints.",
+      "evidence": [
+        "test:tests/worker-telemetry.test.ts",
+        "source:workers/event-bus.ts",
+        "source:workers/telemetry.ts"
+      ]
+    },
+    {
+      "id": "mcp-typescript-runtime-removed",
+      "state": "removed",
+      "covers": [
+        "repo-file:apps/mcp/src/server.ts"
+      ],
+      "owner": "Deleted TypeScript MCP runtime",
+      "rationale": "The TypeScript MCP backend runtime has been deleted after Go protocol/tool parity and default command cutover; tests use Go stdio and DB-backed coverage rather than importing it as a hidden oracle.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:tests/foundation-cutover-harness.test.ts",
+        "command:test ! -e apps/mcp/src/server.ts",
+        "command:npm run guardrails:migration"
       ]
     },
     {
@@ -358,49 +513,66 @@
         "test:internal/bootstrap/typed_compat_test.go",
         "test:internal/bootstrap/tenant_isolation_test.go",
         "validator:go test ./internal/bootstrap"
-      ],
-      "rollback": "Revert affected Go API handler changes and preserve compatibility routes until typed cutover is proven."
+      ]
     },
     {
-      "id": "internal-ingestionworker-go-parity",
-      "state": "go-parity",
+      "id": "internal-ingestionworker-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:internal/ingestionworker/*.go"
       ],
-      "owner": "Go ingestion worker parity slice",
-      "rationale": "Go ingestion currently claims only the locally proven GitHub public repository and Slack MFA-disabled slices and must leave unsupported provider/event jobs untouched for TypeScript fallback.",
+      "owner": "Go ingestion worker default runtime",
+      "rationale": "Go ingestion owns all matrix rule slices, credential/config gates, queue/lifecycle/outbox behavior, and the final unsupported-work dead-letter policy.",
       "evidence": [
+        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
         "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "fixture:tests/fixtures/worker-parity/okta-admin-role-assigned.json",
+        "fixture:tests/fixtures/worker-parity/google-admin-oauth-rules.json",
         "test:tests/ingestion-parity-matrix.test.ts",
         "test:internal/ingestionworker/worker_test.go",
         "test:internal/ingestionworker/worker_db_test.go",
-        "command:npm run worker:ingestion:go -- -once -limit 1"
-      ],
-      "rollback": "Disable explicit Go ingestion worker usage and run the TypeScript ingestion worker fallback."
+        "command:npm run worker:ingestion -- -once -limit 1"
+      ]
     },
     {
-      "id": "internal-siemdispatcher-go-parity",
-      "state": "go-parity",
+      "id": "internal-siemdispatcher-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:internal/siemdispatcher/*.go"
       ],
-      "owner": "Go SIEM dispatcher parity slice",
-      "rationale": "Go SIEM dispatcher currently claims locally testable JSON_FILE and GENERIC_WEBHOOK deliveries while TypeScript remains fallback/default for unsupported adapters.",
+      "owner": "Go SIEM dispatcher default runtime",
+      "rationale": "Go SIEM dispatcher owns all SIEM adapter rows, local parity fixtures, reliability behavior, and per-adapter default worker safe-smokes after the unsuffixed command cutover.",
       "evidence": [
         "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "fixture:tests/fixtures/worker-parity/siem-cerebro-claims.json",
         "fixture:tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "fixture:tests/fixtures/worker-parity/siem-envelope-cases.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "fixture:tests/fixtures/worker-parity/siem-generic-webhook-delivery.json",
+        "fixture:tests/fixtures/worker-parity/siem-json-file-sink.json",
         "test:tests/siem-adapter-matrix.test.ts",
         "test:internal/siemdispatcher/dispatcher_test.go",
         "test:internal/siemdispatcher/dispatcher_db_test.go",
-        "command:npm run worker:siem:go -- -once -limit 1"
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
+      ]
+    },
+    {
+      "id": "internal-mcpbroker-go-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:internal/mcpbroker/*.go"
       ],
-      "rollback": "Disable explicit Go SIEM dispatcher usage and run the TypeScript SIEM dispatcher fallback."
+      "owner": "Go MCP broker protocol, catalog, and tool runtime",
+      "rationale": "internal/mcpbroker owns the default MCP stdio frame parser, initialize/ping/error lifecycle, approved six-tool catalog, strict schema/default validation, tool execution, notification no-side-effect behavior, and stdout purity.",
+      "evidence": [
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/catalog_test.go",
+        "test:internal/mcpbroker/mcpbroker_db_test.go",
+        "test:internal/mcpbroker/tools_db_test.go",
+        "validator:go test ./internal/mcpbroker"
+      ]
     },
     {
       "id": "proto-contract-source",
@@ -415,12 +587,11 @@
         "workflow:.github/workflows/contracts.yml",
         "source:gen",
         "source:packages/connect/src/gen"
-      ],
-      "rollback": "Revert proto and generated-client changes together, then rerun proto:check."
+      ]
     },
     {
       "id": "connect-client-frontend-contract",
-      "state": "out-of-scope-this-mission",
+      "state": "allowed-typescript",
       "covers": [
         "repo-file:packages/connect/src/client.ts"
       ],
@@ -432,23 +603,22 @@
       ]
     },
     {
-      "id": "shared-typescript-reference-semantics",
-      "state": "typescript-reference",
+      "id": "shared-typescript-frontend-tooling-contracts",
+      "state": "allowed-typescript",
       "covers": [
         "repo-file:packages/shared/src/*.ts"
       ],
-      "owner": "TypeScript shared reference semantics",
-      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain the reference for parity tests until Go slices prove equivalence.",
+      "owner": "Allowed TypeScript shared frontend and validation contracts",
+      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain frontend, generated-contract, test, and local-tooling contracts while backend worker runtimes are Go-owned.",
       "evidence": [
         "test:tests/protobuf-contracts.test.ts",
         "test:tests/risk-scoring.test.ts",
-        "test:tests/siem-dispatcher.test.ts",
         "source:packages/shared/src"
       ]
     },
     {
       "id": "local-infra-and-env-contract",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:docker-compose.yml",
         "repo-file:.env.example"
@@ -464,7 +634,7 @@
     },
     {
       "id": "workflow-ci-contract-audit-security",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:.github/workflows/ci.yml",
         "repo-file:.github/workflows/contracts.yml",
@@ -482,7 +652,7 @@
     },
     {
       "id": "workflow-droid-automation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:.github/workflows/droid.yml",
         "repo-file:.github/workflows/droid-review.yml"
@@ -506,12 +676,11 @@
         "source:internal/bootstrap/compat_api.go",
         "test:internal/bootstrap/typed_compat_test.go",
         "test:tests/auth-client-cleanup.test.ts"
-      ],
-      "rollback": "Keep the compatibility route in the Go dispatcher until the typed RPC replacement and browser guardrails prove cutover."
+      ]
     },
     {
       "id": "validator-core-cli-and-ci-gates",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "validator:typecheck",
         "validator:api-tests",
@@ -545,13 +714,13 @@
     },
     {
       "id": "validator-browser-and-worker-static-guardrails",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "validator:frontend-legacy-api-auth-guardrail",
         "validator:worker-command-guardrail"
       ],
       "owner": "Static migration guardrail tests",
-      "rationale": "Frontend legacy API/auth and worker fallback command checks are static guardrails that prevent unsafe cutover regressions.",
+      "rationale": "Frontend legacy API/auth and worker runtime command checks are static guardrails that prevent unsafe cutover regressions.",
       "evidence": [
         "test:tests/auth-client-cleanup.test.ts",
         "test:tests/worker-command-guardrails.test.ts",
@@ -560,21 +729,22 @@
     },
     {
       "id": "validator-worker-smoke",
-      "state": "out-of-scope-this-mission",
+      "state": "go-default",
       "covers": [
         "validator:worker-smoke"
       ],
       "owner": "Bounded Go worker smoke command",
-      "rationale": "The bounded smoke command verifies explicit Go transition workers without changing unsuffixed TypeScript fallback defaults.",
+      "rationale": "The bounded smoke command verifies the Go ingestion and SIEM defaults, including per-adapter SIEM safe-smokes through npm run worker:siem.",
       "evidence": [
         "command:npm run smoke:workers:go",
         "command:make smoke-workers-go",
+        "command:npm run smoke:siem:adapters",
         "workflow:.github/workflows/ci.yml"
       ]
     },
     {
       "id": "validator-local-e2e-smoke-harness",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:smoke:e2e",
         "make-target:smoke-e2e",

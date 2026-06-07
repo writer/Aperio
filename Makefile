@@ -109,38 +109,35 @@ _run-web: require-env
 	@$(LOAD_ENV) npx next dev apps/web -p $(WEB_PORT)
 
 .PHONY: worker-ingestion
-worker-ingestion: require-env ## Run the TypeScript parity/reference ingestion worker
-	@$(MAKE) --no-print-directory db-up
-	@$(LOAD_ENV) npx tsx workers/ingestion-worker.ts
-
-.PHONY: worker-ingestion-go
-worker-ingestion-go: require-env ## Run the explicit Go transition ingestion worker
+worker-ingestion: require-env ## Run the Go ingestion worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/ingestion-worker $(GO_WORKER_ARGS)
 
-.PHONY: worker-siem
-worker-siem: require-env ## Run the TypeScript parity/reference SIEM dispatcher worker
-	@$(MAKE) --no-print-directory db-up
-	@$(LOAD_ENV) npx tsx workers/siem-dispatcher.ts
+.PHONY: worker-ingestion-go
+worker-ingestion-go: worker-ingestion ## Alias for the Go ingestion worker
 
-.PHONY: worker-siem-go
-worker-siem-go: require-env ## Run the explicit Go transition SIEM dispatcher worker
+.PHONY: worker-siem
+worker-siem: require-env ## Run the Go SIEM dispatcher worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/siem-dispatcher $(GO_WORKER_ARGS)
 
+.PHONY: worker-siem-go
+worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker
+
 .PHONY: smoke-workers-go
-smoke-workers-go: require-env ## Run bounded explicit Go worker transition smokes
+smoke-workers-go: require-env ## Run bounded Go worker smokes
 	@$(MAKE) --no-print-directory db-up migrate
-	@$(LOAD_ENV) npm run worker:ingestion:go -- -once -limit 1
-	@$(LOAD_ENV) npm run worker:siem:go -- -once -limit 1
+	@$(LOAD_ENV) npm run worker:ingestion -- -once -limit 1
+	@$(LOAD_ENV) npm run worker:siem -- -once -limit 1
+	@$(LOAD_ENV) npm run smoke:siem:adapters
 
 .PHONY: smoke-e2e
 smoke-e2e: require-env ## Run the local Go API + TypeScript FE E2E smoke harness
 	@npm run smoke:e2e
 
 .PHONY: mcp
-mcp: require-env ## Run the stdio MCP broker
-	@$(LOAD_ENV) npx tsx apps/mcp/src/server.ts
+mcp: require-env ## Run the Go stdio MCP broker
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/mcp-broker
 
 ##@ Database & infra
 
@@ -247,7 +244,7 @@ typecheck: ## TypeScript type checking
 	@npm run typecheck
 
 .PHONY: guardrails-migration
-guardrails-migration: ## Run migration ownership and fallback guardrails
+guardrails-migration: ## Run migration ownership and runtime guardrails
 	@npm run guardrails:migration
 
 .PHONY: test

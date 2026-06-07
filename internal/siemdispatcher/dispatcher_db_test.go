@@ -1,9 +1,13 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +16,42 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/writer/aperio/internal/runtimeutil"
+	"github.com/writer/aperio/internal/telemetry"
 )
+
+type recordingClaimFanoutPublisher struct {
+	t                 *testing.T
+	db                *sql.DB
+	events            []CerebroClaimsFanoutEvent
+	deliveryStatuses  []string
+	destinationHealth []string
+	err               error
+}
+
+func (p *recordingClaimFanoutPublisher) PublishCerebroClaimsFanout(ctx context.Context, event CerebroClaimsFanoutEvent) error {
+	p.t.Helper()
+	var deliveryStatus string
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text
+		FROM siem_deliveries
+		WHERE id = $1 AND organization_id = $2
+	`, event.DeliveryID, event.OrganizationID).Scan(&deliveryStatus); err != nil {
+		p.t.Fatalf("query delivery status during fanout publish: %v", err)
+	}
+	var destinationStatus string
+	if err := p.db.QueryRowContext(ctx, `
+		SELECT status::text
+		FROM siem_destinations
+		WHERE id = $1 AND organization_id = $2
+	`, event.DestinationID, event.OrganizationID).Scan(&destinationStatus); err != nil {
+		p.t.Fatalf("query destination status during fanout publish: %v", err)
+	}
+	p.events = append(p.events, event)
+	p.deliveryStatuses = append(p.deliveryStatuses, deliveryStatus)
+	p.destinationHealth = append(p.destinationHealth, destinationStatus)
+	return p.err
+}
 
 func openDBBackedSIEMDispatcherDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -29,6 +68,41 @@ func openDBBackedSIEMDispatcherDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func captureSIEMTelemetry(t *testing.T) (*bytes.Buffer, func()) {
+	t.Helper()
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	return &sink, restore
+}
+
+func decodeSIEMWideEvents(t *testing.T, sink *bytes.Buffer) []map[string]any {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(sink.String()), "\n")
+	events := []map[string]any{}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode telemetry line %q: %v", line, err)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func requireSIEMTelemetryOutcome(t *testing.T, events []map[string]any, outcome string) map[string]any {
+	t.Helper()
+	for _, event := range events {
+		if event["event_name"] == "siem.delivery.process" && event["outcome"] == outcome {
+			return event
+		}
+	}
+	t.Fatalf("missing SIEM telemetry outcome %q in %#v", outcome, events)
+	return nil
 }
 
 func testDispatcherID(prefix string) string {
@@ -71,6 +145,52 @@ func seedDispatcherDestinationForStream(t *testing.T, db *sql.DB, orgID, kind, s
 		t.Fatalf("seed %s destination: %v", kind, err)
 	}
 	return destinationID
+}
+
+func updateDispatcherDestinationToken(t *testing.T, db *sql.DB, orgID, destinationID, token string) {
+	t.Helper()
+	dest := destination{ID: destinationID, OrganizationID: orgID}
+	encrypted := encryptForDispatcherTest(t, token, destinationTokenAAD(dest))
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET encrypted_token = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, encrypted, destinationID, orgID); err != nil {
+		t.Fatalf("update encrypted SIEM token: %v", err)
+	}
+}
+
+func updateDispatcherDestinationEncryptedToken(t *testing.T, db *sql.DB, orgID, destinationID, encrypted string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET encrypted_token = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, encrypted, destinationID, orgID); err != nil {
+		t.Fatalf("update encrypted SIEM token: %v", err)
+	}
+}
+
+func updateDispatcherDestinationIndex(t *testing.T, db *sql.DB, orgID, destinationID, index string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET index = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, index, destinationID, orgID); err != nil {
+		t.Fatalf("update SIEM destination index: %v", err)
+	}
+}
+
+func updateDispatcherDestinationEndpoint(t *testing.T, db *sql.DB, orgID, destinationID, endpoint string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET endpoint_url = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, endpoint, destinationID, orgID); err != nil {
+		t.Fatalf("update SIEM destination endpoint: %v", err)
+	}
 }
 
 func nullableFilePath(value string) sql.NullString {
@@ -190,7 +310,237 @@ func siemDestinationHealth(t *testing.T, db *sql.DB, destinationID string) (stat
 	return status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError
 }
 
-func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
+func TestRetireExhaustedDeadLettersWithTelemetryAndReason(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "exhausted.jsonl")
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "FAILED", attempts: 2, maxAttempts: 2})
+
+	sink, restore := captureSIEMTelemetry(t)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test-exhausted", organizationID: orgID}).Drain(context.Background(), 10)
+	restore()
+	if err != nil {
+		t.Fatalf("drain exhausted: %v", err)
+	}
+	if result.Processed != 0 || result.Delivered != 0 || result.Failed != 0 {
+		t.Fatalf("exhausted rows should retire before claim without counting as processed, got %#v", result)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "DEAD_LETTER" || attempts != 2 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "max delivery attempts exhausted") {
+		t.Fatalf("exhausted delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "dead_letter")
+	if event["organization_id"] != orgID ||
+		event["destination_id"] != destinationID ||
+		event["destination_kind"] != "JSON_FILE" ||
+		event["stream"] != "FINDINGS" ||
+		event["payload_kind"] != "finding" ||
+		event["permanence"] != "exhausted" ||
+		event["error_kind"] != "max_attempts" {
+		t.Fatalf("unexpected exhausted telemetry event: %#v", event)
+	}
+}
+
+func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	secret := "siem-fixture-secret"
+	destinationToken := "db-token-secret"
+	endpointUser := "endpoint-user-secret"
+	endpointPassword := "endpoint-password-secret"
+	endpointQuerySecret := "endpoint-query-secret"
+	endpoint := "https://" + endpointUser + ":" + endpointPassword + "@example.com/collector?api_key=" + endpointQuerySecret + "&tenant=local"
+	updateDispatcherDestinationEndpoint(t, db, orgID, destinationID, endpoint)
+	updateDispatcherDestinationToken(t, db, orgID, destinationID, destinationToken)
+	secretDSN := "postgres://aperio:" + secret + "@127.0.0.1:5433/aperio?sslmode=disable&token=" + secret
+	t.Setenv("DATABASE_URL", secretDSN)
+	t.Setenv("APERIO_NATS_URL", "nats://aperio:"+secret+"@127.0.0.1:4222")
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 3})
+
+	transportErr := errors.New("request failed with token " + secret + " stored token " + destinationToken + " endpoint " + endpoint + " dsn " + secretDSN)
+	sink, restore := captureSIEMTelemetry(t)
+	result, err := (&Dispatcher{
+		db:                  db,
+		leaseOwner:          "go-siem-test-redaction",
+		organizationID:      orgID,
+		httpClient:          &http.Client{Transport: &captureTransport{err: transportErr}},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}).Drain(context.Background(), 1)
+	restore()
+	if err != nil {
+		t.Fatalf("drain redaction failure: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected redaction drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid {
+		t.Fatalf("redacted failure delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	_, _, _, _, destinationError := siemDestinationHealth(t, db, destinationID)
+	for surface, value := range map[string]string{
+		"delivery last_error":    lastError.String,
+		"destination last_error": destinationError.String,
+		"telemetry":              sink.String(),
+	} {
+		for _, leaked := range []string{secret, secretDSN, destinationToken, endpointUser, endpointPassword, endpointQuerySecret} {
+			if strings.Contains(value, leaked) {
+				t.Fatalf("%s leaked secret material", surface)
+			}
+		}
+		if strings.Contains(value, endpoint) {
+			t.Fatalf("%s leaked raw destination endpoint", surface)
+		}
+	}
+	if !strings.Contains(lastError.String, runtimeutil.Redacted) || !strings.Contains(destinationError.String, runtimeutil.Redacted) {
+		t.Fatalf("persisted errors did not contain redaction marker: delivery=%q destination=%q", lastError.String, destinationError.String)
+	}
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "retryable_failed")
+	if event["destination_kind"] != "GENERIC_WEBHOOK" || event["permanence"] != "retryable" || event["error_kind"] != "error" {
+		t.Fatalf("unexpected redaction failure telemetry event: %#v", event)
+	}
+}
+
+func TestDrainTelemetryClassifiesTypedFailuresThroughProcessPath(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+
+	cases := []struct {
+		name           string
+		transport      *captureTransport
+		wantOutcome    string
+		wantErrorKind  string
+		wantPermanence string
+	}{
+		{
+			name:           "timeout",
+			transport:      &captureTransport{err: context.DeadlineExceeded},
+			wantOutcome:    "timeout",
+			wantErrorKind:  "timeout",
+			wantPermanence: "retryable",
+		},
+		{
+			name:           "http 5xx",
+			transport:      &captureTransport{status: http.StatusServiceUnavailable},
+			wantOutcome:    "retryable_failed",
+			wantErrorKind:  "http_5xx",
+			wantPermanence: "retryable",
+		},
+		{
+			name:           "http 4xx",
+			transport:      &captureTransport{status: http.StatusUnauthorized},
+			wantOutcome:    "dead_letter",
+			wantErrorKind:  "http_4xx",
+			wantPermanence: "permanent",
+		},
+	}
+
+	for index, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			casePayload := fixtureDeliveryPayload(t, orgID)
+			seedDispatcherDelivery(t, db, struct {
+				orgID         string
+				destinationID string
+				payload       Payload
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+			}{orgID: orgID, destinationID: destinationID, payload: casePayload, status: "PENDING", attempts: 0, maxAttempts: 3})
+			sink, restore := captureSIEMTelemetry(t)
+			result, err := (&Dispatcher{
+				db:                  db,
+				leaseOwner:          fmt.Sprintf("go-siem-test-typed-telemetry-%d", index),
+				organizationID:      orgID,
+				httpClient:          &http.Client{Transport: testCase.transport},
+				endpointSafetyCheck: func(context.Context, string) error { return nil },
+			}).Drain(context.Background(), 1)
+			restore()
+			if err != nil {
+				t.Fatalf("drain typed telemetry case: %v", err)
+			}
+			if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected typed telemetry drain result: %#v", result)
+			}
+			event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), testCase.wantOutcome)
+			if event["destination_kind"] != "GENERIC_WEBHOOK" ||
+				event["error_kind"] != testCase.wantErrorKind ||
+				event["permanence"] != testCase.wantPermanence {
+				t.Fatalf("unexpected typed telemetry event: %#v", event)
+			}
+		})
+	}
+}
+
+func TestProcessLostLeaseEmitsTelemetryWithoutFinalizing(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "lost-lease.jsonl")
+	otherOwner := "other-dispatcher"
+	payload := fixtureDeliveryPayload(t, orgID)
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PROCESSING", attempts: 0, maxAttempts: 2, leaseOwner: &otherOwner})
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode lost-lease payload: %v", err)
+	}
+
+	dispatcher := &Dispatcher{db: db, leaseOwner: "go-siem-test-lost-lease", organizationID: orgID}
+	sink, restore := captureSIEMTelemetry(t)
+	err = dispatcher.process(context.Background(), delivery{
+		ID:             deliveryID,
+		OrganizationID: orgID,
+		DestinationID:  sql.NullString{String: destinationID, Valid: true},
+		Stream:         "FINDINGS",
+		Payload:        json.RawMessage(rawPayload),
+		Attempts:       0,
+		MaxAttempts:    2,
+	})
+	restore()
+	if err == nil || !strings.Contains(err.Error(), "lease lost") {
+		t.Fatalf("expected lost lease error, got %v", err)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "PROCESSING" || attempts != 0 || !leaseOwner.Valid || leaseOwner.String != otherOwner || deliveredAt.Valid || lastError.Valid {
+		t.Fatalf("lost lease delivery changed: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "lost_lease")
+	if event["destination_kind"] != "JSON_FILE" || event["destination_id"] != destinationID || event["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry event: %#v", event)
+	}
+}
+
+func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
 	destinationID := seedDispatcherDestination(t, db, orgID, "SPLUNK_HEC", "ACTIVE", "")
@@ -229,24 +579,107 @@ func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 0 || result.Delivered != 0 || result.Failed != 0 {
-		t.Fatalf("expected unsupported destination deliveries to remain unprocessed, got %#v", result)
+	if result.Processed != 2 || result.Delivered != 0 || result.Failed != 2 {
+		t.Fatalf("expected Go-owned misconfigured deliveries to be claimed and failed, got %#v", result)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ := siemDeliveryState(t, db, pendingID)
-	if status != "PENDING" || attempts != 0 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("unsupported pending delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, pendingID)
+	if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
+		t.Fatalf("Splunk misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ = siemDeliveryState(t, db, exhaustedID)
-	if status != "FAILED" || attempts != 5 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("unsupported exhausted delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, exhaustedID)
+	if status != "DEAD_LETTER" || attempts != 5 || leaseOwner.Valid || deliveredAt.Valid {
+		t.Fatalf("exhausted Go-owned delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ = siemDeliveryState(t, db, cerebroID)
-	if status != "PENDING" || attempts != 0 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("CEREBRO_CLAIMS fallback delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, cerebroID)
+	if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
+		t.Fatalf("CEREBRO_CLAIMS misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
 	healthStatus, deliveriesOK, deliveriesFail, _, lastError := siemDestinationHealth(t, db, cerebroDestinationID)
-	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastError.Valid {
-		t.Fatalf("unsupported Cerebro destination health changed: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
+		t.Fatalf("Cerebro destination health: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, _, lastError = siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
+		t.Fatalf("Splunk destination health: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	}
+}
+
+func TestHTTPAdapterMisconfigurationDeadLettersWithoutHTTP(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	orgID := seedDispatcherOrg(t, db)
+	payload := fixtureDeliveryPayload(t, orgID)
+
+	type misconfigurationCase struct {
+		name       string
+		kind       string
+		token      string
+		index      string
+		tamper     bool
+		wantError  string
+		deliveryID string
+		destID     string
+	}
+	cases := []misconfigurationCase{
+		{name: "splunk missing token", kind: "SPLUNK_HEC", wantError: "missing HEC token"},
+		{name: "panther missing token", kind: "PANTHER", wantError: "missing Panther API token"},
+		{name: "elastic missing index", kind: "ELASTIC", token: "fixture-elastic-token", wantError: "Elasticsearch index missing"},
+		{name: "elastic missing token", kind: "ELASTIC", index: "aperio-http", wantError: "missing Elasticsearch API key"},
+		{name: "datadog missing token", kind: "DATADOG", wantError: "missing DD-API-KEY"},
+		{name: "webhook tampered token", kind: "GENERIC_WEBHOOK", token: "fixture-webhook-token", tamper: true, wantError: "SIEM token decrypt failed"},
+	}
+	for index := range cases {
+		destID := seedDispatcherDestination(t, db, orgID, cases[index].kind, "ACTIVE", "")
+		cases[index].destID = destID
+		if cases[index].token != "" {
+			if cases[index].tamper {
+				dest := destination{ID: destID, OrganizationID: orgID}
+				updateDispatcherDestinationEncryptedToken(t, db, orgID, destID, tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, cases[index].token, destinationTokenAAD(dest))))
+			} else {
+				updateDispatcherDestinationToken(t, db, orgID, destID, cases[index].token)
+			}
+		}
+		if cases[index].index != "" {
+			updateDispatcherDestinationIndex(t, db, orgID, destID, cases[index].index)
+		}
+		cases[index].deliveryID = seedDispatcherDelivery(t, db, struct {
+			orgID         string
+			destinationID string
+			payload       Payload
+			status        string
+			attempts      int
+			maxAttempts   int
+			leaseOwner    *string
+		}{orgID: orgID, destinationID: destID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
+	}
+
+	transport := &captureTransport{}
+	result, err := (&Dispatcher{
+		db:                  db,
+		leaseOwner:          "go-siem-test-http-misconfig",
+		organizationID:      orgID,
+		httpClient:          &http.Client{Transport: transport},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}).Drain(context.Background(), len(cases))
+	if err != nil {
+		t.Fatalf("drain HTTP misconfigurations: %v", err)
+	}
+	if result.Processed != len(cases) || result.Delivered != 0 || result.Failed != len(cases) {
+		t.Fatalf("unexpected misconfiguration drain result: %#v", result)
+	}
+	if transport.calls != 0 {
+		t.Fatalf("misconfigured HTTP adapters must fail before network transport, got %d calls", transport.calls)
+	}
+	for _, testCase := range cases {
+		status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, testCase.deliveryID)
+		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, testCase.wantError) {
+			t.Fatalf("%s delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", testCase.name, status, attempts, leaseOwner, deliveredAt, lastError)
+		}
+		healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, testCase.destID)
+		if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || lastDeliveryAt.Valid || !destinationError.Valid || !strings.Contains(destinationError.String, testCase.wantError) {
+			t.Fatalf("%s destination health = status=%s ok=%d fail=%d delivered=%v error=%v", testCase.name, healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+		}
 	}
 }
 
@@ -379,7 +812,10 @@ func TestDrainRespectsStreamsTenantsAndExpiredLeases(t *testing.T) {
 func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
 	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "invalid.jsonl")
+	streamMismatchDestinationID := seedDispatcherDestinationForStream(t, db, orgID, "JSON_FILE", "ACTIVE", "stream-mismatch.jsonl", "EVENTS")
 	validPayload := fixtureDeliveryPayload(t, orgID)
 	destinationlessID := seedDispatcherDeliveryForStream(t, db, struct {
 		orgID         string
@@ -405,16 +841,28 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: sql.NullString{String: destinationID, Valid: true}, payload: invalidPayload, stream: "FINDINGS", status: "PENDING", attempts: 0, maxAttempts: 5})
 
+	streamMismatchID := seedDispatcherDeliveryForStream(t, db, struct {
+		orgID         string
+		destinationID sql.NullString
+		payload       Payload
+		stream        string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: sql.NullString{String: streamMismatchDestinationID, Valid: true}, payload: validPayload, stream: "EVENTS", status: "PENDING", attempts: 0, maxAttempts: 5})
+
 	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 2 || result.Delivered != 0 || result.Failed != 2 {
+	if result.Processed != 3 || result.Delivered != 0 || result.Failed != 3 {
 		t.Fatalf("unexpected invalid drain result: %#v", result)
 	}
 	for id, wantError := range map[string]string{
 		destinationlessID: "destination not configured",
 		invalidPayloadID:  "invalid delivery kind",
+		streamMismatchID:  "delivery stream does not match payload kind",
 	} {
 		status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, id)
 		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, wantError) {
@@ -424,6 +872,13 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
 	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastDeliveryAt.Valid || destinationError.Valid {
 		t.Fatalf("invalid payload changed destination health: status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError = siemDestinationHealth(t, db, streamMismatchDestinationID)
+	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastDeliveryAt.Valid || destinationError.Valid {
+		t.Fatalf("stream mismatch changed destination health: status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, "stream-mismatch.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("stream mismatch delivery should fail before file write, stat err=%v", err)
 	}
 }
 
@@ -556,6 +1011,113 @@ func TestProcessGenericWebhookDeliveryCapturesRequestAndMarksDelivered(t *testin
 	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
 	if healthStatus != "ACTIVE" || deliveriesOK != 1 || deliveriesFail != 0 || !lastDeliveryAt.Valid || destinationError.Valid {
 		t.Fatalf("webhook destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+}
+
+func TestProcessCerebroClaimsDeliveryCapturesRequestsAndPublishesAfterFinalization(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "CEREBRO_CLAIMS", "ACTIVE", "")
+	updateDispatcherDestinationToken(t, db, orgID, destinationID, "fixture-cerebro-db-token")
+	updateDispatcherDestinationIndex(t, db, orgID, destinationID, "runtime-db")
+	payload := fixtureDeliveryPayload(t, orgID)
+	payload.OccurredAt = "2026-06-05T20:00:00.000Z"
+	payload.Record["findingId"] = "fnd_cerebro_db"
+	payload.Record["dedupeKey"] = "dedupe_cerebro_db"
+	payload.Record["sourceEventId"] = "evt_cerebro_db"
+	payload.Record["provider"] = "GITHUB"
+	payload.Record["integrationId"] = "int_cerebro_db"
+	payload.Record["target"] = "writer/cerebro-db"
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
+
+	transport := &captureTransport{}
+	checkedEndpoints := []string{}
+	publisher := &recordingClaimFanoutPublisher{
+		t:   t,
+		db:  db,
+		err: errors.New("local NATS unavailable"),
+	}
+	dispatcher := &Dispatcher{
+		db:             db,
+		leaseOwner:     "go-siem-test-cerebro",
+		organizationID: orgID,
+		httpClient:     &http.Client{Transport: transport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			checkedEndpoints = append(checkedEndpoints, endpoint)
+			return nil
+		},
+		claimPublisher: publisher,
+	}
+	result, err := dispatcher.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected Cerebro drain result: %#v", result)
+	}
+	if len(checkedEndpoints) != 2 || transport.calls != 2 || len(transport.requests) != 2 {
+		t.Fatalf("expected runtime check and claim write, endpoints=%v calls=%d requests=%d", checkedEndpoints, transport.calls, len(transport.requests))
+	}
+	runtimeURL := "https://example.com/collector/source-runtimes/runtime-db"
+	claimsURL := runtimeURL + "/claims"
+	if transport.requests[0].method != http.MethodGet || transport.requests[0].url != runtimeURL {
+		t.Fatalf("runtime request = %s %s", transport.requests[0].method, transport.requests[0].url)
+	}
+	if transport.requests[0].header.Get("authorization") != "Bearer fixture-cerebro-db-token" || transport.requests[0].header.Get("accept") != "application/json" {
+		t.Fatalf("runtime headers = %#v", transport.requests[0].header)
+	}
+	if transport.requests[1].method != http.MethodPost || transport.requests[1].url != claimsURL {
+		t.Fatalf("claim request = %s %s", transport.requests[1].method, transport.requests[1].url)
+	}
+	if transport.requests[1].header.Get("authorization") != "Bearer fixture-cerebro-db-token" || transport.requests[1].header.Get("content-type") != "application/json" {
+		t.Fatalf("claim headers = %#v", transport.requests[1].header)
+	}
+	if strings.Contains(string(transport.requests[1].body), "fixture-cerebro-db-token") {
+		t.Fatal("Cerebro claim write body leaked token")
+	}
+	var requestBody struct {
+		RuntimeID string         `json:"runtime_id"`
+		Claims    []cerebroClaim `json:"claims"`
+	}
+	if err := json.Unmarshal(transport.requests[1].body, &requestBody); err != nil {
+		t.Fatalf("decode Cerebro claim request body: %v", err)
+	}
+	if requestBody.RuntimeID != "runtime-db" || len(requestBody.Claims) == 0 {
+		t.Fatalf("claim request body = %#v", requestBody)
+	}
+	if requestBody.Claims[0].SourceEvent != "evt_cerebro_db" {
+		t.Fatalf("claim source_event_id = %q", requestBody.Claims[0].SourceEvent)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "DELIVERED" || attempts != 1 || leaseOwner.Valid || !deliveredAt.Valid || lastError.Valid {
+		t.Fatalf("Cerebro delivered state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ACTIVE" || deliveriesOK != 1 || deliveriesFail != 0 || !lastDeliveryAt.Valid || destinationError.Valid {
+		t.Fatalf("Cerebro destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("expected one fanout publish attempt, got %d", len(publisher.events))
+	}
+	if publisher.deliveryStatuses[0] != "DELIVERED" || publisher.destinationHealth[0] != "ACTIVE" {
+		t.Fatalf("fanout published before finalization/health update: delivery=%v destination=%v", publisher.deliveryStatuses, publisher.destinationHealth)
+	}
+	event := publisher.events[0]
+	if event.Status != "delivered" || event.Error != "" || event.RuntimeID != "runtime-db" || event.FindingID != "fnd_cerebro_db" || event.DedupeKey != "dedupe_cerebro_db" {
+		t.Fatalf("unexpected fanout event: %#v", event)
+	}
+	if len(event.Claims) != len(requestBody.Claims) || event.Claims[0].SourceEvent != "evt_cerebro_db" {
+		t.Fatalf("fanout claims = %#v", event.Claims)
 	}
 }
 

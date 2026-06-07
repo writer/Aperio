@@ -1,6 +1,7 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -13,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +22,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 type siemParityFixture struct {
@@ -45,11 +49,24 @@ type siemDedupeCasesFixture struct {
 type siemEnvelopeCasesFixture struct {
 	Cases []struct {
 		Name             string          `json:"name"`
+		ExpectedStream   string          `json:"expectedStream"`
 		DestinationID    string          `json:"destinationId"`
 		OrganizationID   string          `json:"organizationId"`
 		Payload          Payload         `json:"payload"`
 		ExpectedEnvelope json.RawMessage `json:"expectedEnvelope"`
 	} `json:"cases"`
+}
+
+type siemLocalAdapterHarnessFixture struct {
+	DesignNote              string   `json:"designNote"`
+	NoProductionDestination []string `json:"noProductionDestinations"`
+	Adapters                []struct {
+		Kind       string `json:"kind"`
+		Harness    string `json:"harness"`
+		Endpoint   string `json:"endpointUrl"`
+		FilePath   string `json:"filePath"`
+		SafetyNote string `json:"expectedSafety"`
+	} `json:"adapters"`
 }
 
 type genericWebhookFixture struct {
@@ -70,12 +87,96 @@ type genericWebhookFixture struct {
 	} `json:"expectedRequest"`
 }
 
+type siemHTTPAdapterRequestsFixture struct {
+	Description string  `json:"description"`
+	Payload     Payload `json:"payload"`
+	Cases       []struct {
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		Destination struct {
+			ID             string `json:"id"`
+			OrganizationID string `json:"organizationId"`
+			EndpointURL    string `json:"endpointUrl"`
+			Token          string `json:"token"`
+			Index          string `json:"index"`
+		} `json:"destination"`
+		ExpectedRequest struct {
+			Method        string            `json:"method"`
+			URL           string            `json:"url"`
+			ContentType   string            `json:"contentType"`
+			Headers       map[string]string `json:"headers"`
+			AbsentHeaders []string          `json:"absentHeaders"`
+			Body          json.RawMessage   `json:"body"`
+			RawBody       string            `json:"rawBody"`
+		} `json:"expectedRequest"`
+	} `json:"cases"`
+	NegativeCases []struct {
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+	} `json:"negativeCases"`
+}
+
+type siemCerebroClaimsFixture struct {
+	Description string `json:"description"`
+	Destination struct {
+		ID             string `json:"id"`
+		OrganizationID string `json:"organizationId"`
+		EndpointURL    string `json:"endpointUrl"`
+		Token          string `json:"token"`
+		Index          string `json:"index"`
+	} `json:"destination"`
+	Payload  Payload `json:"payload"`
+	Expected struct {
+		RuntimeRequest struct {
+			Method        string            `json:"method"`
+			URL           string            `json:"url"`
+			Headers       map[string]string `json:"headers"`
+			AbsentHeaders []string          `json:"absentHeaders"`
+		} `json:"runtimeRequest"`
+		ClaimRequest struct {
+			Method        string            `json:"method"`
+			URL           string            `json:"url"`
+			Headers       map[string]string `json:"headers"`
+			AbsentHeaders []string          `json:"absentHeaders"`
+			Body          struct {
+				RuntimeID string `json:"runtime_id"`
+			} `json:"body"`
+		} `json:"claimRequest"`
+		ClaimCount  int    `json:"claimCount"`
+		SourceEvent string `json:"sourceEventId"`
+		FindingID   string `json:"findingId"`
+		DedupeKey   string `json:"dedupeKey"`
+		FindingURN  string `json:"findingURN"`
+	} `json:"expected"`
+}
+
+type siemJSONFileSinkFixture struct {
+	Description string `json:"description"`
+	Destination struct {
+		ID             string `json:"id"`
+		OrganizationID string `json:"organizationId"`
+		FilePath       string `json:"filePath"`
+	} `json:"destination"`
+	Payloads        []Payload       `json:"payloads"`
+	PreexistingLine json.RawMessage `json:"preexistingLine"`
+	UnsafePaths     []string        `json:"unsafePaths"`
+}
+
+type capturedHTTPCall struct {
+	method string
+	url    string
+	header http.Header
+	body   []byte
+}
+
 type captureTransport struct {
 	calls    int
 	method   string
 	url      string
 	header   http.Header
 	body     []byte
+	requests []capturedHTTPCall
 	status   int
 	location string
 	err      error
@@ -91,6 +192,12 @@ func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, err
 	}
 	c.body = body
+	c.requests = append(c.requests, capturedHTTPCall{
+		method: c.method,
+		url:    c.url,
+		header: c.header.Clone(),
+		body:   append([]byte(nil), body...),
+	})
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -133,6 +240,31 @@ func assertJSONEqual(t *testing.T, name string, got []byte, want []byte) {
 	if !reflect.DeepEqual(gotValue, wantValue) {
 		t.Fatalf("%s JSON = %s, want %s", name, string(got), string(want))
 	}
+}
+
+func bytesTrimTrailingNewline(raw []byte) []byte {
+	return []byte(strings.TrimSuffix(string(raw), "\n"))
+}
+
+func hasCerebroClaim(claims []cerebroClaim, claimType string, predicate string, objectValue string) bool {
+	for _, claim := range claims {
+		if claim.ClaimType != claimType || claim.Predicate != predicate {
+			continue
+		}
+		if objectValue == "" || claim.ObjectValue == objectValue {
+			return true
+		}
+	}
+	return false
+}
+
+func mustMarshalEnvelope(t *testing.T, dest destination, payload Payload) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func readJSONFixture[T any](t *testing.T, filename string) T {
@@ -224,6 +356,556 @@ func TestBuildEnvelopeSharedCases(t *testing.T) {
 	}
 }
 
+func TestStreamForKindSharedCases(t *testing.T) {
+	fixture := readJSONFixture[siemEnvelopeCasesFixture](t, "siem-envelope-cases.json")
+	for _, testCase := range fixture.Cases {
+		stream, err := StreamForKind(testCase.Payload.Kind)
+		if err != nil {
+			t.Fatalf("%s stream mapping: %v", testCase.Name, err)
+		}
+		if stream != testCase.ExpectedStream {
+			t.Fatalf("%s stream = %s, want %s", testCase.Name, stream, testCase.ExpectedStream)
+		}
+	}
+	if _, err := StreamForKind("unknown"); err == nil {
+		t.Fatal("expected unknown payload kind to fail closed")
+	}
+}
+
+func TestGoOwnedAdaptersUseLocalHarnessWithoutProductionEndpoints(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemLocalAdapterHarnessFixture](t, "siem-local-adapter-harness.json")
+	if fixture.DesignNote == "" {
+		t.Fatal("local adapter harness fixture must document the endpoint-safety-compatible pattern")
+	}
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_harness",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record: map[string]any{
+			"findingId":     "fnd_harness",
+			"dedupeKey":     "dedupe_harness",
+			"sourceEventId": "evt_harness",
+			"provider":      "GITHUB",
+			"title":         "Harness finding",
+			"severity":      "HIGH",
+			"status":        "OPEN",
+		},
+	}
+
+	seen := map[string]bool{}
+	for _, adapter := range fixture.Adapters {
+		adapter := adapter
+		t.Run(adapter.Kind, func(t *testing.T) {
+			seen[adapter.Kind] = true
+			for _, productionHost := range fixture.NoProductionDestination {
+				if adapter.Endpoint != "" && strings.Contains(strings.ToLower(adapter.Endpoint), strings.ToLower(productionHost)) {
+					t.Fatalf("%s harness endpoint uses production host %s", adapter.Kind, productionHost)
+				}
+			}
+			dest := destination{
+				ID:             "dst_" + strings.ToLower(adapter.Kind),
+				OrganizationID: payload.OrganizationID,
+				Kind:           adapter.Kind,
+				Name:           adapter.Kind + " harness",
+				EndpointURL:    sql.NullString{String: adapter.Endpoint, Valid: adapter.Endpoint != ""},
+				FilePath:       sql.NullString{String: adapter.FilePath, Valid: adapter.FilePath != ""},
+				Index:          sql.NullString{String: "runtime-harness", Valid: true},
+			}
+			if adapter.Kind == "ELASTIC" {
+				dest.Index = sql.NullString{String: "aperio-harness", Valid: true}
+			}
+			if adapter.Kind != "JSON_FILE" {
+				dest.EncryptedToken = sql.NullString{
+					String: encryptForDispatcherTest(t, "token-"+strings.ToLower(adapter.Kind), destinationTokenAAD(dest)),
+					Valid:  true,
+				}
+			}
+
+			if adapter.Kind == "JSON_FILE" {
+				exportRoot := t.TempDir()
+				t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+				if err := writeJSONFile(dest, payload); err != nil {
+					t.Fatalf("write JSON file through local harness: %v", err)
+				}
+				raw, err := os.ReadFile(filepath.Join(exportRoot, adapter.FilePath))
+				if err != nil {
+					t.Fatalf("read harness JSONL: %v", err)
+				}
+				assertJSONEqual(t, "json file harness body", bytesTrimTrailingNewline(raw), mustMarshalEnvelope(t, dest, payload))
+				return
+			}
+
+			transport := &captureTransport{}
+			checkedEndpoints := []string{}
+			dispatcher := &Dispatcher{
+				httpClient: &http.Client{Transport: transport},
+				endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+					if !strings.HasPrefix(endpoint, "https://capture.aperio.test/") {
+						return fmt.Errorf("unexpected non-local harness endpoint %s", endpoint)
+					}
+					checkedEndpoints = append(checkedEndpoints, endpoint)
+					return nil
+				},
+			}
+			if _, err := dispatcher.sendForKind(context.Background(), dest, payload); err != nil {
+				t.Fatalf("send %s through local harness: %v", adapter.Kind, err)
+			}
+			if len(checkedEndpoints) == 0 {
+				t.Fatal("expected endpoint-safety check before local capture")
+			}
+			if transport.calls == 0 {
+				t.Fatal("expected local capture transport to receive request")
+			}
+			for _, call := range transport.requests {
+				if !strings.HasPrefix(call.url, "https://capture.aperio.test/") {
+					t.Fatalf("captured non-local URL %s", call.url)
+				}
+				for _, productionHost := range fixture.NoProductionDestination {
+					if strings.Contains(strings.ToLower(call.url), strings.ToLower(productionHost)) {
+						t.Fatalf("captured production host %s in %s", productionHost, call.url)
+					}
+				}
+				if strings.Contains(string(call.body), "token-"+strings.ToLower(adapter.Kind)) {
+					t.Fatalf("%s request body leaked plaintext token", adapter.Kind)
+				}
+			}
+		})
+	}
+	for _, kind := range []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE"} {
+		if !seen[kind] {
+			t.Fatalf("local adapter harness missing %s", kind)
+		}
+	}
+}
+
+func TestHTTPAdapterRequestContractsMatchLocalCaptureFixtures(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemHTTPAdapterRequestsFixture](t, "siem-http-adapter-requests.json")
+	if fixture.Description == "" {
+		t.Fatal("HTTP adapter request fixture must document local-only capture constraints")
+	}
+	for _, testCase := range fixture.Cases {
+		testCase := testCase
+		t.Run(testCase.Name, func(t *testing.T) {
+			dest := destination{
+				ID:             testCase.Destination.ID,
+				OrganizationID: testCase.Destination.OrganizationID,
+				Kind:           testCase.Kind,
+				Name:           testCase.Name,
+				EndpointURL:    sql.NullString{String: testCase.Destination.EndpointURL, Valid: testCase.Destination.EndpointURL != ""},
+				Index:          sql.NullString{String: testCase.Destination.Index, Valid: testCase.Destination.Index != ""},
+			}
+			if testCase.Destination.Token != "" {
+				dest.EncryptedToken = sql.NullString{
+					String: encryptForDispatcherTest(t, testCase.Destination.Token, destinationTokenAAD(dest)),
+					Valid:  true,
+				}
+			}
+			transport := &captureTransport{}
+			checkedEndpoints := []string{}
+			dispatcher := &Dispatcher{
+				httpClient: &http.Client{Transport: transport},
+				endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+					if endpoint != testCase.ExpectedRequest.URL {
+						t.Fatalf("endpoint safety checked %q, want %q", endpoint, testCase.ExpectedRequest.URL)
+					}
+					if !strings.HasPrefix(endpoint, "https://capture.aperio.test/") {
+						t.Fatalf("fixture endpoint must stay local-only, got %s", endpoint)
+					}
+					checkedEndpoints = append(checkedEndpoints, endpoint)
+					return nil
+				},
+			}
+			if _, err := dispatcher.sendForKind(context.Background(), dest, fixture.Payload); err != nil {
+				t.Fatalf("send %s: %v", testCase.Kind, err)
+			}
+			if len(checkedEndpoints) != 1 {
+				t.Fatalf("expected one endpoint-safety check, got %d", len(checkedEndpoints))
+			}
+			if transport.calls != 1 {
+				t.Fatalf("expected one captured request, got %d", transport.calls)
+			}
+			if transport.method != testCase.ExpectedRequest.Method || transport.url != testCase.ExpectedRequest.URL {
+				t.Fatalf("request = %s %s, want %s %s", transport.method, transport.url, testCase.ExpectedRequest.Method, testCase.ExpectedRequest.URL)
+			}
+			if got := transport.header.Get("content-type"); got != testCase.ExpectedRequest.ContentType {
+				t.Fatalf("content-type = %q, want %q", got, testCase.ExpectedRequest.ContentType)
+			}
+			for header, want := range testCase.ExpectedRequest.Headers {
+				if got := transport.header.Get(header); got != want {
+					t.Fatalf("%s header %s = %q, want %q", testCase.Kind, header, got, want)
+				}
+			}
+			for _, header := range testCase.ExpectedRequest.AbsentHeaders {
+				if got := transport.header.Get(header); got != "" {
+					t.Fatalf("%s header %s unexpectedly set to %q", testCase.Kind, header, got)
+				}
+			}
+			if testCase.ExpectedRequest.RawBody != "" {
+				if got := string(transport.body); got != testCase.ExpectedRequest.RawBody {
+					t.Fatalf("%s raw body = %q, want %q", testCase.Kind, got, testCase.ExpectedRequest.RawBody)
+				}
+			} else {
+				assertJSONEqual(t, testCase.Name+" body", transport.body, testCase.ExpectedRequest.Body)
+			}
+			if testCase.Destination.Token != "" && strings.Contains(string(transport.body), testCase.Destination.Token) {
+				t.Fatalf("%s request body leaked plaintext token", testCase.Kind)
+			}
+		})
+	}
+}
+
+func TestHTTPAdapterRequiredFieldsAndCredentialsDoNotSendRequests(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemHTTPAdapterRequestsFixture](t, "siem-http-adapter-requests.json")
+	for _, testCase := range fixture.NegativeCases {
+		testCase := testCase
+		t.Run(testCase.Name, func(t *testing.T) {
+			dest := destination{
+				ID:             "dst_negative_" + testCase.Name,
+				OrganizationID: fixture.Payload.OrganizationID,
+				Kind:           testCase.Kind,
+				Name:           testCase.Name,
+				EndpointURL:    sql.NullString{String: "https://capture.aperio.test/" + testCase.Name, Valid: true},
+			}
+			switch testCase.Name {
+			case "elastic_missing_index":
+				dest.EncryptedToken = sql.NullString{
+					String: encryptForDispatcherTest(t, "fixture-elastic-token", destinationTokenAAD(dest)),
+					Valid:  true,
+				}
+			case "elastic_missing_token":
+				dest.Index = sql.NullString{String: "aperio-negative", Valid: true}
+			case "generic_webhook_tampered_secret":
+				dest.EncryptedToken = sql.NullString{
+					String: tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, "fixture-generic-secret", destinationTokenAAD(dest))),
+					Valid:  true,
+				}
+			}
+			transport := &captureTransport{}
+			dispatcher := &Dispatcher{
+				httpClient:          &http.Client{Transport: transport},
+				endpointSafetyCheck: func(context.Context, string) error { return nil },
+			}
+			_, err := dispatcher.sendForKind(context.Background(), dest, fixture.Payload)
+			if err == nil || !strings.Contains(err.Error(), testCase.Message) {
+				t.Fatalf("expected %q failure, got %v", testCase.Message, err)
+			}
+			if transport.calls != 0 {
+				t.Fatalf("%s should fail closed before HTTP transport, got %d calls", testCase.Name, transport.calls)
+			}
+		})
+	}
+}
+
+func TestCerebroClaimsRequestContractMatchesLocalCaptureFixture(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemCerebroClaimsFixture](t, "siem-cerebro-claims.json")
+	if fixture.Description == "" {
+		t.Fatal("Cerebro fixture must document local-only capture constraints")
+	}
+	dest := destination{
+		ID:             fixture.Destination.ID,
+		OrganizationID: fixture.Destination.OrganizationID,
+		Kind:           "CEREBRO_CLAIMS",
+		Name:           "Cerebro fixture",
+		EndpointURL:    sql.NullString{String: fixture.Destination.EndpointURL, Valid: true},
+		Index:          sql.NullString{String: fixture.Destination.Index, Valid: true},
+	}
+	dest.EncryptedToken = sql.NullString{
+		String: encryptForDispatcherTest(t, fixture.Destination.Token, destinationTokenAAD(dest)),
+		Valid:  true,
+	}
+	transport := &captureTransport{}
+	checkedEndpoints := []string{}
+	dispatcher := &Dispatcher{
+		httpClient: &http.Client{Transport: transport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			if !strings.HasPrefix(endpoint, "https://capture.aperio.test/") {
+				t.Fatalf("Cerebro fixture endpoint must stay local-only, got %s", endpoint)
+			}
+			checkedEndpoints = append(checkedEndpoints, endpoint)
+			return nil
+		},
+	}
+	result, err := dispatcher.sendCerebroClaims(context.Background(), dest, fixture.Payload)
+	if err != nil {
+		t.Fatalf("send Cerebro claims: %v", err)
+	}
+	if result.CerebroRuntimeID != fixture.Destination.Index || result.FindingID != fixture.Expected.FindingID || result.DedupeKey != fixture.Expected.DedupeKey {
+		t.Fatalf("unexpected Cerebro send metadata: %#v", result)
+	}
+	if len(result.CerebroClaims) != fixture.Expected.ClaimCount {
+		t.Fatalf("metadata claim count = %d, want %d", len(result.CerebroClaims), fixture.Expected.ClaimCount)
+	}
+	if len(checkedEndpoints) != 2 {
+		t.Fatalf("expected endpoint-safety checks for runtime and claim requests, got %d", len(checkedEndpoints))
+	}
+	if transport.calls != 2 || len(transport.requests) != 2 {
+		t.Fatalf("expected runtime check and claim write, got calls=%d requests=%d", transport.calls, len(transport.requests))
+	}
+
+	runtimeRequest := transport.requests[0]
+	if runtimeRequest.method != fixture.Expected.RuntimeRequest.Method || runtimeRequest.url != fixture.Expected.RuntimeRequest.URL {
+		t.Fatalf("runtime request = %s %s, want %s %s", runtimeRequest.method, runtimeRequest.url, fixture.Expected.RuntimeRequest.Method, fixture.Expected.RuntimeRequest.URL)
+	}
+	for header, want := range fixture.Expected.RuntimeRequest.Headers {
+		if got := runtimeRequest.header.Get(header); got != want {
+			t.Fatalf("runtime header %s = %q, want %q", header, got, want)
+		}
+	}
+	for _, header := range fixture.Expected.RuntimeRequest.AbsentHeaders {
+		if got := runtimeRequest.header.Get(header); got != "" {
+			t.Fatalf("runtime header %s unexpectedly set to %q", header, got)
+		}
+	}
+	if len(runtimeRequest.body) != 0 {
+		t.Fatalf("runtime request unexpectedly had body %q", string(runtimeRequest.body))
+	}
+
+	claimRequest := transport.requests[1]
+	if claimRequest.method != fixture.Expected.ClaimRequest.Method || claimRequest.url != fixture.Expected.ClaimRequest.URL {
+		t.Fatalf("claim request = %s %s, want %s %s", claimRequest.method, claimRequest.url, fixture.Expected.ClaimRequest.Method, fixture.Expected.ClaimRequest.URL)
+	}
+	for header, want := range fixture.Expected.ClaimRequest.Headers {
+		if got := claimRequest.header.Get(header); got != want {
+			t.Fatalf("claim header %s = %q, want %q", header, got, want)
+		}
+	}
+	for _, header := range fixture.Expected.ClaimRequest.AbsentHeaders {
+		if got := claimRequest.header.Get(header); got != "" {
+			t.Fatalf("claim header %s unexpectedly set to %q", header, got)
+		}
+	}
+	if strings.Contains(string(claimRequest.body), fixture.Destination.Token) || strings.Contains(string(runtimeRequest.body), fixture.Destination.Token) {
+		t.Fatal("Cerebro request body leaked plaintext token")
+	}
+	var body struct {
+		RuntimeID string         `json:"runtime_id"`
+		Claims    []cerebroClaim `json:"claims"`
+	}
+	if err := json.Unmarshal(claimRequest.body, &body); err != nil {
+		t.Fatalf("decode claim request body: %v", err)
+	}
+	if body.RuntimeID != fixture.Expected.ClaimRequest.Body.RuntimeID {
+		t.Fatalf("runtime_id = %q, want %q", body.RuntimeID, fixture.Expected.ClaimRequest.Body.RuntimeID)
+	}
+	if len(body.Claims) != fixture.Expected.ClaimCount {
+		t.Fatalf("claim body count = %d, want %d", len(body.Claims), fixture.Expected.ClaimCount)
+	}
+	findingExists := body.Claims[0]
+	if findingExists.SubjectURN != fixture.Expected.FindingURN || findingExists.SourceEvent != fixture.Expected.SourceEvent {
+		t.Fatalf("finding existence claim = %#v", findingExists)
+	}
+	if findingExists.Attributes["ruleId"] != "github.public_repository_created" || findingExists.Attributes["sourceEventId"] != fixture.Expected.SourceEvent {
+		t.Fatalf("finding attributes = %#v", findingExists.Attributes)
+	}
+	if !hasCerebroClaim(body.Claims, "relation", "affects", "") {
+		t.Fatalf("missing affects relation claim: %#v", body.Claims)
+	}
+	if !hasCerebroClaim(body.Claims, "attribute", "riskScore", "95") {
+		t.Fatalf("missing riskScore attribute claim: %#v", body.Claims)
+	}
+}
+
+func TestCerebroRefEscapesExternalIDLikeEncodeURIComponent(t *testing.T) {
+	ref := cerebroRef(
+		"org_urn_encoding",
+		"runtime-main",
+		"finding",
+		"finding:id with spaces!*'()~:/?#[]@é",
+		"encoded finding",
+	)
+	want := "urn:cerebro:org_urn_encoding:runtime:runtime-main:finding:finding%3Aid-with-spaces!*'()~%3A%2F%3F%23%5B%5D%40%C3%A9"
+	if ref.URN != want {
+		t.Fatalf("Cerebro URN = %q, want %q", ref.URN, want)
+	}
+}
+
+func TestJSONFileSinkAppendsConfinedDeterministicJSONLFixture(t *testing.T) {
+	fixture := readJSONFixture[siemJSONFileSinkFixture](t, "siem-json-file-sink.json")
+	if fixture.Description == "" {
+		t.Fatal("JSON_FILE fixture must document JSONL confinement semantics")
+	}
+	if len(fixture.Payloads) != 2 {
+		t.Fatalf("expected two JSON_FILE payloads, got %d", len(fixture.Payloads))
+	}
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	dest := destination{
+		ID:             fixture.Destination.ID,
+		OrganizationID: fixture.Destination.OrganizationID,
+		Kind:           "JSON_FILE",
+		Name:           "JSON file fixture",
+		FilePath:       sql.NullString{String: fixture.Destination.FilePath, Valid: true},
+	}
+	outputPath := filepath.Join(exportRoot, fixture.Destination.FilePath)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatalf("create preexisting JSONL parent: %v", err)
+	}
+	var preexistingValue any
+	if err := json.Unmarshal(fixture.PreexistingLine, &preexistingValue); err != nil {
+		t.Fatalf("decode preexisting JSONL fixture: %v", err)
+	}
+	preexistingLine, err := json.Marshal(preexistingValue)
+	if err != nil {
+		t.Fatalf("compact preexisting JSONL fixture: %v", err)
+	}
+	if err := os.WriteFile(outputPath, append(preexistingLine, '\n'), 0o600); err != nil {
+		t.Fatalf("write preexisting JSONL line: %v", err)
+	}
+	for _, payload := range fixture.Payloads {
+		if err := writeJSONFile(dest, payload); err != nil {
+			t.Fatalf("append JSONL payload %s: %v", firstString(payload.Record["sourceEventId"]), err)
+		}
+	}
+	raw, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read JSONL output: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected preexisting plus two appended lines, got %d: %q", len(lines), string(raw))
+	}
+	assertJSONEqual(t, "preexisting line preserved", []byte(lines[0]), fixture.PreexistingLine)
+	for index, payload := range fixture.Payloads {
+		var envelope Envelope
+		if err := json.Unmarshal([]byte(lines[index+1]), &envelope); err != nil {
+			t.Fatalf("decode JSONL envelope %d: %v", index+1, err)
+		}
+		if envelope.DestinationID != dest.ID || envelope.OrganizationID != dest.OrganizationID || envelope.SchemaVersion != "aperio.finding.v1" {
+			t.Fatalf("unexpected JSONL envelope %d: %#v", index+1, envelope)
+		}
+		if envelope.Record["sourceEventId"] != payload.Record["sourceEventId"] {
+			t.Fatalf("sourceEventId line %d = %v, want %v", index+1, envelope.Record["sourceEventId"], payload.Record["sourceEventId"])
+		}
+	}
+
+	createdDest := dest
+	createdDest.FilePath = sql.NullString{String: "tenant-b/new/findings.jsonl", Valid: true}
+	if err := writeJSONFile(createdDest, fixture.Payloads[0]); err != nil {
+		t.Fatalf("write JSONL with missing parent dirs: %v", err)
+	}
+	createdPath := filepath.Join(exportRoot, "tenant-b/new/findings.jsonl")
+	info, err := os.Stat(createdPath)
+	if err != nil {
+		t.Fatalf("stat created JSONL: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("created JSONL mode = %v, want 0600", info.Mode().Perm())
+	}
+	for _, unsafePath := range fixture.UnsafePaths {
+		unsafeDest := dest
+		unsafeDest.FilePath = sql.NullString{String: unsafePath, Valid: true}
+		if err := writeJSONFile(unsafeDest, fixture.Payloads[0]); err == nil {
+			t.Fatalf("expected unsafe path %q to be rejected", unsafePath)
+		}
+	}
+}
+
+func TestJSONFileSinkRejectsSymlinkComponentsAndFinalSymlink(t *testing.T) {
+	exportRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_symlink",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"findingId": "fnd_symlink", "sourceEventId": "evt_symlink"},
+	}
+	dest := destination{
+		ID:             "dst_symlink",
+		OrganizationID: payload.OrganizationID,
+		Kind:           "JSON_FILE",
+		Name:           "JSON file symlink fixture",
+	}
+
+	componentLink := filepath.Join(exportRoot, "tenant-link")
+	if err := os.Symlink(outsideRoot, componentLink); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	dest.FilePath = sql.NullString{String: "tenant-link/findings.jsonl", Valid: true}
+	if err := writeJSONFile(dest, payload); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink component rejection, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideRoot, "findings.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("symlink component write touched outside target, stat err=%v", err)
+	}
+
+	insideDir := filepath.Join(exportRoot, "tenant-real")
+	if err := os.MkdirAll(insideDir, 0o755); err != nil {
+		t.Fatalf("create inside dir: %v", err)
+	}
+	outsideFile := filepath.Join(outsideRoot, "outside.jsonl")
+	original := []byte("outside target must not change\n")
+	if err := os.WriteFile(outsideFile, original, 0o600); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	finalLink := filepath.Join(insideDir, "findings.jsonl")
+	if err := os.Symlink(outsideFile, finalLink); err != nil {
+		t.Skipf("final symlink creation unavailable: %v", err)
+	}
+	dest.FilePath = sql.NullString{String: "tenant-real/findings.jsonl", Valid: true}
+	if err := writeJSONFile(dest, payload); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected final symlink rejection, got %v", err)
+	}
+	after, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("read outside target: %v", err)
+	}
+	if string(after) != string(original) {
+		t.Fatalf("final symlink write mutated outside target: %q", string(after))
+	}
+}
+
+func TestNetworkAdapterHarnessPreservesEndpointSafetyGate(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_safety",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"findingId": "fnd_safety", "sourceEventId": "evt_safety"},
+	}
+	for _, kind := range []string{"SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS"} {
+		t.Run(kind, func(t *testing.T) {
+			dest := destination{
+				ID:             "dst_safety_" + strings.ToLower(kind),
+				OrganizationID: payload.OrganizationID,
+				Kind:           kind,
+				EndpointURL:    sql.NullString{String: "https://capture.aperio.test/" + strings.ToLower(kind), Valid: true},
+				Index:          sql.NullString{String: "runtime-safety", Valid: true},
+			}
+			if kind == "ELASTIC" {
+				dest.Index = sql.NullString{String: "aperio-safety", Valid: true}
+			}
+			dest.EncryptedToken = sql.NullString{
+				String: encryptForDispatcherTest(t, "token-"+strings.ToLower(kind), destinationTokenAAD(dest)),
+				Valid:  true,
+			}
+			transport := &captureTransport{}
+			dispatcher := &Dispatcher{
+				httpClient: &http.Client{Transport: transport},
+				endpointSafetyCheck: func(context.Context, string) error {
+					return errors.New("blocked by endpoint safety")
+				},
+			}
+			_, err := dispatcher.sendForKind(context.Background(), dest, payload)
+			if err == nil || !strings.Contains(err.Error(), "endpoint safety") {
+				t.Fatalf("expected endpoint safety failure, got %v", err)
+			}
+			if transport.calls != 0 {
+				t.Fatalf("unsafe endpoint should be blocked before transport, got %d calls", transport.calls)
+			}
+		})
+	}
+}
+
 func TestSendGenericWebhookCapturesReferenceRequestShape(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
@@ -272,6 +954,128 @@ func TestSendGenericWebhookCapturesReferenceRequestShape(t *testing.T) {
 	assertJSONEqual(t, "generic webhook body", transport.body, fixture.ExpectedRequest.Body)
 	if strings.Contains(string(transport.body), fixture.Destination.Token) {
 		t.Fatal("webhook request body must not contain the signing secret")
+	}
+}
+
+func TestDecryptStringFailsClosedForCredentialEnvelopeErrors(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	aad := "org_1:siem:dst_1:token"
+	plaintext := "fixture-siem-token-not-secret"
+	validEnvelope := "eyJ2ZXJzaW9uIjoxLCJhbGdvcml0aG0iOiJhZXMtMjU2LWdjbSIsIml2IjoiTVRJek5EVTJOemc1TURFeSIsInRhZyI6Im1sUjJUS1QyMmdsMHBOOTRNa0NYX3ciLCJjaXBoZXJ0ZXh0IjoiN1Qta25Jc0lRakVsOW1XQWRNSjNfUDJQaDE5X3RVellFaDgifQ"
+
+	t.Run("missing key", func(t *testing.T) {
+		t.Setenv("APERIO_ENCRYPTION_KEY", "")
+		_, err := decryptString(validEnvelope, "org_demo:GITHUB:writer:access_token")
+		if err == nil || !strings.Contains(err.Error(), "APERIO_ENCRYPTION_KEY is required") {
+			t.Fatalf("expected missing key failure, got %v", err)
+		}
+		if strings.Contains(err.Error(), "demo-provider-token-GITHUB") {
+			t.Fatal("missing-key error leaked plaintext credential")
+		}
+	})
+
+	for _, testCase := range []struct {
+		name      string
+		encrypted func(t *testing.T) string
+		aad       string
+	}{
+		{
+			name:      "malformed envelope",
+			encrypted: func(*testing.T) string { return "not-a-valid-envelope" },
+			aad:       aad,
+		},
+		{
+			name: "wrong aad",
+			encrypted: func(t *testing.T) string {
+				return encryptForDispatcherTest(t, plaintext, aad)
+			},
+			aad: aad + ":wrong",
+		},
+		{
+			name: "tampered tag",
+			encrypted: func(t *testing.T) string {
+				return tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, plaintext, aad))
+			},
+			aad: aad,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+			_, err := decryptString(testCase.encrypted(t), testCase.aad)
+			if err == nil {
+				t.Fatal("expected decrypt failure")
+			}
+			if strings.Contains(err.Error(), plaintext) {
+				t.Fatalf("decrypt error leaked plaintext credential: %v", err)
+			}
+		})
+	}
+}
+
+func TestLocalCaptureSmokeTransportOnlyAllowsSyntheticEndpoints(t *testing.T) {
+	var captured struct {
+		Method     string              `json:"method"`
+		URL        string              `json:"url"`
+		Headers    map[string][]string `json:"headers"`
+		BodyBase64 string              `json:"bodyBase64"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capture" {
+			t.Fatalf("unexpected capture path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode capture body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	client, checkEndpoint, err := localCaptureFromURL(server.URL + "/capture")
+	if err != nil {
+		t.Fatalf("local capture setup: %v", err)
+	}
+	if err := checkEndpoint(context.Background(), "https://splunk.aperio.test/collector"); err != nil {
+		t.Fatalf("synthetic endpoint rejected: %v", err)
+	}
+	for _, unsafeEndpoint := range []string{
+		"http://splunk.aperio.test/collector",
+		"https://localhost/collector",
+		"https://example.com/collector",
+		"https://aperio.test/collector",
+		"https://splunk.aperio.test.evil/collector",
+		"https://user:pass@splunk.aperio.test/collector",
+	} {
+		if err := checkEndpoint(context.Background(), unsafeEndpoint); err == nil {
+			t.Fatalf("expected local capture endpoint %s to be rejected", unsafeEndpoint)
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://splunk.aperio.test/collector", strings.NewReader("fixture-body"))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Splunk fixture-token")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("capture request: %v", err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("capture status = %d", res.StatusCode)
+	}
+	if captured.Method != http.MethodPost || captured.URL != "https://splunk.aperio.test/collector" {
+		t.Fatalf("captured request = %#v", captured)
+	}
+	decodedBody, err := base64.StdEncoding.DecodeString(captured.BodyBase64)
+	if err != nil {
+		t.Fatalf("decode captured body: %v", err)
+	}
+	if string(decodedBody) != "fixture-body" {
+		t.Fatalf("captured body = %q", string(decodedBody))
+	}
+	if got := captured.Headers["Authorization"]; !reflect.DeepEqual(got, []string{"Splunk fixture-token"}) {
+		t.Fatalf("captured authorization header = %#v", got)
 	}
 }
 
@@ -413,6 +1217,78 @@ func TestDestinationLoadFailureOnlyPermanentForMissingRows(t *testing.T) {
 	}
 }
 
+func TestSIEMDeliveryWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
+	base := delivery{
+		ID:             "sdel_1",
+		OrganizationID: "org_1",
+		DestinationID:  sql.NullString{String: "dst_1", Valid: true},
+		Stream:         "FINDINGS",
+		Attempts:       0,
+		MaxAttempts:    3,
+	}
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_1",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"findingId": "fnd_1", "sourceEventId": "evt_1"},
+	}
+	dest := destination{ID: "dst_1", OrganizationID: "org_1", Kind: "GENERIC_WEBHOOK"}
+
+	delivered := siemDeliveryWideEvent(base, payload, dest, nil, false, 7*time.Millisecond)
+	if delivered.Name != "siem.delivery.process" || delivered.Service != "siem-dispatcher" {
+		t.Fatalf("unexpected telemetry identity: %#v", delivered)
+	}
+	if delivered.Organization != "org_1" ||
+		delivered.Dimensions["outcome"] != "delivered" ||
+		delivered.Dimensions["destination_kind"] != "GENERIC_WEBHOOK" ||
+		delivered.Dimensions["destination_id"] != "dst_1" ||
+		delivered.Dimensions["stream"] != "FINDINGS" ||
+		delivered.Dimensions["payload_kind"] != "finding" {
+		t.Fatalf("unexpected delivered dimensions: %#v", delivered.Dimensions)
+	}
+	if delivered.Measurements["attempt"] != 1 || delivered.Measurements["max_attempts"] != 3 || delivered.Measurements["duration_ms"] != 7 {
+		t.Fatalf("unexpected delivered measurements: %#v", delivered.Measurements)
+	}
+	if _, ok := delivered.Dimensions["error_kind"]; ok {
+		t.Fatalf("delivered telemetry should not include error_kind: %#v", delivered.Dimensions)
+	}
+
+	retryable := siemDeliveryWideEvent(base, payload, dest, httpStatusError{statusCode: http.StatusServiceUnavailable, statusText: "Service Unavailable"}, false, time.Millisecond)
+	if retryable.Dimensions["outcome"] != "retryable_failed" || retryable.Dimensions["error_kind"] != "http_5xx" || retryable.Dimensions["permanence"] != "retryable" {
+		t.Fatalf("unexpected retryable telemetry: %#v", retryable.Dimensions)
+	}
+
+	timeout := siemDeliveryWideEvent(base, payload, dest, context.DeadlineExceeded, false, time.Millisecond)
+	if timeout.Dimensions["outcome"] != "timeout" || timeout.Dimensions["error_kind"] != "timeout" || timeout.Dimensions["permanence"] != "retryable" {
+		t.Fatalf("unexpected timeout telemetry: %#v", timeout.Dimensions)
+	}
+
+	permanent := siemDeliveryWideEvent(base, payload, dest, httpStatusError{statusCode: http.StatusUnauthorized, statusText: "Unauthorized"}, true, time.Millisecond)
+	if permanent.Dimensions["outcome"] != "dead_letter" || permanent.Dimensions["error_kind"] != "http_4xx" || permanent.Dimensions["permanence"] != "permanent" {
+		t.Fatalf("unexpected permanent telemetry: %#v", permanent.Dimensions)
+	}
+
+	exhaustedItem := base
+	exhaustedItem.Attempts = 2
+	exhausted := siemDeliveryWideEvent(exhaustedItem, payload, dest, errors.New("temporary outage"), false, time.Millisecond)
+	if exhausted.Dimensions["outcome"] != "dead_letter" || exhausted.Dimensions["error_kind"] != "error" || exhausted.Dimensions["permanence"] != "exhausted" {
+		t.Fatalf("unexpected exhausted telemetry: %#v", exhausted.Dimensions)
+	}
+
+	lostLease := siemDeliveryWideEvent(base, payload, dest, errDeliveryLeaseLost, false, time.Millisecond)
+	if lostLease.Dimensions["outcome"] != "lost_lease" || lostLease.Dimensions["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
+	}
+
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	emitSIEMDeliveryWideEvent(base, payload, dest, errors.New("database password should not be serialized"), false, time.Millisecond)
+	restore()
+	if !strings.Contains(sink.String(), `"event_name":"siem.delivery.process"`) || strings.Contains(sink.String(), "password") {
+		t.Fatalf("unexpected emitted telemetry: %s", sink.String())
+	}
+}
+
 func encryptForDispatcherTest(t *testing.T, plaintext string, aad string) string {
 	t.Helper()
 	key, err := resolveEncryptionKey()
@@ -437,6 +1313,24 @@ func encryptForDispatcherTest(t *testing.T, plaintext string, aad string) string
 		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
 		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
 	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func tamperEncryptedTagForDispatcherTest(t *testing.T, encrypted string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope encryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope.Tag = base64.RawURLEncoding.EncodeToString(make([]byte, encryptionNonceBytes+4))
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)

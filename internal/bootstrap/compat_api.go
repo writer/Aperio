@@ -2,8 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -12,7 +10,6 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,23 +24,17 @@ import (
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
+	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"golang.org/x/crypto/scrypt"
 )
 
 const (
-	compatEncryptionAlgorithm  = "aes-256-gcm"
-	compatEncryptionKeyBytes   = 32
-	compatEncryptionNonceBytes = 12
+	compatEncryptionAlgorithm  = runtimeutil.CredentialAlgorithm
+	compatEncryptionNonceBytes = runtimeutil.CredentialNonceBytes
 )
 
-type compatEncryptedEnvelope struct {
-	Version    int    `json:"version"`
-	Algorithm  string `json:"algorithm"`
-	IV         string `json:"iv"`
-	Tag        string `json:"tag"`
-	Ciphertext string `json:"ciphertext"`
-}
+type compatEncryptedEnvelope = runtimeutil.EncryptedEnvelope
 
 type compatAuth struct {
 	SessionID      string
@@ -353,6 +344,8 @@ func (a *App) dispatchCompatAPI(
 		return a.compatForceSync(ctx, segments[3], auth)
 	case method == http.MethodGet && path == "/api/v1/siem/catalog":
 		return map[string]any{"data": compatSiemCatalog()}, nil
+	case method == http.MethodGet && path == "/api/v1/siem":
+		return a.compatListSiem(ctx, auth)
 	case method == http.MethodPost && path == "/api/v1/siem":
 		return a.compatCreateSiem(ctx, body, auth)
 	case method == http.MethodDelete && len(segments) == 4 && segments[2] == "siem":
@@ -1100,16 +1093,26 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	id := compatID("siem")
-	kind, name := requiredString(body, "kind"), requiredString(body, "name")
+	kind, name := strings.ToUpper(requiredString(body, "kind")), requiredString(body, "name")
 	streams := stringSlice(body["streams"])
 	if len(streams) == 0 {
 		streams = []string{"FINDINGS"}
 	}
+	normalizedStreams, err := normalizeCompatSiemStreams(streams)
+	if err != nil {
+		return nil, err
+	}
+	streams = normalizedStreams
 	endpointURL := optionalStringPtr(body, "endpointUrl")
+	filePath := optionalStringPtr(body, "filePath")
+	index := optionalStringPtr(body, "index")
+	token := requiredString(body, "token")
+	if err := validateCompatSiemDestinationInput(kind, name, endpointURL, filePath, index, token, streams); err != nil {
+		return nil, err
+	}
 	if err := validateCompatSiemEndpoint(endpointURL); err != nil {
 		return nil, err
 	}
-	filePath := optionalStringPtr(body, "filePath")
 	// The dispatcher later normalizes export paths against its configured root;
 	// this request-time normalization catches traversal payloads early.
 	normalizedFilePath, err := normalizeCompatSiemFilePath(filePath)
@@ -1117,21 +1120,40 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	filePath = normalizedFilePath
+	if filePath != nil && len(*filePath) > 500 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM file path is too long"))
+	}
 	encryptedToken, err := encryptedOptionalSecret(body, "token", auth.OrganizationID+":siem:"+id+":token")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
 	}
-	_, err = a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringPtr(body, "index"), encryptedToken, streams)
+	_, err = a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, index, encryptedToken, streams)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	a.writeCompatAudit(ctx, auth, "siem.destination.create", "siem_destination", id, map[string]any{"kind": kind, "name": name, "streams": streams})
-	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": optionalStringPtr(body, "index"), "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": index, "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+}
+
+func (a *App) compatListSiem(ctx context.Context, auth compatAuth) (any, error) {
+	rows, err := a.listSiemDestinations(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM destinations unavailable"))
+	}
+	data := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		data = append(data, row.toCompatMap())
+	}
+	return map[string]any{"data": data}, nil
 }
 
 func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination id is required"))
 	}
 	_, err := a.db.ExecContext(ctx, `DELETE FROM siem_destinations WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	if err != nil {
@@ -1143,6 +1165,10 @@ func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) 
 func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination id is required"))
 	}
 	var kind string
 	var status string
@@ -1190,7 +1216,7 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 
 func compatSiemTestPingKindSupported(kind string) bool {
 	switch kind {
-	case "JSON_FILE", "GENERIC_WEBHOOK":
+	case "SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE":
 		return true
 	default:
 		return false
@@ -1219,14 +1245,18 @@ func compatSiemTestPingStream(streams []string) (stream string, payloadKind stri
 
 func compatSiemTestPingRecord(stream string, deliveryID string) map[string]any {
 	record := map[string]any{
-		"test":     true,
-		"id":       deliveryID,
-		"title":    "Aperio SIEM connectivity test",
-		"provider": "APERIO",
+		"test":          true,
+		"id":            deliveryID,
+		"dedupeKey":     "siem-test:" + deliveryID,
+		"sourceEventId": "siem-test:" + deliveryID,
+		"title":         "Aperio SIEM connectivity test",
+		"provider":      "APERIO",
+		"source":        "aperio.siem.test",
 	}
 	switch stream {
 	case "FINDINGS":
 		record["severity"] = "INFO"
+		record["status"] = "OPEN"
 	case "EVENTS":
 		record["eventType"] = "aperio.siem.test"
 		record["severity"] = "INFO"
@@ -1235,6 +1265,124 @@ func compatSiemTestPingRecord(stream string, deliveryID string) map[string]any {
 		record["outcome"] = "QUEUED"
 	}
 	return record
+}
+
+func normalizeCompatSiemStreams(streams []string) ([]string, error) {
+	valid := map[string]struct{}{
+		"FINDINGS":   {},
+		"EVENTS":     {},
+		"AUDIT_LOGS": {},
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(streams))
+	for _, stream := range streams {
+		trimmed := strings.TrimSpace(stream)
+		if _, ok := valid[trimmed]; !ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported SIEM stream %q", stream))
+		}
+		if _, duplicate := seen[trimmed]; duplicate {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("at least one SIEM stream is required"))
+	}
+	return out, nil
+}
+
+func validateCompatSiemDestinationInput(kind string, name string, endpointURL *string, filePath *string, index *string, token string, streams []string) error {
+	definition := findCompatSiemDefinition(kind)
+	if definition == nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported SIEM kind %s", kind))
+	}
+	if strings.TrimSpace(name) == "" || len(name) > 160 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination name is required"))
+	}
+	if len(streams) == 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("at least one SIEM stream is required"))
+	}
+	allowedStreams := make(map[string]struct{}, len(definition.DefaultStreams))
+	for _, stream := range definition.DefaultStreams {
+		allowedStreams[stream] = struct{}{}
+	}
+	for _, stream := range streams {
+		if _, ok := allowedStreams[stream]; !ok {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s does not support SIEM stream %s", kind, stream))
+		}
+	}
+	if endpointURL != nil && len(*endpointURL) > 500 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL is too long"))
+	}
+	if filePath != nil && len(*filePath) > 500 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM file path is too long"))
+	}
+	if index != nil && len(*index) > 120 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM index is too long"))
+	}
+	if len(token) > 8192 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM token is too long"))
+	}
+	for _, field := range definition.Fields {
+		if !field.Required {
+			continue
+		}
+		switch field.Key {
+		case "endpointUrl":
+			if endpointURL == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "filePath":
+			if filePath == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "index":
+			if index == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "token":
+			if token == "" {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		}
+	}
+	return nil
+}
+
+func findCompatSiemDefinition(kind string) *siemDestinationDefinition {
+	catalog := compatSiemCatalog()
+	for index := range catalog {
+		if catalog[index].Kind == kind {
+			return &catalog[index]
+		}
+	}
+	return nil
+}
+
+func (row siemDestinationRow) toCompatMap() map[string]any {
+	return map[string]any{
+		"id":             row.ID,
+		"kind":           row.Kind,
+		"name":           row.Name,
+		"endpointUrl":    blankStringAsNil(row.EndpointURL),
+		"filePath":       blankStringAsNil(row.FilePath),
+		"index":          blankStringAsNil(row.Index),
+		"streams":        append([]string{}, row.Streams...),
+		"status":         row.Status,
+		"lastDeliveryAt": blankStringAsNil(nullTimeString(row.LastDeliveryAt)),
+		"lastError":      blankStringAsNil(row.LastError),
+		"deliveriesOk":   row.DeliveriesOk,
+		"deliveriesFail": row.DeliveriesFail,
+		"createdAt":      row.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func blankStringAsNil(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {
@@ -2119,139 +2267,19 @@ func normalizeCompatSiemFilePath(raw *string) (*string, error) {
 }
 
 func compatResolveEncryptionKey() ([]byte, error) {
-	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
-	if raw == "" {
-		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
-	}
-	// Match the TypeScript vault format exactly: production requires explicit
-	// key encoding, while local development may derive a 32-byte key from a
-	// passphrase for convenience.
-	switch {
-	case strings.HasPrefix(raw, "base64:"):
-		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "base64url:"):
-		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "hex:"):
-		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	default:
-		if os.Getenv("NODE_ENV") == "production" {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
-		}
-		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, compatEncryptionKeyBytes)
-	}
+	return runtimeutil.ResolveEncryptionKeyFromEnv()
 }
 
 func compatEncryptString(plaintext string, additionalAuthenticatedData string) (string, error) {
-	nonce := make([]byte, compatEncryptionNonceBytes)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return compatEncryptStringWithNonce(plaintext, additionalAuthenticatedData, nonce)
+	return runtimeutil.EncryptString(plaintext, additionalAuthenticatedData)
 }
 
 func compatEncryptStringWithNonce(plaintext string, additionalAuthenticatedData string, nonce []byte) (string, error) {
-	if plaintext == "" {
-		return "", errors.New("cannot encrypt an empty string")
-	}
-	if len(nonce) != compatEncryptionNonceBytes {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	key, err := compatResolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	// Additional authenticated data binds tokens to their organization/provider
-	// context without exposing that context in the encrypted envelope.
-	sealed := gcm.Seal(nil, nonce, []byte(plaintext), []byte(additionalAuthenticatedData))
-	tagStart := len(sealed) - gcm.Overhead()
-	envelope := compatEncryptedEnvelope{
-		Version:    1,
-		Algorithm:  compatEncryptionAlgorithm,
-		IV:         base64.RawURLEncoding.EncodeToString(nonce),
-		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
-		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
-	}
-	encoded, err := json.Marshal(envelope)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
+	return runtimeutil.EncryptStringWithNonce(plaintext, additionalAuthenticatedData, nonce)
 }
 
 func compatDecryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
-	if err != nil {
-		return "", err
-	}
-	var envelope compatEncryptedEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return "", err
-	}
-	if envelope.Version != 1 || envelope.Algorithm != compatEncryptionAlgorithm {
-		return "", errors.New("unsupported encrypted value")
-	}
-	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
-	if err != nil {
-		return "", err
-	}
-	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		return "", err
-	}
-	key, err := compatResolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(iv) != gcm.NonceSize() {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	sealed := append(ciphertext, tag...)
-	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
+	return runtimeutil.DecryptString(encrypted, additionalAuthenticatedData)
 }
 
 func nestedString(body map[string]any, objectKey string, key string) string {
@@ -2281,41 +2309,19 @@ func asMap(value any) map[string]any {
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
 	// Keep AAD stable across reconnects: externalAccountID is the provider-owned
 	// tenant identity and therefore survives integration row replacement.
-	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
+	return runtimeutil.IntegrationSecretAAD(organizationID, provider, externalAccountID, suffix)
 }
 
 func compatLegacyIntegrationSecretAAD(organizationID string, integrationID string, suffix string) string {
-	return organizationID + ":" + integrationID + ":" + suffix
+	return runtimeutil.LegacyIntegrationSecretAAD(organizationID, integrationID, suffix)
 }
 
 func compatDecryptIntegrationSecret(encryptedValue string, organizationID string, integrationID string, provider string, externalAccountID string, suffix string) (string, error) {
-	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, provider, externalAccountID, suffix))
-	if err == nil {
-		return canonical, nil
-	}
-	if strings.TrimSpace(integrationID) == "" {
-		return "", err
-	}
-	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, suffix))
-	if legacyErr == nil {
-		return legacy, nil
-	}
-	return "", err
+	return runtimeutil.DecryptIntegrationSecret(encryptedValue, organizationID, integrationID, provider, externalAccountID, suffix)
 }
 
 func compatDecryptGoogleMailboxPrivateKey(encryptedValue string, organizationID string, integrationID string, externalAccountID string) (string, error) {
-	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, "GOOGLE_WORKSPACE", externalAccountID, "gmail_scan_private_key"))
-	if err == nil {
-		return canonical, nil
-	}
-	if strings.TrimSpace(integrationID) == "" {
-		return "", err
-	}
-	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, "google_mailbox_private_key"))
-	if legacyErr == nil {
-		return legacy, nil
-	}
-	return "", err
+	return runtimeutil.DecryptGoogleMailboxPrivateKey(encryptedValue, organizationID, integrationID, externalAccountID)
 }
 
 func encryptedOptionalSecret(body map[string]any, key string, aad string) (*string, error) {

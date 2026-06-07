@@ -1,0 +1,10 @@
+{
+  "key": "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+  "nonce": "123456789012",
+  "aad": "org_demo:GITHUB:writer:access_token",
+  "wrongAad": "org_demo:GITHUB:writer:refresh_token",
+  "plaintext": "demo-provider-token-GITHUB",
+  "envelope": "eyJ2ZXJzaW9uIjoxLCJhbGdvcml0aG0iOiJhZXMtMjU2LWdjbSIsIml2IjoiTVRJek5EVTJOemc1TURFeSIsInRhZyI6Im1sUjJUS1QyMmdsMHBOOTRNa0NYX3ciLCJjaXBoZXJ0ZXh0IjoiN1Qta25Jc0lRakVsOW1XQWRNSjNfUDJQaDE5X3RVellFaDgifQ",
+  "malformedEnvelope": "not-a-valid-envelope",
+  "databaseUrl": "postgresql://127.0.0.1:5433/aperio?schema=public&connection_limit=5&application_name=aperio"
+}
