@@ -26,6 +26,40 @@ test("local E2E smoke command is registered as the authoritative harness", () =>
   assert.match(makefile, /\bnpm run smoke:e2e\b/);
 });
 
+test("CI e2e-smoke writes local .env before launching the smoke harness", () => {
+  const ci = readRepoFile(".github/workflows/ci.yml");
+  const jobStart = ci.indexOf("  e2e-smoke:");
+  assert.notEqual(jobStart, -1, "CI workflow must define the e2e-smoke job");
+  const job = ci.slice(jobStart);
+
+  const checkoutIndex = job.indexOf("- uses: actions/checkout@v4");
+  const writeEnvStepIndex = job.indexOf("- name: Write local smoke env file");
+  const writeEnvCommandIndex = job.indexOf("cat > .env <<EOF");
+  const runSmokeStepIndex = job.indexOf("- name: Run Go API and web E2E smoke");
+  const smokeCommandIndex = job.indexOf("run: npm run smoke:e2e");
+
+  assert.ok(checkoutIndex >= 0, "fresh GitHub Actions checkout must happen in the e2e-smoke job");
+  assert.ok(writeEnvStepIndex >= 0, "e2e-smoke job must write a local .env file");
+  assert.ok(writeEnvCommandIndex >= 0, "e2e-smoke job must create .env with a heredoc");
+  assert.ok(runSmokeStepIndex >= 0, "e2e-smoke job must have an explicit smoke run step");
+  assert.ok(smokeCommandIndex >= 0, "e2e-smoke job must run npm run smoke:e2e");
+  assert.ok(checkoutIndex < writeEnvStepIndex, ".env must be written after the fresh checkout");
+  assert.ok(writeEnvCommandIndex < smokeCommandIndex, ".env must be written before npm run smoke:e2e");
+  assert.ok(writeEnvStepIndex < runSmokeStepIndex, ".env step must precede the smoke run step");
+
+  for (const variable of [
+    "DATABASE_URL",
+    "APERIO_NATS_URL",
+    "APERIO_ENCRYPTION_KEY",
+    "APERIO_AUTH_SECRET",
+    "APERIO_WEB_ORIGIN",
+    "NEXT_PUBLIC_CONNECT_API_BASE_URL",
+    "NEXT_TELEMETRY_DISABLED"
+  ]) {
+    assert.match(job, new RegExp(`${variable}="\\$\\{${variable}\\}"`));
+  }
+});
+
 test("smoke harness exports the canonical localhost route matrix and report sections", async () => {
   const smoke = await loadSmokeHarness();
 

@@ -711,6 +711,8 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   assert.match(scripts["guardrails:migration"], /migration-ownership-guardrails\.test\.ts/);
   assert.match(scripts["guardrails:migration"], /auth-client-cleanup\.test\.ts/);
   assert.match(scripts["guardrails:migration"], /worker-command-guardrails\.test\.ts/);
+  assert.match(scripts["guardrails:migration"], /e2e-smoke-contract\.test\.ts/);
+  assert.match(scripts["guardrails:migration"], /droid-review-preflight\.test\.ts/);
   assert.match(scripts["smoke:workers:go"], /worker:ingestion -- -once -limit 1/);
   assert.match(scripts["smoke:workers:go"], /worker:siem -- -once -limit 1/);
   assert.match(scripts["smoke:workers:go"], /smoke:siem:adapters/);
