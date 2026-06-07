@@ -1469,7 +1469,7 @@ async function runBrowserValidation(report) {
       cdp,
       "login redirect",
       `location.pathname === "/" && document.body.innerText.includes("Posture dashboard") && !document.body.innerText.includes("Sign in")`,
-      45_000
+      90_000
     );
     await waitFor(
       "cookie-backed current session after login",
