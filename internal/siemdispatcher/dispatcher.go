@@ -62,6 +62,7 @@ type Result struct {
 type Dispatcher struct {
 	db                  *sql.DB
 	leaseOwner          string
+	organizationID      string
 	httpClient          *http.Client
 	endpointSafetyCheck func(context.Context, string) error
 }
@@ -108,6 +109,11 @@ func New(db *sql.DB) *Dispatcher {
 		db:         db,
 		leaseOwner: fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
 	}
+}
+
+// SetOrganizationForTesting scopes drain queries to one organization in DB-backed tests.
+func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
+	d.organizationID = organizationID
 }
 
 func StableDeliveryKey(payload Payload, destinationID string, stream string) string {
@@ -169,6 +175,7 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 		UPDATE siem_deliveries
 		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
 		WHERE attempts >= max_attempts
+		  AND ($1 = '' OR organization_id = $1)
 		  AND status IN ('PENDING', 'FAILED', 'PROCESSING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
 		  AND (payload->>'organizationId' IS NULL OR payload->>'organizationId' = organization_id)
@@ -182,7 +189,7 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 			  AND siem_deliveries.stream = ANY(dst.streams)
 		    )
 		  )
-	`)
+	`, d.organizationID)
 	return err
 }
 
@@ -194,6 +201,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 			SELECT sd.id
 			FROM siem_deliveries sd
 			WHERE sd.attempts < sd.max_attempts
+			  AND ($4 = '' OR sd.organization_id = $4)
 			  AND sd.next_attempt_at <= NOW()
 			  AND (sd.payload->>'organizationId' IS NULL OR sd.payload->>'organizationId' = sd.organization_id)
 			  AND (
@@ -216,7 +224,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 			LIMIT $3
 		)
 		RETURNING id, organization_id, destination_id, stream::text, payload, attempts, max_attempts
-	`, d.leaseOwner, time.Now().UTC().Add(leaseDuration), limit)
+	`, d.leaseOwner, time.Now().UTC().Add(leaseDuration), limit, d.organizationID)
 	if err != nil {
 		return nil, err
 	}

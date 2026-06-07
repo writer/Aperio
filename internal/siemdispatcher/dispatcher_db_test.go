@@ -225,7 +225,7 @@ func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: cerebroDestinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 5})
 
-	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 10)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestDrainRespectsStreamsTenantsAndExpiredLeases(t *testing.T) {
 		t.Fatalf("extend current lease: %v", err)
 	}
 
-	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 10)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgA}).Drain(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: sql.NullString{String: destinationID, Valid: true}, payload: invalidPayload, stream: "FINDINGS", status: "PENDING", attempts: 0, maxAttempts: 5})
 
-	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 10)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestProcessJSONFileDeliveryMarksDeliveredAndDestinationHealthy(t *testing.T
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
 
-	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 1)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
@@ -506,9 +506,10 @@ func TestProcessGenericWebhookDeliveryCapturesRequestAndMarksDelivered(t *testin
 	transport := &captureTransport{}
 	var checkedEndpoint string
 	dispatcher := &Dispatcher{
-		db:         db,
-		leaseOwner: "go-siem-test",
-		httpClient: &http.Client{Transport: transport},
+		db:             db,
+		leaseOwner:     "go-siem-test",
+		organizationID: orgID,
+		httpClient:     &http.Client{Transport: transport},
 		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
 			checkedEndpoint = endpoint
 			return nil
@@ -572,9 +573,10 @@ func TestGenericWebhookFailureRetriesDeadLettersAndMarksDestinationError(t *test
 	timeoutTransport := &captureTransport{err: context.DeadlineExceeded}
 	var timeoutEndpoint string
 	result, err := (&Dispatcher{
-		db:         db,
-		leaseOwner: "go-siem-test-timeout",
-		httpClient: &http.Client{Transport: timeoutTransport},
+		db:             db,
+		leaseOwner:     "go-siem-test-timeout",
+		organizationID: orgID,
+		httpClient:     &http.Client{Transport: timeoutTransport},
 		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
 			timeoutEndpoint = endpoint
 			return nil
@@ -614,6 +616,7 @@ func TestGenericWebhookFailureRetriesDeadLettersAndMarksDestinationError(t *test
 	result, err = (&Dispatcher{
 		db:                  db,
 		leaseOwner:          "go-siem-test-http-failure",
+		organizationID:      orgID,
 		httpClient:          &http.Client{Transport: statusTransport},
 		endpointSafetyCheck: func(context.Context, string) error { return nil },
 	}).Drain(context.Background(), 1)
@@ -649,7 +652,7 @@ func TestJSONFileFailureRetriesDeadLettersAndMarksDestinationError(t *testing.T)
 	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 2})
 
 	_, _, _, _, previousNextAttemptAt, _ := siemDeliveryState(t, db, firstID)
-	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 1)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("first drain: %v", err)
 	}
@@ -687,7 +690,7 @@ func TestJSONFileFailureRetriesDeadLettersAndMarksDestinationError(t *testing.T)
 		maxAttempts   int
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 1, maxAttempts: 2})
-	result, err = (&Dispatcher{db: db, leaseOwner: "go-siem-test"}).Drain(context.Background(), 1)
+	result, err = (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("second drain: %v", err)
 	}

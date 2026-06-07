@@ -429,7 +429,9 @@ func TestDBSiemTestPingQueuesAndDrainsThroughDispatcher(t *testing.T) {
 		t.Fatalf("compat delivery id %s not found in queued ids %v", compatDeliveryID, queuedIDs)
 	}
 
-	drainResult, err := siemdispatcher.New(app.db).Drain(ctx, 10)
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	drainResult, err := dispatcher.Drain(ctx, 10)
 	if err != nil {
 		t.Fatalf("drain queued test pings: %v", err)
 	}
