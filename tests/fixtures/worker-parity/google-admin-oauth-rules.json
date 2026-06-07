@@ -1,4 +1,19 @@
 {
+  "integrations": {
+    "oauthOnlyGoogleWorkspace": {
+      "provider": "GOOGLE_WORKSPACE",
+      "authModel": "oauth",
+      "requiresServiceAccountMailboxScan": false,
+      "googleMailboxScanClientEmail": null,
+      "encryptedGoogleMailboxScanPrivateKey": null,
+      "supportedAuditEventMailboxRules": [
+        "EMAIL_FORWARDING_ENABLED",
+        "MAILBOX_DELEGATION_GRANTED",
+        "LEGACY_MAIL_AUTH_USED",
+        "FORWARDING_DELEGATE_SEND_AS_COMBO"
+      ]
+    }
+  },
   "rules": [
     {
       "ruleId": "google_workspace.external_sharing_enabled",

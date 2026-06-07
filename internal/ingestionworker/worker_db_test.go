@@ -923,6 +923,14 @@ func TestDrainPersistsSupportedGoogleAdminOAuthRuleSideEffects(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)
 	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED")
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET google_mailbox_scan_client_email = NULL,
+			encrypted_google_mailbox_scan_private_key = NULL
+		WHERE id = $1 AND organization_id = $2
+	`, integrationID, orgID); err != nil {
+		t.Fatalf("seed OAuth-only Google Workspace integration: %v", err)
+	}
 	destinationID := testWorkerID("dst")
 	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO siem_destinations (
@@ -1838,32 +1846,44 @@ func TestDrainProcessesProducerStyleJobsAndRejectsMalformedPayloads(t *testing.T
 		t.Fatalf("producer-style event did not preserve source/actor/payload: source=%s actor=%s payload=%s", eventSource, eventActor, string(eventPayload))
 	}
 
-	malformedJobID := seedIngestionWorkerJob(t, db, struct {
-		orgID         string
-		integrationID string
-		provider      string
-		eventType     string
-		status        string
-		attempts      int
-		maxAttempts   int
-		leaseOwner    *string
-		payload       json.RawMessage
-	}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`[]`)})
+	malformedPayloads := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "json null", payload: json.RawMessage(`null`)},
+		{name: "array", payload: json.RawMessage(`[]`)},
+		{name: "string", payload: json.RawMessage(`"not an object"`)},
+		{name: "number", payload: json.RawMessage(`42`)},
+		{name: "boolean", payload: json.RawMessage(`true`)},
+	}
+	for _, malformed := range malformedPayloads {
+		malformedJobID := seedIngestionWorkerJob(t, db, struct {
+			orgID         string
+			integrationID string
+			provider      string
+			eventType     string
+			status        string
+			attempts      int
+			maxAttempts   int
+			leaseOwner    *string
+			payload       json.RawMessage
+		}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: malformed.payload})
 
-	result, err = (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("drain malformed payload job: %v", err)
-	}
-	if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
-		t.Fatalf("unexpected malformed payload drain result: %#v", result)
-	}
-	status, attempts, leaseOwner, processedAt, lastError = ingestionJobState(t, db, malformedJobID)
-	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "parse payload") {
-		t.Fatalf("malformed payload job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
-	}
-	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
-	if events != 1 || findings != 1 || deliveries != 0 {
-		t.Fatalf("malformed payload should not add side effects beyond producer job, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+		result, err = (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("drain malformed %s payload job: %v", malformed.name, err)
+		}
+		if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+			t.Fatalf("unexpected malformed %s payload drain result: %#v", malformed.name, result)
+		}
+		status, attempts, leaseOwner, processedAt, lastError = ingestionJobState(t, db, malformedJobID)
+		if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "parse payload") {
+			t.Fatalf("malformed %s payload job state = status=%s attempts=%d lease=%v processed=%v error=%v", malformed.name, status, attempts, leaseOwner, processedAt, lastError)
+		}
+		events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+		if events != 1 || findings != 1 || deliveries != 0 {
+			t.Fatalf("malformed %s payload should not add side effects beyond producer job, got events=%d findings=%d deliveries=%d", malformed.name, events, findings, deliveries)
+		}
 	}
 }
 

@@ -37,6 +37,9 @@ type githubParityFixture struct {
 	Alias struct {
 		Payload githubFixturePayload `json:"payload"`
 	} `json:"alias"`
+	CanonicalPrivateNegative struct {
+		Payload githubFixturePayload `json:"payload"`
+	} `json:"canonicalPrivateNegative"`
 	Negative struct {
 		Payload githubFixturePayload `json:"payload"`
 	} `json:"negative"`
@@ -396,6 +399,9 @@ func TestEvaluateGitHubPublicRepository(t *testing.T) {
 	if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
 		t.Fatalf("expected canonical event alias to produce GitHub public repository finding, got %#v", aliasFindings)
 	}
+	if got := Evaluate(fixture.CanonicalPrivateNegative.Payload.jobPayload(t), nil); len(got) != 0 {
+		t.Fatalf("expected canonical private repository-created payload to produce no findings, got %#v", got)
+	}
 	if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
 		t.Fatalf("expected private repository negative to produce no findings, got %#v", got)
 	}
@@ -721,6 +727,20 @@ func TestIntegrationConfigValidatesProviderCredentialShapes(t *testing.T) {
 		}
 	})
 
+	t.Run("Google OAuth-only mailbox audit events do not require service account scan config", func(t *testing.T) {
+		for _, eventType := range []string{
+			"EMAIL_FORWARDING_ENABLED",
+			"MAILBOX_DELEGATION_GRANTED",
+			"LEGACY_MAIL_AUTH_USED",
+			"FORWARDING_DELEGATE_SEND_AS_COMBO",
+		} {
+			config := baseConfig("GOOGLE_WORKSPACE", false)
+			if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", eventType)); err != nil {
+				t.Fatalf("validate Google OAuth-only config for %s: %v", eventType, err)
+			}
+		}
+	})
+
 	t.Run("Google mailbox canonical service account config succeeds", func(t *testing.T) {
 		config := baseConfig("GOOGLE_WORKSPACE", false)
 		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
@@ -745,11 +765,19 @@ func TestIntegrationConfigValidatesProviderCredentialShapes(t *testing.T) {
 		}
 	})
 
-	t.Run("Google mailbox event requires private key", func(t *testing.T) {
+	t.Run("Google mailbox optional service account config requires both fields when partially configured", func(t *testing.T) {
 		config := baseConfig("GOOGLE_WORKSPACE", false)
 		config.GoogleMailboxScanClientEmail = sql.NullString{String: "mailbox-scanner@example.com", Valid: true}
 		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
 			t.Fatalf("Google mailbox missing private key error = %v", err)
+		}
+		config = baseConfig("GOOGLE_WORKSPACE", false)
+		config.EncryptedGoogleMailboxScanPrivateKey = sql.NullString{
+			String: encryptIngestionWorkerMailboxKey(t, "org_1", "int_1", "acct_1", testIngestionWorkerMailboxPrivKey, false),
+			Valid:  true,
+		}
+		if err := config.validateForJob(baseJob("GOOGLE_WORKSPACE", "EMAIL_FORWARDING_ENABLED")); !errors.Is(err, errIntegrationConfigurationIncomplete) {
+			t.Fatalf("Google mailbox missing client email error = %v", err)
 		}
 	})
 

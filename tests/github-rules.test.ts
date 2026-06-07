@@ -35,6 +35,9 @@ type GitHubParityFixture = {
   alias: {
     payload: GitHubPayloadFixture;
   };
+  canonicalPrivateNegative: {
+    payload: GitHubPayloadFixture;
+  };
   negative: {
     payload: GitHubPayloadFixture;
   };
@@ -83,12 +86,16 @@ test("GitHub public repository fixture captures the Go-owned positive finding", 
   assert.equal(expectedFinding.dedupeKey, expectedDedupeKey(payload, expectedFinding));
 });
 
-test("GitHub parity fixture covers alias, private negative, and disabled-check metadata", () => {
+test("GitHub parity fixture covers alias, canonical private negative, and disabled-check metadata", () => {
   const fixture = readFixture();
 
   assert.equal(fixture.alias.payload.provider, "GITHUB");
   assert.equal(fixture.alias.payload.eventType, "PUBLIC_REPOSITORY_CREATED");
   assert.equal(fixture.alias.payload.payload.repository?.["full_name"], "writer/aperio");
+  assert.equal(fixture.canonicalPrivateNegative.payload.provider, "GITHUB");
+  assert.equal(fixture.canonicalPrivateNegative.payload.eventType, "PUBLIC_REPOSITORY_CREATED");
+  assert.equal(fixture.canonicalPrivateNegative.payload.payload.repository?.["private"], true);
+  assert.equal(fixture.canonicalPrivateNegative.payload.payload.repository?.["visibility"], "private");
   assert.equal(fixture.negative.payload.provider, "GITHUB");
   assert.equal(fixture.negative.payload.payload.repository?.["private"], true);
   assert.equal(fixture.negative.payload.payload.repository?.["visibility"], "private");

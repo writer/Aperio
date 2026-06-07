@@ -51,6 +51,25 @@
       }
     }
   },
+  "canonicalPrivateNegative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_1",
+      "provider": "GITHUB",
+      "eventType": "PUBLIC_REPOSITORY_CREATED",
+      "source": "github-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T00:04:00.000Z",
+      "payload": {
+        "repository": {
+          "full_name": "writer/private",
+          "name": "private",
+          "private": true,
+          "visibility": "private"
+        }
+      }
+    }
+  },
   "negative": {
     "payload": {
       "organizationId": "org_1",

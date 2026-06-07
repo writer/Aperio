@@ -32,6 +32,7 @@ var (
 	errIntegrationCredentialIntegrity     = errors.New("integration credential failed integrity validation")
 	errIntegrationConfigurationIncomplete = errors.New("integration configuration is incomplete")
 	errUnsupportedIngestionWork           = errors.New("unsupported ingestion work")
+	errIngestionPayloadNotObject          = errors.New("ingestion payload must be a JSON object")
 )
 
 var supportedIngestionEventTypes = map[string][]string{
@@ -311,7 +312,10 @@ func evaluateGitHubPublicRepository(payload JobPayload) (Finding, bool) {
 	normalized := normalizeEventType(payload.EventType)
 	private, hasPrivate := nestedBool(payload.Payload, "repository", "private")
 	visibility := nestedString(payload.Payload, "repository", "visibility")
-	if normalized != "PUBLIC_REPOSITORY_CREATED" && (!hasPrivate || private) && visibility != "public" {
+	if normalized != "PUBLIC_REPOSITORY_CREATED" && normalized != "REPOSITORY_PUBLICIZED" {
+		return Finding{}, false
+	}
+	if (!hasPrivate || private) && !strings.EqualFold(visibility, "public") {
 		return Finding{}, false
 	}
 	repository := firstNonEmpty(
@@ -1676,13 +1680,13 @@ func (config integrationConfig) decryptSecret(encrypted string, suffix string, m
 	return plaintext, nil
 }
 
-func (config integrationConfig) validateGoogleMailboxConfig(eventType string) error {
+func (config integrationConfig) validateGoogleMailboxConfig(_ string) error {
 	if config.Provider != "GOOGLE_WORKSPACE" {
 		return nil
 	}
 	clientEmail := strings.TrimSpace(nullStringValue(config.GoogleMailboxScanClientEmail))
 	encryptedPrivateKey := strings.TrimSpace(nullStringValue(config.EncryptedGoogleMailboxScanPrivateKey))
-	if requiresGoogleMailboxScanConfig(eventType) || clientEmail != "" || encryptedPrivateKey != "" {
+	if clientEmail != "" || encryptedPrivateKey != "" {
 		if clientEmail == "" || encryptedPrivateKey == "" {
 			return errIntegrationConfigurationIncomplete
 		}
@@ -1700,15 +1704,6 @@ func (config integrationConfig) validateGoogleMailboxConfig(eventType string) er
 func requiresRefreshToken(provider string) bool {
 	switch provider {
 	case "GITHUB", "OKTA", "MICROSOFT_365", "GOOGLE_WORKSPACE":
-		return true
-	default:
-		return false
-	}
-}
-
-func requiresGoogleMailboxScanConfig(eventType string) bool {
-	switch normalizeEventType(eventType) {
-	case "EMAIL_FORWARDING_ENABLED", "MAILBOX_DELEGATION_GRANTED", "LEGACY_MAIL_AUTH_USED", "FORWARDING_DELEGATE_SEND_AS_COMBO":
 		return true
 	default:
 		return false
@@ -1981,6 +1976,9 @@ func (j job) toPayload() (JobPayload, error) {
 	var record map[string]any
 	if err := json.Unmarshal(j.Payload, &record); err != nil {
 		return JobPayload{}, err
+	}
+	if record == nil {
+		return JobPayload{}, errIngestionPayloadNotObject
 	}
 	return JobPayload{
 		OrganizationID: j.OrganizationID,

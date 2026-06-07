@@ -51,6 +51,16 @@ type GoogleRuleCase = {
 };
 
 type GoogleRulesFixture = {
+  integrations: {
+    oauthOnlyGoogleWorkspace: {
+      provider: "GOOGLE_WORKSPACE";
+      authModel: "oauth";
+      requiresServiceAccountMailboxScan: boolean;
+      googleMailboxScanClientEmail: null;
+      encryptedGoogleMailboxScanPrivateKey: null;
+      supportedAuditEventMailboxRules: string[];
+    };
+  };
   rules: GoogleRuleCase[];
 };
 
@@ -120,7 +130,21 @@ for (const ruleCase of readFixture().rules) {
 }
 
 test("Google Workspace fixture suite is provider-scoped and uses local deterministic payloads", () => {
-  for (const ruleCase of readFixture().rules) {
+  const fixture = readFixture();
+  assert.deepEqual(fixture.integrations.oauthOnlyGoogleWorkspace, {
+    provider: "GOOGLE_WORKSPACE",
+    authModel: "oauth",
+    requiresServiceAccountMailboxScan: false,
+    googleMailboxScanClientEmail: null,
+    encryptedGoogleMailboxScanPrivateKey: null,
+    supportedAuditEventMailboxRules: [
+      "EMAIL_FORWARDING_ENABLED",
+      "MAILBOX_DELEGATION_GRANTED",
+      "LEGACY_MAIL_AUTH_USED",
+      "FORWARDING_DELEGATE_SEND_AS_COMBO"
+    ]
+  });
+  for (const ruleCase of fixture.rules) {
     assert.equal(ruleCase.positive.payload.provider, "GOOGLE_WORKSPACE");
     assert.equal(ruleCase.negative.payload.provider, "GOOGLE_WORKSPACE");
     assert.doesNotMatch(JSON.stringify(ruleCase), /"access_token"|"private_key"|admin\.google\.com/i);
