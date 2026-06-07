@@ -31,12 +31,12 @@ packages/security/
 | `packages/security/src/crypto.ts` | Key resolution, envelope format, encrypt/decrypt implementation |
 | `internal/bootstrap/compat_api.go` | Encrypts connector credentials before saving through Go compatibility handlers |
 | `internal/bootstrap/compat_api.go` | Encrypts SIEM credentials before saving through Go compatibility handlers |
-| `workers/ingestion-worker.ts` | Decrypts integration tokens before event processing |
-| `workers/siem-dispatcher.ts` | Decrypts SIEM tokens before delivery |
+| `internal/ingestionworker` | Decrypts integration tokens before event processing |
+| `internal/siemdispatcher` | Decrypts SIEM tokens before delivery |
 
 ## Integration points
 
-This package is imported almost entirely at trust boundaries. Routes encrypt before writing to Prisma, and workers decrypt only at the point they need to talk to an external service.
+This package is imported almost entirely at trust boundaries. Routes encrypt before writing to Prisma, and Go workers decrypt only at the point they need to talk to an external service.
 
 ## Entry points for modification
 

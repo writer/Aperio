@@ -37,14 +37,14 @@ The client in `packages/db/src/client.ts` is cached on `globalThis` outside prod
 | File | Purpose |
 | --- | --- |
 | `packages/db/prisma/schema.prisma` | Defines `Organization`, `IntegrationConnection`, `SecurityFinding`, `SiemDestination`, `SiemDelivery`, `AgentTask`, and related enums |
-| `packages/db/src/client.ts` | Exports `prisma` for apps and workers |
+| `packages/db/src/client.ts` | Exports `prisma` for local TypeScript tooling and tests |
 | `scripts/seed.ts` | Shows how the Prisma model is expected to be populated for demo data |
 
 ## Integration points
 
-- Used by the Go API through SQL/Prisma-compatible tables and by TypeScript workers through Prisma
-- Imported by `apps/mcp/src/server.ts`
-- Imported by `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts`
+- Used by Go API, worker, and MCP packages through SQL/Prisma-compatible tables
+- Imported by `internal/mcpbroker`
+- Imported by `internal/ingestionworker` and `internal/siemdispatcher`
 
 ## Entry points for modification
 

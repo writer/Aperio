@@ -114,15 +114,15 @@ npx tsx scripts/seed.ts
 
 Long-running pipelines run as separate processes. The event bus is optional; set `APERIO_EVENT_BUS=nats` to publish protobuf envelopes to the local NATS service started by `npm run dev`.
 
-During the Go worker transition, the unsuffixed worker commands run the TypeScript parity/reference workers. Explicit `:go` commands are available for scoped transition smokes; they load local `.env` settings and derive a pgx-safe Postgres DSN with `scripts/dev-config.mjs go-database-url`, but they are not full replacements until a parity matrix proves cutover.
+The default worker and MCP commands are Go-owned. Worker commands load local `.env` settings and derive a pgx-safe Postgres DSN with `scripts/dev-config.mjs go-database-url`, so Prisma-only query parameters are not passed to Go database clients.
 
 ```bash
-npm run worker:ingestion                 # TypeScript parity/reference ingestion worker
-npm run worker:siem                      # TypeScript parity/reference SIEM dispatcher
-npm run worker:ingestion:go -- -once -limit 1  # explicit Go transition smoke
-npm run worker:siem:go -- -once -limit 1       # explicit Go transition smoke
-npm run mcp:broker                       # stdio MCP server for agent clients
+npm run worker:ingestion -- -once -limit 1  # Go ingestion worker
+npm run worker:siem -- -once -limit 1       # Go SIEM dispatcher
+npm run mcp:broker                         # Go stdio MCP broker for agent clients
 ```
+
+Remaining TypeScript is limited to the Next.js frontend, generated clients/contracts, tests, Prisma, and local tooling.
 
 ---
 
@@ -137,7 +137,7 @@ npm run mcp:broker                       # stdio MCP server for agent clients
 | Connect other providers | `/connectors` → pick provider | GitHub, Slack, Okta, 1Password, M365, Atlassian use scoped tokens or service accounts. |
 | Wire up a SIEM | `/connectors` → SIEM destinations | Splunk HEC, Panther, Panopticon, Elasticsearch, Datadog Logs, generic webhook, JSONL sink. |
 | Audit shadow IT | `/shadow-it` | Lists every third-party OAuth app users have granted, with per-user drilldown. |
-| Author detection rules | `workers/ingestion-worker.ts` | Rules are TypeScript functions that produce findings and SIEM deliveries from queued ingestion events. |
+| Author detection rules | `internal/ingestionworker` | Go rules produce findings and SIEM deliveries from queued ingestion events. |
 | Inspect the schema | `packages/db/prisma/schema.prisma` | Single Prisma schema for all entities. |
 | Run all checks | `npm run typecheck && npm run test:api && npm run db:validate` | The same set CI is expected to run. |
 
@@ -240,18 +240,16 @@ Every workflow below is also wrapped by the Makefile — run `make help` for the
 ```bash
 npm run dev:connect            # Go ConnectRPC API on :4100
 npm run dev:web                # Next.js console on :3000
-npm run worker:ingestion       # TypeScript parity/reference ingestion worker
-npm run worker:siem            # TypeScript parity/reference SIEM dispatcher worker
-npm run worker:ingestion:go    # explicit Go transition ingestion worker
-npm run worker:siem:go         # explicit Go transition SIEM dispatcher worker
-npm run mcp:broker             # stdio MCP broker
+npm run worker:ingestion       # Go ingestion worker
+npm run worker:siem            # Go SIEM dispatcher worker
+npm run mcp:broker             # Go stdio MCP broker
 npm run build:web              # production Next.js build
 npm run proto:lint             # Buf lint for protobuf contracts
 npm run proto:check            # lint, regenerate, and verify generated code is current
 npm run test:go                # Go unit tests for ConnectRPC service
 npm run typecheck              # tsc --noEmit
 npm run test:api               # node --test (tsx loader)
-npm run verify                 # generate, typecheck, API tests, Prisma validate, Go/proto checks, production audit
+npm run verify                 # aggregate final gate: generate, typecheck, guardrails, tests, build, smokes, audit, leak check
 npm run db:generate            # prisma generate
 npm run db:validate            # prisma validate
 npm run backup:check           # backup-readiness preflight
@@ -318,7 +316,7 @@ Native Go-backed RPCs live under ConnectRPC procedure paths such as `/aperio.v1.
 | `/siem/*` | SIEM destinations CRUD and delivery introspection |
 | `/agents/*` | Agent tasks, messages, and proposals (human-approval gated) |
 
-The MCP broker (`apps/mcp/src/server.ts`) exposes a JSON-RPC superset of the task and SIEM surfaces for agent clients.
+The Go MCP broker (`cmd/mcp-broker` and `internal/mcpbroker`) exposes a JSON-RPC superset of the task and SIEM surfaces for agent clients.
 
 ---
 
@@ -327,9 +325,11 @@ The MCP broker (`apps/mcp/src/server.ts`) exposes a JSON-RPC superset of the tas
 ```
 aperio/
 ├── apps/
-│   ├── mcp/                # stdio MCP broker
 │   └── web/                # Next.js operator console
 ├── cmd/aperio/             # Go ConnectRPC server entrypoint
+├── cmd/ingestion-worker/   # Go ingestion worker entrypoint
+├── cmd/mcp-broker/         # Go stdio MCP broker entrypoint
+├── cmd/siem-dispatcher/    # Go SIEM dispatcher entrypoint
 ├── gen/                    # Generated Go protobuf/ConnectRPC code
 ├── internal/               # Go service config and bootstrap packages
 ├── packages/
@@ -338,7 +338,7 @@ aperio/
 │   ├── security/           # AES-256-GCM helpers and password hashing
 │   └── shared/             # Zod schemas, connector catalog, SIEM catalog
 ├── proto/                  # ConnectRPC API + Cerebro-compatible event contracts
-├── workers/                # ingestion + SIEM background workers
+├── workers/                # TypeScript validation helpers only
 ├── scripts/                # dev orchestration, seed, and operational scripts
 ├── tests/                  # node --test suites
 ├── droid-wiki/             # generated architecture and reference docs

@@ -8,7 +8,7 @@ Aperio stores agent tasks, messages, and proposals in Prisma-backed tables. Agen
 | --- | --- |
 | `packages/shared/src/a2a.ts` | Shared A2A schemas |
 | `internal/bootstrap/compat_api.go` | Agent task/message/proposal compatibility handlers |
-| `apps/mcp/src/server.ts` | MCP JSON-RPC tools for agent clients |
+| `internal/mcpbroker` | MCP JSON-RPC tools for agent clients |
 | `packages/db/prisma/schema.prisma` | Agent, task, message, proposal tables |
 
 Proposals are approval-gated before provider-side writes. Keep MCP tools and Go API compatibility behavior aligned when changing agent contracts.

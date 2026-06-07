@@ -3,11 +3,11 @@
 | Tool | Used for |
 | --- | --- |
 | Go | API server, ConnectRPC handlers, protobuf validation |
-| Node/npm | Web app, TypeScript workers, MCP broker, scripts, tests |
+| Node/npm | Web app, generated TypeScript contracts, local scripts, tests |
 | Next.js | Operator console |
 | Prisma | Schema, migrations, generated client |
 | Buf | Protobuf linting and generated code |
-| tsx | TypeScript workers, scripts, and tests |
+| tsx | Local TypeScript scripts and tests |
 
 Key scripts:
 
@@ -15,9 +15,9 @@ Key scripts:
 {
   "dev:connect": "go run ./cmd/aperio",
   "dev:web": "next dev apps/web -p 3000",
-  "worker:ingestion": "tsx workers/ingestion-worker.ts",
-  "worker:siem": "tsx workers/siem-dispatcher.ts",
-  "mcp:broker": "tsx apps/mcp/src/server.ts",
+  "worker:ingestion": "go run ./cmd/ingestion-worker",
+  "worker:siem": "go run ./cmd/siem-dispatcher",
+  "mcp:broker": "go run ./cmd/mcp-broker",
   "test:go": "go test ./...",
   "proto:lint": "go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint"
 }

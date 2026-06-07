@@ -1,15 +1,15 @@
 # Architecture
 
-Aperio has four active runtime surfaces: the Go/ConnectRPC API, the Next.js console, the MCP broker, and TypeScript background workers. Shared schemas live in `packages/shared/src`, persistent state lives in `packages/db/prisma/schema.prisma`, and secret handling lives in `packages/security/src/crypto.ts`.
+Aperio has four Go-owned backend runtime surfaces: the Go/ConnectRPC API, ingestion worker, SIEM dispatcher, and stdio MCP broker, plus the Next.js console. Shared schemas live in `packages/shared/src`, persistent state lives in `packages/db/prisma/schema.prisma`, and secret handling lives in `packages/security/src/crypto.ts`.
 
 ```mermaid
 flowchart LR
   UI[Next.js web app\napps/web] -->|ConnectRPC / CallApi| API[Go API\ncmd/aperio + internal/bootstrap]
   API -->|Prisma/Postgres| DB[(Postgres)]
-  Worker[Ingestion worker\nworkers/ingestion-worker.ts] --> DB
-  SIEM[SIEM dispatcher\nworkers/siem-dispatcher.ts] --> DB
+  Worker[Ingestion worker\ninternal/ingestionworker] --> DB
+  SIEM[SIEM dispatcher\ninternal/siemdispatcher] --> DB
   SIEM --> Destinations[Splunk / Panther / Elastic / Datadog / Webhook / JSONL]
-  MCP[MCP broker\napps/mcp/src/server.ts] --> DB
+  MCP[MCP broker\ninternal/mcpbroker] --> DB
 ```
 
 ## API boundary

@@ -35,6 +35,6 @@ npm run proto:lint
 ## Where to start
 
 - API contract work: `proto/aperio/v1/api.proto` -> `internal/bootstrap` -> `packages/connect/src` -> `apps/web/lib/api.ts`
-- Connector work: `internal/bootstrap/compat_api.go`, `packages/shared/src/connectors.ts`, `workers/ingestion-worker.ts`, connector UI
-- SIEM work: `internal/bootstrap/compat_api.go`, `packages/shared/src/siem.ts`, `workers/siem-dispatcher.ts`, SIEM UI
-- Agent work: `packages/shared/src/a2a.ts`, `internal/bootstrap/compat_api.go`, `apps/mcp/src/server.ts`
+- Connector work: `internal/bootstrap/compat_api.go`, `packages/shared/src/connectors.ts`, `internal/ingestionworker`, connector UI
+- SIEM work: `internal/bootstrap/compat_api.go`, `packages/shared/src/siem.ts`, `internal/siemdispatcher`, SIEM UI
+- Agent work: `packages/shared/src/a2a.ts`, `internal/bootstrap/compat_api.go`, `internal/mcpbroker`

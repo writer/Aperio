@@ -9,11 +9,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const matrixPath = "tests/fixtures/migration-ownership/migration-matrix.json";
 
 const allowedStates = new Set([
-  "typescript-reference",
-  "go-parity",
   "go-default",
-  "removable",
-  "out-of-scope-this-mission"
+  "removed",
+  "allowed-typescript",
+  "validation-tooling"
 ]);
 
 type MatrixEntry = {
@@ -23,7 +22,6 @@ type MatrixEntry = {
   owner: string;
   rationale: string;
   evidence: string[];
-  rollback?: string;
   blockedBy?: string;
 };
 
@@ -164,6 +162,76 @@ function evidenceIncludes(entry: MatrixEntry, expected: string) {
   return entry.evidence.some((evidence) => evidence.includes(expected));
 }
 
+const deletedRuntimePaths = [
+  "workers/ingestion-worker.ts",
+  "workers/siem-dispatcher.ts",
+  "apps/mcp/src/server.ts"
+];
+
+const deletedRuntimePathPattern = new RegExp(
+  deletedRuntimePaths.map((entrypoint) => entrypoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
+);
+
+const typescriptRuntimeExecutionPattern = new RegExp(
+  String.raw`\b(?:npx\s+)?(?:tsx|ts-node|node)\b[^\n]*(?:${deletedRuntimePaths
+    .map((entrypoint) => entrypoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|")})`
+);
+
+const deletedRuntimeImportPattern =
+  /from\s+["']\.\.\/(?:workers\/(?:ingestion-worker|siem-dispatcher)|apps\/mcp\/src\/server)(?:\.ts)?["']/;
+
+const hiddenSelectorPattern =
+  /\b(?:APERIO|A2A|MCP|WORKER|SIEM|INGESTION)[A-Z0-9_]*(?:TS|TYPESCRIPT|NODE|RUNTIME|FALLBACK|LEGACY)[A-Z0-9_]*\b[^\n]*(?:tsx|ts-node|typescript|workers\/|apps\/mcp\/src\/server\.ts)/i;
+
+const transitionalStatePattern =
+  /\b(?:typescript-reference|go-parity|removable|out-of-scope-this-mission)\b/;
+
+const transitionalDocPattern =
+  /\b(?:Go worker transition|explicit Go transition|TypeScript parity\/reference|worker:ingestion:go|worker:siem:go)\b/i;
+
+type AuditSurface = {
+  vector: string;
+  path: string;
+  content: string;
+};
+
+function findRuntimeOwnershipViolations(surface: AuditSurface) {
+  const violations: string[] = [];
+  if (
+    surface.vector === "runtime-file" &&
+    deletedRuntimePaths.includes(surface.path.replace(/\\/g, "/"))
+  ) {
+    violations.push("deleted TypeScript runtime file reintroduced");
+  }
+  if (deletedRuntimePathPattern.test(surface.content)) {
+    violations.push("deleted TypeScript runtime path referenced");
+  }
+  if (typescriptRuntimeExecutionPattern.test(surface.content)) {
+    violations.push("TypeScript backend/worker/MCP runtime execution command");
+  }
+  if (deletedRuntimeImportPattern.test(surface.content)) {
+    violations.push("deleted TypeScript runtime imported as a hidden oracle");
+  }
+  if (hiddenSelectorPattern.test(surface.content)) {
+    violations.push("hidden selector can choose a TypeScript runtime");
+  }
+  if (surface.vector === "ownership-matrix" && transitionalStatePattern.test(surface.content)) {
+    violations.push("transitional ownership matrix state");
+  }
+  if (surface.vector === "user-facing-docs" && transitionalDocPattern.test(surface.content)) {
+    violations.push("transition-era user-facing command documentation");
+  }
+  return violations.map((message) => `${surface.vector}:${surface.path}: ${message}`);
+}
+
+function markdownFiles() {
+  return [
+    "README.md",
+    ...filesUnder("droid-wiki", (file) => file.endsWith(".md"))
+  ];
+}
+
 test("migration ownership matrix covers every generated surface exactly once", () => {
   const matrix = loadMatrix();
   assert.equal(matrix.version, 1);
@@ -176,9 +244,16 @@ test("migration ownership matrix covers every generated surface exactly once", (
     assert.ok(entry.rationale, `${entry.id} rationale is required`);
     assert.ok(entry.covers.length > 0, `${entry.id} must cover at least one surface`);
     assert.ok(entry.evidence.length > 0, `${entry.id} must include evidence`);
-    if (entry.state === "go-parity" || entry.state === "go-default" || entry.state === "removable") {
-      assert.ok(entry.rollback, `${entry.id} must document rollback/fallback`);
-    }
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(entry, "rollback"),
+      false,
+      `${entry.id} must not retain transition-era rollback metadata`
+    );
+    assert.doesNotMatch(
+      JSON.stringify(entry),
+      transitionalStatePattern,
+      `${entry.id} must not use transition-era ownership states`
+    );
   }
 
   const uncovered: string[] = [];
@@ -232,8 +307,8 @@ test("ingestion and SIEM defaults are Go-owned", () => {
   );
   assert.equal(
     stateFor(matrix, "repo-file:workers/ingestion-worker.ts"),
-    "removable",
-    "deleted ingestion runtime must be represented as removed/removable"
+    "removed",
+    "deleted ingestion runtime must be represented as removed"
   );
 
   for (const item of [
@@ -249,8 +324,8 @@ test("ingestion and SIEM defaults are Go-owned", () => {
 
   assert.equal(
     stateFor(matrix, "repo-file:workers/siem-dispatcher.ts"),
-    "removable",
-    "deleted SIEM runtime must be represented as removed/removable"
+    "removed",
+    "deleted SIEM runtime must be represented as removed"
   );
   assert.equal(stateFor(matrix, "package-script:smoke:workers:go"), "go-default");
   assert.equal(stateFor(matrix, "make-target:smoke-workers-go"), "go-default");
@@ -285,15 +360,238 @@ test("MCP default is Go-owned and TypeScript runtime is removed", () => {
   }
   assert.equal(
     stateFor(matrix, "repo-file:apps/mcp/src/server.ts"),
-    "removable",
-    "deleted MCP runtime must be represented as removed/removable"
+    "removed",
+    "deleted MCP runtime must be represented as removed"
   );
+});
+
+test("API and dev-stack backend commands are Go-owned", () => {
+  const matrix = loadMatrix();
+  const scripts = packageScripts();
+  const makefile = readRepoFile("Makefile");
+  const devScript = readRepoFile("scripts/dev.mjs");
+
+  assert.match(scripts["dev:connect"], /^go run \.\/cmd\/aperio$/);
+  assert.equal(stateFor(matrix, "package-script:dev:connect"), "go-default");
+  assert.equal(stateFor(matrix, "package-script:dev"), "go-default");
+  assert.equal(stateFor(matrix, "package-script:dev:app"), "go-default");
+  assert.match(devScript, /start\("connect", "go", \["run", "\.\/cmd\/aperio"\]\)/);
+  assert.doesNotMatch(devScript, /\btsx\b[^\n]*(?:server|api)|typescript.*backend/i);
+
+  const makeDev = makeTargetBlock(makefile, "dev");
+  const makeAPI = makeTargetBlock(makefile, "api");
+  const makeRunAPI = makeTargetBlock(makefile, "_run-api");
+  assert.match(makeDev, /_run-api/);
+  assert.match(makeAPI, /_run-api/);
+  assert.match(makeRunAPI, /go run \.\/cmd\/aperio/);
+  for (const item of ["make-target:dev", "make-target:api", "make-target:_run-api"]) {
+    assert.equal(stateFor(matrix, item), "go-default", `${item} must be Go-owned`);
+  }
+});
+
+test("user-facing command docs and Make help are final Go-default", () => {
+  const readme = readRepoFile("README.md");
+  const makefile = readRepoFile("Makefile");
+
+  assert.match(readme, /npm run worker:ingestion\s+# Go ingestion worker/);
+  assert.match(readme, /npm run worker:siem\s+# Go SIEM dispatcher/);
+  assert.match(readme, /npm run mcp:broker\s+# Go stdio MCP broker/);
+  assert.match(readme, /Remaining TypeScript is limited to the Next\.js frontend, generated clients\/contracts, tests, Prisma, and local tooling\./);
+
+  for (const doc of markdownFiles()) {
+    const content = readRepoFile(doc);
+    assert.deepEqual(
+      findRuntimeOwnershipViolations({
+        vector: "user-facing-docs",
+        path: doc,
+        content
+      }),
+      [],
+      `${doc} must not document deleted TypeScript backend/worker/MCP runtimes`
+    );
+  }
+
+  for (const target of ["worker-ingestion", "worker-siem", "mcp"]) {
+    const block = makeTargetBlock(makefile, target);
+    assert.match(block, /## Run the Go /, `${target} help must describe the Go default`);
+    assert.doesNotMatch(block, /TypeScript|reference|fallback|transition/i);
+  }
+});
+
+test("guardrail negative coverage protects every TypeScript runtime reintroduction vector", () => {
+  const negativeCases: AuditSurface[] = [
+    {
+      vector: "runtime-file",
+      path: "workers/ingestion-worker.ts",
+      content: "export async function run() {}"
+    },
+    {
+      vector: "package-script",
+      path: "package.json:scripts.worker:ingestion",
+      content: '"worker:ingestion": "tsx workers/ingestion-worker.ts"'
+    },
+    {
+      vector: "make-target",
+      path: "Makefile:worker-siem",
+      content: "worker-siem:\n\tnpx tsx workers/siem-dispatcher.ts"
+    },
+    {
+      vector: "ci-workflow",
+      path: ".github/workflows/ci.yml",
+      content: "run: npx tsx workers/siem-dispatcher.ts --once"
+    },
+    {
+      vector: "ownership-matrix",
+      path: matrixPath,
+      content: '{"state":"typescript-reference","covers":["package-script:worker:siem"]}'
+    },
+    {
+      vector: "user-facing-docs",
+      path: "README.md",
+      content: "Run worker:ingestion:go during the Go worker transition."
+    },
+    {
+      vector: "wrapper-script",
+      path: "scripts/dev.mjs",
+      content: 'spawn("tsx", ["apps/mcp/src/server.ts"])'
+    },
+    {
+      vector: "hidden-selector",
+      path: "scripts/dev-env.mjs",
+      content: 'if (process.env.APERIO_WORKER_RUNTIME === "typescript") command = "tsx workers/ingestion-worker.ts";'
+    },
+    {
+      vector: "test-oracle-import",
+      path: "tests/worker-oracle.test.ts",
+      content: ['import { run } from "..', 'workers/ingestion-worker";'].join("/")
+    },
+    {
+      vector: "executable-artifact",
+      path: "dist/worker.js",
+      content: 'require("tsx"); require("./workers/siem-dispatcher.ts");'
+    }
+  ];
+
+  for (const negative of negativeCases) {
+    assert.notDeepEqual(
+      findRuntimeOwnershipViolations(negative),
+      [],
+      `${negative.vector} negative case must be rejected`
+    );
+  }
+
+  const realSurfaces: AuditSurface[] = [
+    {
+      vector: "package-script",
+      path: "package.json",
+      content: JSON.stringify(packageScripts(), null, 2)
+    },
+    { vector: "make-target", path: "Makefile", content: readRepoFile("Makefile") },
+    ...filesUnder(".github/workflows", (file) => /\.ya?ml$/.test(file)).map((file) => ({
+      vector: "ci-workflow",
+      path: file,
+      content: readRepoFile(file)
+    })),
+    ...filesUnder("scripts", (file) => /\.(?:mjs|ts)$/.test(file)).map((file) => ({
+      vector: "wrapper-script",
+      path: file,
+      content: readRepoFile(file)
+    }))
+  ];
+
+  const violations = realSurfaces.flatMap(findRuntimeOwnershipViolations);
+  assert.deepEqual(violations, [], "real command, CI, and wrapper surfaces must be free of TS runtime selectors");
+});
+
+test("remaining TypeScript inventory is categorized as frontend generated tests or tooling", () => {
+  const tsFiles = [
+    ...filesUnder("apps", (file) => /\.(?:ts|tsx|mts|cts)$/.test(file)),
+    ...filesUnder("packages", (file) => /\.(?:ts|tsx|mts|cts)$/.test(file)),
+    ...filesUnder("scripts", (file) => /\.(?:ts|tsx|mts|cts)$/.test(file)),
+    ...filesUnder("tests", (file) => /\.(?:ts|tsx|mts|cts)$/.test(file)),
+    ...filesUnder("workers", (file) => /\.(?:ts|tsx|mts|cts)$/.test(file))
+  ].sort();
+
+  const classified = new Map<string, string>();
+  for (const file of tsFiles) {
+    if (file.startsWith("apps/web/")) {
+      classified.set(file, "frontend");
+    } else if (file.startsWith("packages/connect/src/gen/")) {
+      classified.set(file, "generated client/contract");
+    } else if (file === "packages/connect/src/client.ts") {
+      classified.set(file, "frontend Connect client");
+    } else if (file.startsWith("packages/shared/src/")) {
+      classified.set(file, "shared frontend/test contract");
+    } else if (file.startsWith("packages/security/src/")) {
+      classified.set(file, "local security tooling/test helper");
+    } else if (file === "packages/db/src/client.ts") {
+      classified.set(file, "Prisma/local tooling");
+    } else if (file.startsWith("tests/")) {
+      classified.set(file, "tests");
+    } else if (file.startsWith("scripts/")) {
+      classified.set(file, "local validation tooling");
+    } else if (file === "workers/event-bus.ts" || file === "workers/telemetry.ts") {
+      classified.set(file, "validation helper");
+    }
+  }
+
+  const unclassified = tsFiles.filter((file) => !classified.has(file));
+  assert.deepEqual(unclassified, [], "every TypeScript file must have an allowed final category");
+  for (const forbidden of deletedRuntimePaths) {
+    assert.equal(tsFiles.includes(forbidden), false, `${forbidden} must remain absent`);
+  }
+  assert.equal(
+    stateFor(loadMatrix(), "repo-file:packages/shared/src/security.ts"),
+    "allowed-typescript",
+    "shared TypeScript contracts must be explicitly classified as allowed TypeScript"
+  );
+});
+
+test("executable artifact audit finds no backend TypeScript remnants", () => {
+  const packageJson = readJson<{ scripts: Record<string, string>; bin?: Record<string, string> | string }>(
+    "package.json"
+  );
+  const executableSurfaces: AuditSurface[] = [
+    {
+      vector: "package-script",
+      path: "package.json:scripts",
+      content: JSON.stringify(packageJson.scripts, null, 2)
+    },
+    {
+      vector: "package-bin",
+      path: "package.json:bin",
+      content: JSON.stringify(packageJson.bin ?? {}, null, 2)
+    },
+    { vector: "make-target", path: "Makefile", content: readRepoFile("Makefile") },
+    ...filesUnder(".github/workflows", (file) => /\.ya?ml$/.test(file)).map((file) => ({
+      vector: "ci-workflow",
+      path: file,
+      content: readRepoFile(file)
+    })),
+    ...filesUnder("scripts", (file) => /\.(?:mjs|ts|sh)$/.test(file)).map((file) => ({
+      vector: "wrapper-script",
+      path: file,
+      content: readRepoFile(file)
+    }))
+  ];
+
+  assert.deepEqual(
+    executableSurfaces.flatMap(findRuntimeOwnershipViolations),
+    [],
+    "executable scripts, bins, wrappers, CI commands, and Make/package commands must not execute deleted TypeScript runtimes"
+  );
+  assert.deepEqual(
+    filesUnder("workers", (file) => file.endsWith(".ts")).sort(),
+    ["workers/event-bus.ts", "workers/telemetry.ts"],
+    "workers/ may contain only explicitly allowed TypeScript validation helpers"
+  );
+  assert.equal(existsSync(path.join(repoRoot, "apps/mcp/src/server.ts")), false);
 });
 
 test("frontend legacy API and browser auth guardrails are registered as merge gates", () => {
   const matrix = loadMatrix();
   const guardrail = entriesFor(matrix, "validator:frontend-legacy-api-auth-guardrail")[0];
-  assert.equal(guardrail.state, "out-of-scope-this-mission");
+  assert.equal(guardrail.state, "validation-tooling");
   assert.ok(evidenceIncludes(guardrail, "tests/auth-client-cleanup.test.ts"));
 
   const source = readRepoFile("tests/auth-client-cleanup.test.ts");
@@ -309,7 +607,7 @@ test("shared parity fixtures gate every Go worker runtime surface", () => {
   const matrix = loadMatrix();
   const goWorkerEntries = matrix.entries.filter(
     (entry) =>
-      ["go-parity", "go-default"].includes(entry.state) &&
+      entry.state === "go-default" &&
       entry.covers.some((item) => /internal\/(?:ingestionworker|siemdispatcher)/.test(item))
   );
   assert.ok(goWorkerEntries.length > 0, "expected Go worker runtime entries");
@@ -435,7 +733,7 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
     assert.equal(entriesFor(matrix, item).length, 1, `${item} should be represented in matrix gates`);
   }
   const e2eEntry = entriesFor(matrix, "validator:e2e-smoke")[0];
-  assert.equal(e2eEntry.state, "out-of-scope-this-mission");
+  assert.equal(e2eEntry.state, "validation-tooling");
   assert.equal(e2eEntry.blockedBy, undefined);
   assert.ok(evidenceIncludes(e2eEntry, "tests/e2e-smoke-contract.test.ts"));
   assert.ok(evidenceIncludes(e2eEntry, "npm run smoke:e2e"));

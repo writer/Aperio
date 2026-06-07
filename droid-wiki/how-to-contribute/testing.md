@@ -25,4 +25,4 @@ npm run proto:lint
 - SIEM dispatcher adapter behavior and retry/dead-letter handling.
 - MCP broker tool schemas and tenant scoping.
 
-For integration features, include cross-runtime tests when Go writes data that TypeScript workers later consume, especially encrypted credentials and queue payloads.
+For integration features, include contract tests when Go writes data that allowed TypeScript frontend, generated-client, test, Prisma, or tooling surfaces later consume, especially encrypted credentials and queue payloads.

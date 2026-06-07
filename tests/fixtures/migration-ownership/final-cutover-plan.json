@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "intent": "Final Go-default ownership and deletion evidence checklist updated as worker and MCP surfaces cut over.",
+  "intent": "Final Go-default ownership, deletion, artifact-audit, and guardrail evidence checklist.",
   "defaultsFlippedInThisFeature": true,
-  "status": "mcp-go-default-enforced",
+  "status": "final-go-default-enforced",
   "requiredEvidenceKinds": [
     "package-script-dump",
     "make-dry-run",
@@ -10,7 +10,10 @@
     "stdio-mcp-smoke",
     "local-fixture-or-capture-harness",
     "deleted-runtime-file-audit",
-    "typescript-fallback-negative-guardrail",
+    "typescript-runtime-negative-guardrail",
+    "hidden-selector-negative-guardrail",
+    "executable-artifact-audit",
+    "allowed-typescript-inventory",
     "credential-redaction-negative"
   ],
   "surfaces": [
@@ -25,7 +28,7 @@
       "requiredEvidence": [
         "package-script-dump",
         "bounded-default-worker-smoke",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -40,7 +43,7 @@
         "package-script-dump",
         "bounded-default-worker-smoke",
         "local-fixture-or-capture-harness",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -54,7 +57,7 @@
       "requiredEvidence": [
         "package-script-dump",
         "stdio-mcp-smoke",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -68,7 +71,7 @@
       "requiredEvidence": [
         "make-dry-run",
         "bounded-default-worker-smoke",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -83,7 +86,7 @@
         "make-dry-run",
         "bounded-default-worker-smoke",
         "local-fixture-or-capture-harness",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -97,7 +100,7 @@
       "requiredEvidence": [
         "make-dry-run",
         "stdio-mcp-smoke",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -108,7 +111,7 @@
       "blockedBy": [],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
-        "typescript-fallback-negative-guardrail",
+        "typescript-runtime-negative-guardrail",
         "local-fixture-or-capture-harness"
       ]
     },
@@ -120,7 +123,7 @@
       "blockedBy": [],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
-        "typescript-fallback-negative-guardrail",
+        "typescript-runtime-negative-guardrail",
         "local-fixture-or-capture-harness"
       ]
     },
@@ -133,7 +136,7 @@
       "requiredEvidence": [
         "deleted-runtime-file-audit",
         "stdio-mcp-smoke",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     },
     {
@@ -145,7 +148,7 @@
       "requiredEvidence": [
         "package-script-dump",
         "make-dry-run",
-        "typescript-fallback-negative-guardrail"
+        "typescript-runtime-negative-guardrail"
       ]
     }
   ]

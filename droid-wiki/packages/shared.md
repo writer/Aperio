@@ -38,10 +38,10 @@ The package avoids handwritten interface duplication by exporting Zod schemas an
 
 ## Integration points
 
-- Used by TypeScript workers, MCP tools, and web-facing compatibility schemas
+- Used by the frontend, generated-contract tests, local validation tooling, and web-facing compatibility schemas
 - Reflected into `apps/web/lib/api.ts` and UI components
-- Used by `apps/mcp/src/server.ts` for tool input validation
-- Referenced by `workers/ingestion-worker.ts` and `workers/siem-dispatcher.ts`
+- Used by `internal/mcpbroker` for tool input validation
+- Referenced by `internal/ingestionworker` and `internal/siemdispatcher`
 
 ## Entry points for modification
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "finalCutoverPlan": {
-    "status": "mcp-go-default-enforced",
+    "status": "final-go-default-enforced",
     "defaultsFlippedInThisFeature": true,
     "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
     "tracks": [
@@ -11,7 +11,9 @@
       "MCP runtime files",
       "bounded worker smoke commands",
       "MCP stdio smoke commands",
-      "fallback deletion evidence"
+      "deleted TypeScript runtime evidence",
+      "executable artifact audit",
+      "allowed TypeScript inventory"
     ],
     "requiredEvidenceKinds": [
       "package-script-dump",
@@ -19,7 +21,10 @@
       "bounded-default-worker-smoke",
       "stdio-mcp-smoke",
       "deleted-runtime-file-audit",
-      "typescript-fallback-negative-guardrail",
+      "typescript-runtime-negative-guardrail",
+      "hidden-selector-negative-guardrail",
+      "executable-artifact-audit",
+      "allowed-typescript-inventory",
       "local-fixture-or-capture-harness"
     ]
   },
@@ -39,8 +44,7 @@
         "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
         "command:npm run worker:siem -- -once -limit 1",
         "command:npm run smoke:siem:adapters"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM reference command."
+      ]
     },
     {
       "id": "package-ingestion-worker-go-default",
@@ -56,8 +60,7 @@
         "test:tests/ingestion-parity-matrix.test.ts",
         "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
         "command:npm run worker:ingestion -- -once -limit 1"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion reference command."
+      ]
     },
     {
       "id": "package-go-worker-default-smokes",
@@ -74,8 +77,7 @@
         "script:scripts/smoke-siem-adapters.ts",
         "command:npm run smoke:workers:go",
         "command:npm run smoke:siem:adapters"
-      ],
-      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
+      ]
     },
     {
       "id": "package-go-api-runtime",
@@ -90,8 +92,7 @@
         "test:internal/bootstrap/app_test.go",
         "test:internal/bootstrap/typed_compat_test.go",
         "validator:npm run test:go"
-      ],
-      "rollback": "Revert the API entrypoint change or use the previous committed Go API/runtime bundle."
+      ]
     },
     {
       "id": "package-mcp-broker-go-default",
@@ -100,19 +101,18 @@
         "package-script:mcp:broker"
       ],
       "owner": "Go MCP broker default runtime",
-      "rationale": "The unsuffixed MCP command runs the Go stdio broker with shared local env and pgx-safe DATABASE_URL handling; no TypeScript MCP runtime fallback remains in package scripts.",
+      "rationale": "The unsuffixed MCP command runs the Go stdio broker with shared local env and pgx-safe DATABASE_URL handling; deleted TypeScript MCP runtime paths are not executable from package scripts.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
         "test:internal/mcpbroker/framing_test.go",
         "test:internal/mcpbroker/tools_db_test.go",
         "command:npm run mcp:broker",
         "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference command."
+      ]
     },
     {
       "id": "package-proto-contract-tools",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:proto:*",
         "package-script:verify:go"
@@ -126,7 +126,7 @@
     },
     {
       "id": "package-core-validation-and-dev-tools",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:build:web",
         "package-script:typecheck",
@@ -152,19 +152,32 @@
       ]
     },
     {
-      "id": "package-dev-web-orchestration",
-      "state": "out-of-scope-this-mission",
+      "id": "package-go-dev-stack",
+      "state": "go-default",
       "covers": [
         "package-script:dev",
-        "package-script:dev:app",
+        "package-script:dev:app"
+      ],
+      "owner": "Go API plus Next.js local dev stack",
+      "rationale": "The local dev stack launches the Go API entrypoint with the Next.js frontend; it does not expose a TypeScript backend selector.",
+      "evidence": [
+        "source:scripts/dev.mjs",
+        "source:cmd/aperio/main.go",
+        "command:npm run dev"
+      ]
+    },
+    {
+      "id": "package-frontend-dev-and-setup-tooling",
+      "state": "allowed-typescript",
+      "covers": [
         "package-script:dev:setup",
         "package-script:dev:web"
       ],
-      "owner": "Local development orchestration",
-      "rationale": "Development orchestration and the Next.js frontend runtime are not backend cutover targets in this mission.",
+      "owner": "Next.js frontend and local setup tooling",
+      "rationale": "These commands are limited to frontend development or local setup and do not execute backend, worker, or MCP TypeScript runtimes.",
       "evidence": [
-        "source:scripts/dev.mjs",
-        "source:apps/web"
+        "source:apps/web",
+        "source:scripts/dev.mjs"
       ]
     },
     {
@@ -180,8 +193,7 @@
         "test:tests/worker-command-guardrails.test.ts",
         "command:make -n worker-siem GO_WORKER_ARGS=\"-once -limit 1\"",
         "command:make worker-siem GO_WORKER_ARGS=\"-once -limit 1\""
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM Make target."
+      ]
     },
     {
       "id": "make-ingestion-worker-go-default",
@@ -197,8 +209,7 @@
         "test:tests/ingestion-parity-matrix.test.ts",
         "command:make -n worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\"",
         "command:make worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\""
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion Make target."
+      ]
     },
     {
       "id": "make-go-worker-default-smokes",
@@ -212,8 +223,7 @@
         "test:tests/worker-command-guardrails.test.ts",
         "script:scripts/smoke-siem-adapters.ts",
         "command:make smoke-workers-go"
-      ],
-      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
+      ]
     },
     {
       "id": "make-mcp-broker-go-default",
@@ -228,12 +238,11 @@
         "command:make -n mcp",
         "command:make mcp",
         "source:Makefile"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP Make target."
+      ]
     },
     {
       "id": "make-contract-validation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:generate",
         "make-target:generate-check",
@@ -248,7 +257,7 @@
     },
     {
       "id": "make-quality-validation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:fmt",
         "make-target:fmt-check",
@@ -277,19 +286,44 @@
       ]
     },
     {
+      "id": "make-go-api-dev-stack",
+      "state": "go-default",
+      "covers": [
+        "make-target:dev",
+        "make-target:api",
+        "make-target:_run-api"
+      ],
+      "owner": "Go API Make dev stack",
+      "rationale": "Make dev and api targets launch the Go API entrypoint and do not expose a TypeScript backend selector.",
+      "evidence": [
+        "source:Makefile",
+        "command:make -n api",
+        "command:make -n dev"
+      ]
+    },
+    {
+      "id": "make-frontend-dev-tooling",
+      "state": "allowed-typescript",
+      "covers": [
+        "make-target:web",
+        "make-target:_run-web"
+      ],
+      "owner": "Next.js frontend Make targets",
+      "rationale": "These Make targets run only the allowed TypeScript frontend development server.",
+      "evidence": [
+        "source:Makefile",
+        "source:apps/web"
+      ]
+    },
+    {
       "id": "make-dev-infra-orchestration",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "make-target:help",
         "make-target:setup",
         "make-target:env",
         "make-target:install",
         "make-target:doctor",
-        "make-target:dev",
-        "make-target:api",
-        "make-target:web",
-        "make-target:_run-api",
-        "make-target:_run-web",
         "make-target:up",
         "make-target:down",
         "make-target:ps",
@@ -308,7 +342,7 @@
         "make-target:require-env"
       ],
       "owner": "Local development and infrastructure orchestration",
-      "rationale": "Setup, local infra, seed, and cleanup targets support validation but are not migration cutover surfaces.",
+      "rationale": "Setup, local infra, seed, and cleanup targets support deterministic validation but do not select backend, worker, or MCP TypeScript runtimes.",
       "evidence": [
         "source:Makefile",
         "source:docker-compose.yml",
@@ -317,7 +351,7 @@
     },
     {
       "id": "scripts-local-dev-orchestration",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:scripts/dev*.mjs",
         "repo-file:scripts/seed.ts"
@@ -333,7 +367,7 @@
     },
     {
       "id": "scripts-validation-and-droid-context",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:scripts/droid-*.mjs",
         "repo-file:scripts/leak-check.mjs",
@@ -361,8 +395,7 @@
         "source:cmd/aperio/main.go",
         "test:internal/bootstrap/app_test.go",
         "validator:go test ./..."
-      ],
-      "rollback": "Revert the API command/runtime change to the previous committed Go API entrypoint."
+      ]
     },
     {
       "id": "cmd-ingestion-worker-go-default",
@@ -376,8 +409,7 @@
         "test:tests/worker-command-guardrails.test.ts",
         "test:internal/ingestionworker/worker_test.go",
         "command:npm run worker:ingestion -- -once -limit 1"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime."
+      ]
     },
     {
       "id": "cmd-go-siem-worker-default",
@@ -393,8 +425,7 @@
         "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
         "command:npm run worker:siem -- -once -limit 1",
         "command:npm run smoke:siem:adapters"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
+      ]
     },
     {
       "id": "cmd-mcp-broker-go-default",
@@ -409,12 +440,11 @@
         "test:internal/mcpbroker/catalog_test.go",
         "test:internal/mcpbroker/mcpbroker_db_test.go",
         "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference command."
+      ]
     },
     {
       "id": "workers-ingestion-runtime-removed",
-      "state": "removable",
+      "state": "removed",
       "covers": [
         "repo-file:workers/ingestion-worker.ts"
       ],
@@ -424,12 +454,11 @@
         "test:tests/ingestion-parity-matrix.test.ts",
         "test:tests/worker-command-guardrails.test.ts",
         "command:test ! -e workers/ingestion-worker.ts"
-      ],
-      "rollback": "Revert this cutover commit if the Go default ingestion worker must be rolled back."
+      ]
     },
     {
       "id": "workers-siem-runtime-removed",
-      "state": "removable",
+      "state": "removed",
       "covers": [
         "repo-file:workers/siem-dispatcher.ts"
       ],
@@ -439,12 +468,11 @@
         "test:tests/siem-adapter-matrix.test.ts",
         "test:tests/worker-command-guardrails.test.ts",
         "command:test ! -e workers/siem-dispatcher.ts"
-      ],
-      "rollback": "Revert this cutover commit if the Go default SIEM dispatcher must be rolled back."
+      ]
     },
     {
       "id": "workers-typescript-validation-helpers",
-      "state": "out-of-scope-this-mission",
+      "state": "allowed-typescript",
       "covers": [
         "repo-file:workers/event-bus.ts",
         "repo-file:workers/telemetry.ts"
@@ -459,7 +487,7 @@
     },
     {
       "id": "mcp-typescript-runtime-removed",
-      "state": "removable",
+      "state": "removed",
       "covers": [
         "repo-file:apps/mcp/src/server.ts"
       ],
@@ -470,8 +498,7 @@
         "test:tests/foundation-cutover-harness.test.ts",
         "command:test ! -e apps/mcp/src/server.ts",
         "command:npm run guardrails:migration"
-      ],
-      "rollback": "Revert this cutover commit if the Go default MCP broker must be rolled back."
+      ]
     },
     {
       "id": "internal-bootstrap-go-api",
@@ -486,8 +513,7 @@
         "test:internal/bootstrap/typed_compat_test.go",
         "test:internal/bootstrap/tenant_isolation_test.go",
         "validator:go test ./internal/bootstrap"
-      ],
-      "rollback": "Revert affected Go API handler changes and preserve compatibility routes until typed cutover is proven."
+      ]
     },
     {
       "id": "internal-ingestionworker-go-default",
@@ -496,7 +522,7 @@
         "repo-file:internal/ingestionworker/*.go"
       ],
       "owner": "Go ingestion worker default runtime",
-      "rationale": "Go ingestion owns all matrix rule slices, credential/config gates, queue/lifecycle/outbox behavior, and the final no-fallback unsupported-work policy.",
+      "rationale": "Go ingestion owns all matrix rule slices, credential/config gates, queue/lifecycle/outbox behavior, and the final unsupported-work dead-letter policy.",
       "evidence": [
         "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
@@ -507,8 +533,7 @@
         "test:internal/ingestionworker/worker_test.go",
         "test:internal/ingestionworker/worker_db_test.go",
         "command:npm run worker:ingestion -- -once -limit 1"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime and matrix state."
+      ]
     },
     {
       "id": "internal-siemdispatcher-go-default",
@@ -531,8 +556,7 @@
         "test:internal/siemdispatcher/dispatcher_db_test.go",
         "command:npm run worker:siem -- -once -limit 1",
         "command:npm run smoke:siem:adapters"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
+      ]
     },
     {
       "id": "internal-mcpbroker-go-default",
@@ -548,8 +572,7 @@
         "test:internal/mcpbroker/mcpbroker_db_test.go",
         "test:internal/mcpbroker/tools_db_test.go",
         "validator:go test ./internal/mcpbroker"
-      ],
-      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference runtime."
+      ]
     },
     {
       "id": "proto-contract-source",
@@ -564,12 +587,11 @@
         "workflow:.github/workflows/contracts.yml",
         "source:gen",
         "source:packages/connect/src/gen"
-      ],
-      "rollback": "Revert proto and generated-client changes together, then rerun proto:check."
+      ]
     },
     {
       "id": "connect-client-frontend-contract",
-      "state": "out-of-scope-this-mission",
+      "state": "allowed-typescript",
       "covers": [
         "repo-file:packages/connect/src/client.ts"
       ],
@@ -581,13 +603,13 @@
       ]
     },
     {
-      "id": "shared-typescript-reference-semantics",
-      "state": "typescript-reference",
+      "id": "shared-typescript-frontend-tooling-contracts",
+      "state": "allowed-typescript",
       "covers": [
         "repo-file:packages/shared/src/*.ts"
       ],
-      "owner": "TypeScript shared reference semantics",
-      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain frontend/test/tooling contracts while backend worker runtimes are Go-owned.",
+      "owner": "Allowed TypeScript shared frontend and validation contracts",
+      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain frontend, generated-contract, test, and local-tooling contracts while backend worker runtimes are Go-owned.",
       "evidence": [
         "test:tests/protobuf-contracts.test.ts",
         "test:tests/risk-scoring.test.ts",
@@ -596,7 +618,7 @@
     },
     {
       "id": "local-infra-and-env-contract",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:docker-compose.yml",
         "repo-file:.env.example"
@@ -612,7 +634,7 @@
     },
     {
       "id": "workflow-ci-contract-audit-security",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:.github/workflows/ci.yml",
         "repo-file:.github/workflows/contracts.yml",
@@ -630,7 +652,7 @@
     },
     {
       "id": "workflow-droid-automation",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "repo-file:.github/workflows/droid.yml",
         "repo-file:.github/workflows/droid-review.yml"
@@ -654,12 +676,11 @@
         "source:internal/bootstrap/compat_api.go",
         "test:internal/bootstrap/typed_compat_test.go",
         "test:tests/auth-client-cleanup.test.ts"
-      ],
-      "rollback": "Keep the compatibility route in the Go dispatcher until the typed RPC replacement and browser guardrails prove cutover."
+      ]
     },
     {
       "id": "validator-core-cli-and-ci-gates",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "validator:typecheck",
         "validator:api-tests",
@@ -693,13 +714,13 @@
     },
     {
       "id": "validator-browser-and-worker-static-guardrails",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "validator:frontend-legacy-api-auth-guardrail",
         "validator:worker-command-guardrail"
       ],
       "owner": "Static migration guardrail tests",
-      "rationale": "Frontend legacy API/auth and worker fallback command checks are static guardrails that prevent unsafe cutover regressions.",
+      "rationale": "Frontend legacy API/auth and worker runtime command checks are static guardrails that prevent unsafe cutover regressions.",
       "evidence": [
         "test:tests/auth-client-cleanup.test.ts",
         "test:tests/worker-command-guardrails.test.ts",
@@ -719,12 +740,11 @@
         "command:make smoke-workers-go",
         "command:npm run smoke:siem:adapters",
         "workflow:.github/workflows/ci.yml"
-      ],
-      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
+      ]
     },
     {
       "id": "validator-local-e2e-smoke-harness",
-      "state": "out-of-scope-this-mission",
+      "state": "validation-tooling",
       "covers": [
         "package-script:smoke:e2e",
         "make-target:smoke-e2e",

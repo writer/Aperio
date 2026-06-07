@@ -31,11 +31,11 @@ The web console still uses some REST-shaped paths such as `/api/v1/integrations`
 
 ## MCP
 
-`apps/mcp/src/server.ts` exposes a JSON-RPC tool surface for agent workflows and SIEM enqueue operations. It shares the Prisma schema and tenant data model with the Go API but is a separate stdio runtime.
+`internal/mcpbroker` exposes a JSON-RPC tool surface for agent workflows and SIEM enqueue operations. It shares the Prisma schema and tenant data model with the Go API but is a separate stdio runtime.
 
 ## Where to change things
 
 - Add or promote API contracts in `proto/aperio/v1/api.proto`.
 - Implement Go handlers in `internal/bootstrap`.
 - Update the browser Connect client in `packages/connect/src` and `apps/web/lib/api.ts`.
-- Keep MCP-specific tools in `apps/mcp/src/server.ts`.
+- Keep MCP-specific tools in `internal/mcpbroker`.

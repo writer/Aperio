@@ -79,7 +79,7 @@ type FoundationHarnessFixture = {
   };
   commandOwnership: {
     currentDefaults: Record<string, string>;
-    explicitGoTransitionContains: Record<string, string>;
+    strictAliasContains: Record<string, string>;
   };
 };
 
@@ -128,10 +128,10 @@ function sectionForTool(source: string, toolName: string) {
   return source.slice(start, start + 1 + nextTool);
 }
 
-test("final ownership matrices expose non-enforcing cutover placeholders", () => {
+test("final ownership matrices expose enforced Go-default cutover evidence", () => {
   const finalPlan = loadFinalPlan();
   assert.equal(finalPlan.version, 1);
-  assert.equal(finalPlan.status, "mcp-go-default-enforced");
+  assert.equal(finalPlan.status, "final-go-default-enforced");
   assert.equal(finalPlan.defaultsFlippedInThisFeature, true);
 
   const matrixFixtures = [
@@ -150,10 +150,10 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
       assert.equal(matrix.finalCutoverPlan.status, "siem-go-default-enforced");
     } else if (fixturePath.includes("migration-matrix")) {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
-      assert.equal(matrix.finalCutoverPlan.status, "mcp-go-default-enforced");
+      assert.equal(matrix.finalCutoverPlan.status, "final-go-default-enforced");
     } else {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, false);
-      assert.equal(matrix.finalCutoverPlan.status, "planned-not-enforced");
+      assert.equal(matrix.finalCutoverPlan.status, "final-go-default-enforced");
     }
     assert.equal(
       matrix.finalCutoverPlan.fixture,
@@ -230,7 +230,7 @@ test("current command ownership records Go worker and MCP defaults", () => {
   assert.doesNotMatch(scripts["mcp:broker"], /\btsx\b|apps\/mcp\/src\/server\.ts/);
 
   for (const [script, expected] of Object.entries(
-    fixture.commandOwnership.explicitGoTransitionContains
+    fixture.commandOwnership.strictAliasContains
   ).filter(([surface]) => surface.startsWith("package-script:"))) {
     const scriptName = script.replace("package-script:", "");
     assert.match(scripts[scriptName], new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

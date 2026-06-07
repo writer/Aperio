@@ -154,7 +154,7 @@
       "make-target:worker-siem": "go run ./cmd/siem-dispatcher",
       "make-target:mcp": "go run ./cmd/mcp-broker"
     },
-    "explicitGoTransitionContains": {
+    "strictAliasContains": {
       "package-script:worker:siem:go": "npm run worker:siem --",
       "make-target:worker-siem-go": "worker-siem-go: worker-siem"
     }

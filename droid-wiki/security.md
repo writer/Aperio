@@ -16,7 +16,7 @@ Role checks live in `internal/bootstrap/compat_api.go` for compatibility workflo
 
 ## Secrets
 
-Credential material is encrypted at rest with AES-256-GCM helpers in `packages/security/src/crypto.ts`. Go compatibility handlers must write data in the same envelope format consumed by TypeScript workers.
+Credential material is encrypted at rest with AES-256-GCM helpers in `packages/security/src/crypto.ts` and shared Go runtime utilities. Go compatibility handlers and workers must write and read the same envelope format as the allowed TypeScript frontend, test, and tooling surfaces.
 
 Sensitive paths:
 
@@ -24,9 +24,9 @@ Sensitive paths:
 | --- | --- |
 | `internal/bootstrap/compat_api.go` | Auth, role gates, credential persistence, compatibility mutations |
 | `packages/security/src/crypto.ts` | Shared encryption envelope and password helpers |
-| `workers/ingestion-worker.ts` | Decrypts connector credentials and writes findings/assets |
-| `workers/siem-dispatcher.ts` | Decrypts SIEM credentials and sends outbound data |
-| `apps/mcp/src/server.ts` | Agent-facing tools backed by tenant data |
+| `internal/ingestionworker` | Decrypts connector credentials and writes findings/assets |
+| `internal/siemdispatcher` | Decrypts SIEM credentials and sends outbound data |
+| `internal/mcpbroker` | Agent-facing tools backed by tenant data |
 
 ## Outbound safety
 

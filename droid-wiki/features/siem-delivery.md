@@ -8,8 +8,8 @@ Aperio sends canonical `aperio.finding.v1` envelopes to tenant-configured SIEM d
 | --- | --- |
 | `internal/bootstrap/compat_api.go` | SIEM catalog, destination CRUD, endpoint validation, test dispatch compatibility |
 | `packages/shared/src/siem.ts` | TypeScript SIEM catalog and schemas |
-| `workers/siem-dispatcher.ts` | Delivery leasing, retries, adapters, dead-letter behavior |
-| `workers/ingestion-worker.ts` | Enqueues delivery rows when findings are created/updated |
+| `internal/siemdispatcher` | Delivery leasing, retries, adapters, dead-letter behavior |
+| `internal/ingestionworker` | Enqueues delivery rows when findings are created/updated |
 | `apps/web/components/connectors/siem-page.tsx` | SIEM destination UI |
 
 ## Flow

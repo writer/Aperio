@@ -244,7 +244,7 @@ typecheck: ## TypeScript type checking
 	@npm run typecheck
 
 .PHONY: guardrails-migration
-guardrails-migration: ## Run migration ownership and fallback guardrails
+guardrails-migration: ## Run migration ownership and runtime guardrails
 	@npm run guardrails:migration
 
 .PHONY: test
