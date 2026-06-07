@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/writer/aperio/internal/runtimeutil"
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	networkTimeout       = 4 * time.Second
 	encryptionAlgorithm  = runtimeutil.CredentialAlgorithm
 	encryptionNonceBytes = runtimeutil.CredentialNonceBytes
+	maxAttemptsMessage   = "max delivery attempts exhausted"
 )
 
 var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
@@ -189,9 +191,13 @@ func (d *Dispatcher) Drain(ctx context.Context, limit int) (Result, error) {
 }
 
 func (d *Dispatcher) retireExhausted(ctx context.Context) error {
-	_, err := d.db.ExecContext(ctx, `
+	rows, err := d.db.QueryContext(ctx, `
 		UPDATE siem_deliveries
-		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
+		SET status = 'DEAD_LETTER',
+		    lease_owner = NULL,
+		    lease_expires_at = NULL,
+		    last_error = $2,
+		    updated_at = NOW()
 		WHERE attempts >= max_attempts
 		  AND ($1 = '' OR organization_id = $1)
 		  AND status IN ('PENDING', 'FAILED', 'PROCESSING')
@@ -207,8 +213,41 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 			  AND siem_deliveries.stream = ANY(dst.streams)
 		    )
 		  )
-	`, d.organizationID)
-	return err
+		RETURNING id,
+		          organization_id,
+		          destination_id,
+		          stream::text,
+		          payload,
+		          attempts,
+		          max_attempts,
+		          (
+		            SELECT dst.kind::text
+		            FROM siem_destinations dst
+		            WHERE dst.id = siem_deliveries.destination_id
+		              AND dst.organization_id = siem_deliveries.organization_id
+		          )
+	`, d.organizationID, maxAttemptsMessage)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item delivery
+		var destinationKind sql.NullString
+		if err := rows.Scan(&item.ID, &item.OrganizationID, &item.DestinationID, &item.Stream, &item.Payload, &item.Attempts, &item.MaxAttempts, &destinationKind); err != nil {
+			return err
+		}
+		payload, _ := parsePayload(item.Payload)
+		dest := destination{}
+		if item.DestinationID.Valid {
+			dest.ID = item.DestinationID.String
+		}
+		if destinationKind.Valid {
+			dest.Kind = destinationKind.String
+		}
+		emitSIEMDeliveryWideEventForAttempt(item, payload, dest, errors.New(maxAttemptsMessage), false, 0, item.Attempts)
+	}
+	return rows.Err()
 }
 
 func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
@@ -258,37 +297,54 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 	return deliveries, rows.Err()
 }
 
-func (d *Dispatcher) process(ctx context.Context, item delivery) error {
+func (d *Dispatcher) process(ctx context.Context, item delivery) (processErr error) {
+	startedAt := time.Now()
+	payload := Payload{}
+	dest := destination{}
+	permanentFailure := false
+	defer func() {
+		emitSIEMDeliveryWideEvent(item, payload, dest, processErr, permanentFailure, time.Since(startedAt))
+	}()
+
 	payload, err := parsePayload(item.Payload)
 	if err != nil {
-		return d.failDelivery(ctx, item, true, err.Error())
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, err.Error())
+		return processErr
 	}
 	if payload.OrganizationID != item.OrganizationID {
-		return d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
+		return processErr
 	}
-	return d.processPayload(ctx, item, payload)
-}
-
-func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload Payload) error {
 	if !item.DestinationID.Valid {
-		return d.failDelivery(ctx, item, true, "destination not configured")
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, "destination not configured")
+		return processErr
 	}
-	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String, item.Stream)
+	dest, err = d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String, item.Stream)
 	if err != nil {
 		permanent, message := destinationLoadFailure(err)
-		return d.failDelivery(ctx, item, permanent, message)
+		permanentFailure = permanent
+		processErr = d.failDelivery(ctx, item, permanent, message)
+		return processErr
 	}
 	sendOutcome, err := d.sendForKind(ctx, dest, payload)
 	if err != nil {
 		permanent := isPermanentSendFailure(err)
-		if finishErr := d.finish(ctx, item, false, permanent, err.Error()); finishErr != nil {
-			return finishErr
+		permanentFailure = permanent
+		message := safeSIEMFailureMessage(err.Error())
+		if finishErr := d.finish(ctx, item, false, permanent, message); finishErr != nil {
+			processErr = finishErr
+			return processErr
 		}
-		d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, false, err.Error())
-		return errors.New(err.Error())
+		d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, false, message)
+		processErr = errors.New(message)
+		return processErr
 	}
 	if err := d.finish(ctx, item, true, false, ""); err != nil {
-		return err
+		processErr = err
+		return processErr
 	}
 	_, _ = d.db.ExecContext(ctx, `
 		UPDATE siem_destinations
@@ -308,10 +364,11 @@ func (d *Dispatcher) failDelivery(ctx context.Context, item delivery, permanent 
 }
 
 func (d *Dispatcher) failWithHealth(ctx context.Context, item delivery, permanent bool, message string, updateDestinationHealth bool) error {
-	if err := d.finish(ctx, item, false, permanent, message, updateDestinationHealth); err != nil {
+	safeMessage := safeSIEMFailureMessage(message)
+	if err := d.finish(ctx, item, false, permanent, safeMessage, updateDestinationHealth); err != nil {
 		return err
 	}
-	return errors.New(message)
+	return errors.New(safeMessage)
 }
 
 func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string, stream string) (destination, error) {
@@ -353,8 +410,8 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 		res, err := d.db.ExecContext(ctx, `
 			UPDATE siem_deliveries
 			SET status = 'DELIVERED', attempts = $1, delivered_at = NOW(), lease_owner = NULL, lease_expires_at = NULL, last_error = NULL, updated_at = NOW()
-			WHERE id = $2 AND lease_owner = $3
-		`, attempts, item.ID, d.leaseOwner)
+			WHERE id = $2 AND lease_owner = $3 AND organization_id = $4
+		`, attempts, item.ID, d.leaseOwner, item.OrganizationID)
 		if err != nil {
 			return err
 		}
@@ -367,12 +424,13 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 	if permanent || attempts >= item.MaxAttempts {
 		status = "DEAD_LETTER"
 	}
+	safeMessage := safeSIEMFailureMessage(message)
 	nextAttemptAt := time.Now().UTC().Add(nextRetryDelay(attempts))
 	res, err := d.db.ExecContext(ctx, `
 		UPDATE siem_deliveries
 		SET status = $1, attempts = $2, next_attempt_at = $3, lease_owner = NULL, lease_expires_at = NULL, last_error = $4, updated_at = NOW()
-		WHERE id = $5 AND lease_owner = $6
-	`, status, attempts, nextAttemptAt, truncate(message, 500), item.ID, d.leaseOwner)
+		WHERE id = $5 AND lease_owner = $6 AND organization_id = $7
+	`, status, attempts, nextAttemptAt, safeMessage, item.ID, d.leaseOwner, item.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -388,7 +446,7 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 			UPDATE siem_destinations
 			SET deliveries_fail = deliveries_fail + 1, last_error = $1, status = 'ERROR', updated_at = NOW()
 			WHERE id = $2 AND organization_id = $3
-		`, truncate(message, 500), item.DestinationID.String, item.OrganizationID)
+		`, safeMessage, item.DestinationID.String, item.OrganizationID)
 	}
 	return nil
 }
@@ -476,7 +534,7 @@ func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload 
 	case "JSON_FILE":
 		return sendResult{}, writeJSONFile(dest, payload)
 	default:
-		return sendResult{}, fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
+		return sendResult{}, permanentAdapterError(fmt.Sprintf("unsupported Go SIEM destination kind %s", dest.Kind))
 	}
 }
 
@@ -1065,6 +1123,177 @@ func boundedLimit(limit int) int {
 		return 1000
 	}
 	return limit
+}
+
+func emitSIEMDeliveryWideEvent(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration) {
+	telemetry.EmitWide(siemDeliveryWideEvent(item, payload, dest, processErr, permanent, duration))
+}
+
+func emitSIEMDeliveryWideEventForAttempt(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration, attempt int) {
+	telemetry.EmitWide(siemDeliveryWideEventForAttempt(item, payload, dest, processErr, permanent, duration, attempt))
+}
+
+func siemDeliveryWideEvent(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration) telemetry.WideEvent {
+	return siemDeliveryWideEventForAttempt(item, payload, dest, processErr, permanent, duration, item.Attempts+1)
+}
+
+func siemDeliveryWideEventForAttempt(item delivery, payload Payload, dest destination, processErr error, permanent bool, duration time.Duration, attempt int) telemetry.WideEvent {
+	destinationID := dest.ID
+	if destinationID == "" && item.DestinationID.Valid {
+		destinationID = item.DestinationID.String
+	}
+	dimensions := map[string]string{
+		"outcome":        siemDeliveryOutcome(item, processErr, permanent),
+		"stream":         item.Stream,
+		"payload_kind":   payload.Kind,
+		"destination_id": destinationID,
+	}
+	if dest.Kind != "" {
+		dimensions["destination_kind"] = dest.Kind
+	}
+	if processErr != nil {
+		dimensions["error_kind"] = siemDeliveryErrorKind(processErr, permanent)
+		if permanence := siemDeliveryPermanence(item, processErr, permanent); permanence != "" {
+			dimensions["permanence"] = permanence
+		}
+	}
+	if attempt < 0 {
+		attempt = 0
+	}
+	return telemetry.WideEvent{
+		Name:         "siem.delivery.process",
+		Service:      "siem-dispatcher",
+		Organization: item.OrganizationID,
+		Dimensions:   dimensions,
+		Measurements: map[string]int64{
+			"attempt":      int64(attempt),
+			"max_attempts": int64(item.MaxAttempts),
+			"duration_ms":  duration.Milliseconds(),
+		},
+	}
+}
+
+func siemDeliveryOutcome(item delivery, processErr error, permanent bool) string {
+	if processErr == nil {
+		return "delivered"
+	}
+	if errors.Is(processErr, errDeliveryLeaseLost) {
+		return "lost_lease"
+	}
+	if isTimeoutError(processErr) && item.Attempts+1 < item.MaxAttempts {
+		return "timeout"
+	}
+	if permanent || item.Attempts+1 >= item.MaxAttempts {
+		return "dead_letter"
+	}
+	return "retryable_failed"
+}
+
+func siemDeliveryPermanence(item delivery, processErr error, permanent bool) string {
+	if processErr == nil || errors.Is(processErr, errDeliveryLeaseLost) {
+		return ""
+	}
+	if permanent {
+		return "permanent"
+	}
+	if item.Attempts+1 >= item.MaxAttempts {
+		return "exhausted"
+	}
+	return "retryable"
+}
+
+func siemDeliveryErrorKind(processErr error, permanent bool) string {
+	if processErr == nil {
+		return ""
+	}
+	if errors.Is(processErr, errDeliveryLeaseLost) {
+		return "lease_lost"
+	}
+	if isTimeoutError(processErr) {
+		return "timeout"
+	}
+	var statusErr httpStatusError
+	if errors.As(processErr, &statusErr) {
+		if statusErr.statusCode >= http.StatusInternalServerError {
+			return "http_5xx"
+		}
+		return "http_4xx"
+	}
+	message := strings.ToLower(processErr.Error())
+	switch {
+	case strings.Contains(message, "max delivery attempts"):
+		return "max_attempts"
+	case strings.Contains(message, "invalid delivery"):
+		return "invalid_payload"
+	case strings.Contains(message, "payload organization mismatch"):
+		return "tenant_mismatch"
+	case strings.Contains(message, "destination"):
+		return "destination"
+	case strings.Contains(message, "decrypt") || strings.Contains(message, "not configured") || permanent:
+		return "permanent"
+	default:
+		return "error"
+	}
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func safeSIEMFailureMessage(message string) string {
+	return truncate(runtimeutil.RedactText(message, siemRedactionSecretsFromEnv()...), 500)
+}
+
+func siemRedactionSecretsFromEnv() []string {
+	envNames := []string{
+		"APERIO_ENCRYPTION_KEY",
+		"DATABASE_URL",
+		"APERIO_TEST_DATABASE_URL",
+		"APERIO_NATS_URL",
+		"APERIO_AUTH_SECRET",
+	}
+	secrets := []string{}
+	for _, name := range envNames {
+		raw := strings.TrimSpace(os.Getenv(name))
+		if raw == "" {
+			continue
+		}
+		secrets = append(secrets, raw)
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if parsed.User != nil {
+			if password, ok := parsed.User.Password(); ok {
+				secrets = append(secrets, password)
+			}
+		}
+		query := parsed.Query()
+		for key, values := range query {
+			if !siemSensitiveKey(key) {
+				continue
+			}
+			secrets = append(secrets, values...)
+		}
+	}
+	return secrets
+}
+
+func siemSensitiveKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
+	return strings.Contains(normalized, "password") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "api-key") ||
+		normalized == "key" ||
+		strings.Contains(normalized, "credential")
 }
 
 func schemaVersion(kind string) string {

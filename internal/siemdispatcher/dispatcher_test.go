@@ -1,6 +1,7 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -20,6 +21,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 type siemParityFixture struct {
@@ -1074,6 +1077,78 @@ func TestDestinationLoadFailureOnlyPermanentForMissingRows(t *testing.T) {
 	}
 	if message != "statement timeout" {
 		t.Fatalf("unexpected transient message %q", message)
+	}
+}
+
+func TestSIEMDeliveryWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
+	base := delivery{
+		ID:             "sdel_1",
+		OrganizationID: "org_1",
+		DestinationID:  sql.NullString{String: "dst_1", Valid: true},
+		Stream:         "FINDINGS",
+		Attempts:       0,
+		MaxAttempts:    3,
+	}
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_1",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"findingId": "fnd_1", "sourceEventId": "evt_1"},
+	}
+	dest := destination{ID: "dst_1", OrganizationID: "org_1", Kind: "GENERIC_WEBHOOK"}
+
+	delivered := siemDeliveryWideEvent(base, payload, dest, nil, false, 7*time.Millisecond)
+	if delivered.Name != "siem.delivery.process" || delivered.Service != "siem-dispatcher" {
+		t.Fatalf("unexpected telemetry identity: %#v", delivered)
+	}
+	if delivered.Organization != "org_1" ||
+		delivered.Dimensions["outcome"] != "delivered" ||
+		delivered.Dimensions["destination_kind"] != "GENERIC_WEBHOOK" ||
+		delivered.Dimensions["destination_id"] != "dst_1" ||
+		delivered.Dimensions["stream"] != "FINDINGS" ||
+		delivered.Dimensions["payload_kind"] != "finding" {
+		t.Fatalf("unexpected delivered dimensions: %#v", delivered.Dimensions)
+	}
+	if delivered.Measurements["attempt"] != 1 || delivered.Measurements["max_attempts"] != 3 || delivered.Measurements["duration_ms"] != 7 {
+		t.Fatalf("unexpected delivered measurements: %#v", delivered.Measurements)
+	}
+	if _, ok := delivered.Dimensions["error_kind"]; ok {
+		t.Fatalf("delivered telemetry should not include error_kind: %#v", delivered.Dimensions)
+	}
+
+	retryable := siemDeliveryWideEvent(base, payload, dest, httpStatusError{statusCode: http.StatusServiceUnavailable, statusText: "Service Unavailable"}, false, time.Millisecond)
+	if retryable.Dimensions["outcome"] != "retryable_failed" || retryable.Dimensions["error_kind"] != "http_5xx" || retryable.Dimensions["permanence"] != "retryable" {
+		t.Fatalf("unexpected retryable telemetry: %#v", retryable.Dimensions)
+	}
+
+	timeout := siemDeliveryWideEvent(base, payload, dest, context.DeadlineExceeded, false, time.Millisecond)
+	if timeout.Dimensions["outcome"] != "timeout" || timeout.Dimensions["error_kind"] != "timeout" || timeout.Dimensions["permanence"] != "retryable" {
+		t.Fatalf("unexpected timeout telemetry: %#v", timeout.Dimensions)
+	}
+
+	permanent := siemDeliveryWideEvent(base, payload, dest, httpStatusError{statusCode: http.StatusUnauthorized, statusText: "Unauthorized"}, true, time.Millisecond)
+	if permanent.Dimensions["outcome"] != "dead_letter" || permanent.Dimensions["error_kind"] != "http_4xx" || permanent.Dimensions["permanence"] != "permanent" {
+		t.Fatalf("unexpected permanent telemetry: %#v", permanent.Dimensions)
+	}
+
+	exhaustedItem := base
+	exhaustedItem.Attempts = 2
+	exhausted := siemDeliveryWideEvent(exhaustedItem, payload, dest, errors.New("temporary outage"), false, time.Millisecond)
+	if exhausted.Dimensions["outcome"] != "dead_letter" || exhausted.Dimensions["error_kind"] != "error" || exhausted.Dimensions["permanence"] != "exhausted" {
+		t.Fatalf("unexpected exhausted telemetry: %#v", exhausted.Dimensions)
+	}
+
+	lostLease := siemDeliveryWideEvent(base, payload, dest, errDeliveryLeaseLost, false, time.Millisecond)
+	if lostLease.Dimensions["outcome"] != "lost_lease" || lostLease.Dimensions["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
+	}
+
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	emitSIEMDeliveryWideEvent(base, payload, dest, errors.New("database password should not be serialized"), false, time.Millisecond)
+	restore()
+	if !strings.Contains(sink.String(), `"event_name":"siem.delivery.process"`) || strings.Contains(sink.String(), "password") {
+		t.Fatalf("unexpected emitted telemetry: %s", sink.String())
 	}
 }
 

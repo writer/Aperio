@@ -1,6 +1,7 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/writer/aperio/internal/runtimeutil"
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 type recordingClaimFanoutPublisher struct {
@@ -64,6 +67,41 @@ func openDBBackedSIEMDispatcherDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func captureSIEMTelemetry(t *testing.T) (*bytes.Buffer, func()) {
+	t.Helper()
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	return &sink, restore
+}
+
+func decodeSIEMWideEvents(t *testing.T, sink *bytes.Buffer) []map[string]any {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(sink.String()), "\n")
+	events := []map[string]any{}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode telemetry line %q: %v", line, err)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func requireSIEMTelemetryOutcome(t *testing.T, events []map[string]any, outcome string) map[string]any {
+	t.Helper()
+	for _, event := range events {
+		if event["event_name"] == "siem.delivery.process" && event["outcome"] == outcome {
+			return event
+		}
+	}
+	t.Fatalf("missing SIEM telemetry outcome %q in %#v", outcome, events)
+	return nil
 }
 
 func testDispatcherID(prefix string) string {
@@ -258,6 +296,150 @@ func siemDestinationHealth(t *testing.T, db *sql.DB, destinationID string) (stat
 		t.Fatalf("query destination health %s: %v", destinationID, err)
 	}
 	return status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError
+}
+
+func TestRetireExhaustedDeadLettersWithTelemetryAndReason(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "exhausted.jsonl")
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "FAILED", attempts: 2, maxAttempts: 2})
+
+	sink, restore := captureSIEMTelemetry(t)
+	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test-exhausted", organizationID: orgID}).Drain(context.Background(), 10)
+	restore()
+	if err != nil {
+		t.Fatalf("drain exhausted: %v", err)
+	}
+	if result.Processed != 0 || result.Delivered != 0 || result.Failed != 0 {
+		t.Fatalf("exhausted rows should retire before claim without counting as processed, got %#v", result)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "DEAD_LETTER" || attempts != 2 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "max delivery attempts exhausted") {
+		t.Fatalf("exhausted delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "dead_letter")
+	if event["organization_id"] != orgID ||
+		event["destination_id"] != destinationID ||
+		event["destination_kind"] != "JSON_FILE" ||
+		event["stream"] != "FINDINGS" ||
+		event["payload_kind"] != "finding" ||
+		event["permanence"] != "exhausted" ||
+		event["error_kind"] != "max_attempts" {
+		t.Fatalf("unexpected exhausted telemetry event: %#v", event)
+	}
+}
+
+func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+	secret := "siem-fixture-secret"
+	secretDSN := "postgres://aperio:" + secret + "@127.0.0.1:5433/aperio?sslmode=disable&token=" + secret
+	t.Setenv("DATABASE_URL", secretDSN)
+	t.Setenv("APERIO_NATS_URL", "nats://aperio:"+secret+"@127.0.0.1:4222")
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 3})
+
+	transportErr := errors.New("request failed with token " + secret + " and dsn " + secretDSN)
+	sink, restore := captureSIEMTelemetry(t)
+	result, err := (&Dispatcher{
+		db:                  db,
+		leaseOwner:          "go-siem-test-redaction",
+		organizationID:      orgID,
+		httpClient:          &http.Client{Transport: &captureTransport{err: transportErr}},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}).Drain(context.Background(), 1)
+	restore()
+	if err != nil {
+		t.Fatalf("drain redaction failure: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected redaction drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid {
+		t.Fatalf("redacted failure delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	_, _, _, _, destinationError := siemDestinationHealth(t, db, destinationID)
+	for surface, value := range map[string]string{
+		"delivery last_error":    lastError.String,
+		"destination last_error": destinationError.String,
+		"telemetry":              sink.String(),
+	} {
+		if strings.Contains(value, secret) || strings.Contains(value, secretDSN) {
+			t.Fatalf("%s leaked secret material: %s", surface, value)
+		}
+	}
+	if !strings.Contains(lastError.String, runtimeutil.Redacted) || !strings.Contains(destinationError.String, runtimeutil.Redacted) {
+		t.Fatalf("persisted errors did not contain redaction marker: delivery=%q destination=%q", lastError.String, destinationError.String)
+	}
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "retryable_failed")
+	if event["destination_kind"] != "GENERIC_WEBHOOK" || event["permanence"] != "retryable" || event["error_kind"] != "error" {
+		t.Fatalf("unexpected redaction failure telemetry event: %#v", event)
+	}
+}
+
+func TestProcessLostLeaseEmitsTelemetryWithoutFinalizing(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "lost-lease.jsonl")
+	otherOwner := "other-dispatcher"
+	payload := fixtureDeliveryPayload(t, orgID)
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PROCESSING", attempts: 0, maxAttempts: 2, leaseOwner: &otherOwner})
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode lost-lease payload: %v", err)
+	}
+
+	dispatcher := &Dispatcher{db: db, leaseOwner: "go-siem-test-lost-lease", organizationID: orgID}
+	sink, restore := captureSIEMTelemetry(t)
+	err = dispatcher.process(context.Background(), delivery{
+		ID:             deliveryID,
+		OrganizationID: orgID,
+		DestinationID:  sql.NullString{String: destinationID, Valid: true},
+		Stream:         "FINDINGS",
+		Payload:        json.RawMessage(rawPayload),
+		Attempts:       0,
+		MaxAttempts:    2,
+	})
+	restore()
+	if err == nil || !strings.Contains(err.Error(), "lease lost") {
+		t.Fatalf("expected lost lease error, got %v", err)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "PROCESSING" || attempts != 0 || !leaseOwner.Valid || leaseOwner.String != otherOwner || deliveredAt.Valid || lastError.Valid {
+		t.Fatalf("lost lease delivery changed: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "lost_lease")
+	if event["destination_kind"] != "JSON_FILE" || event["destination_id"] != destinationID || event["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry event: %#v", event)
+	}
 }
 
 func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t *testing.T) {
