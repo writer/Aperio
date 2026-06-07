@@ -27,6 +27,7 @@ import (
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
+	"github.com/writer/aperio/internal/siemdispatcher"
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -1151,11 +1152,11 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("SIEM destination not found"))
 	}
 	deliveryID := compatID("sdel")
-	payload := map[string]any{
-		"kind":           "finding",
-		"organizationId": auth.OrganizationID,
-		"occurredAt":     time.Now().UTC().Format(time.RFC3339Nano),
-		"record": map[string]any{
+	payload := siemdispatcher.Payload{
+		Kind:           "finding",
+		OrganizationID: auth.OrganizationID,
+		OccurredAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Record: map[string]any{
 			"test":     true,
 			"id":       deliveryID,
 			"title":    "Aperio SIEM connectivity test",
@@ -1166,7 +1167,7 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 	payloadJSON, _ := json.Marshal(payload)
 	// Connectivity tests enqueue an ordinary SIEM delivery row so the user tests
 	// the same dispatcher, lease, serialization, and retry path as real findings.
-	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,'FINDINGS',$4,$5,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, "test:"+deliveryID, json.RawMessage(payloadJSON))
+	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,'FINDINGS',$4,$5,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, siemdispatcher.StableDeliveryKey(payload, id, "FINDINGS"), json.RawMessage(payloadJSON))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

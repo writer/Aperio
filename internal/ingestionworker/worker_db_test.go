@@ -796,6 +796,109 @@ func TestDrainPersistsSupportedGitHubJobSideEffects(t *testing.T) {
 	}
 }
 
+func TestDrainFansOutFindingsOnlyToSameTenantEligibleSubscribedDestinations(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgA := seedIngestionWorkerOrg(t, db)
+	orgB := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgA, "GITHUB", "CONNECTED")
+
+	seedDestination := func(orgID, kind, status, stream string) string {
+		t.Helper()
+		destinationID := testWorkerID("dst")
+		if _, err := db.ExecContext(context.Background(), `
+			INSERT INTO siem_destinations (
+				id, organization_id, kind, name, endpoint_url, file_path, streams, status, created_at, updated_at
+			)
+			VALUES (
+				$1, $2, $3::"SiemKind", $4, 'https://example.com/collector', $5,
+				ARRAY[$6::"SiemStreamType"], $7::"SiemStatus", NOW(), NOW()
+			)
+		`, destinationID, orgID, kind, kind+" fanout", destinationID+".jsonl", stream, status); err != nil {
+			t.Fatalf("seed SIEM destination %s/%s/%s: %v", orgID, kind, stream, err)
+		}
+		return destinationID
+	}
+	activeFindingsID := seedDestination(orgA, "JSON_FILE", "ACTIVE", "FINDINGS")
+	errorFindingsID := seedDestination(orgA, "GENERIC_WEBHOOK", "ERROR", "FINDINGS")
+	pausedFindingsID := seedDestination(orgA, "JSON_FILE", "PAUSED", "FINDINGS")
+	eventsOnlyID := seedDestination(orgA, "PANTHER", "ACTIVE", "EVENTS")
+	otherTenantID := seedDestination(orgB, "JSON_FILE", "ACTIVE", "FINDINGS")
+
+	payloadMap := map[string]any{
+		"repository": map[string]any{
+			"full_name":  "writer/fanout",
+			"name":       "fanout",
+			"private":    false,
+			"visibility": "public",
+		},
+	}
+	payloadJSON, _ := json.Marshal(payloadMap)
+	jobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgA, integrationID: integrationID, provider: "GITHUB", eventType: "PUBLIC_REPOSITORY_CREATED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain fanout job: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected fanout drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("fanout job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+
+	rows, err := db.QueryContext(context.Background(), `
+		SELECT destination_id, stream::text, payload
+		FROM siem_deliveries
+		WHERE organization_id = $1
+	`, orgA)
+	if err != nil {
+		t.Fatalf("query fanout deliveries: %v", err)
+	}
+	defer rows.Close()
+	deliveriesByDestination := map[string]int{}
+	for rows.Next() {
+		var destinationID, stream string
+		var rawPayload json.RawMessage
+		if err := rows.Scan(&destinationID, &stream, &rawPayload); err != nil {
+			t.Fatalf("scan fanout delivery: %v", err)
+		}
+		deliveriesByDestination[destinationID]++
+		var deliveryPayload siemdispatcher.Payload
+		if err := json.Unmarshal(rawPayload, &deliveryPayload); err != nil {
+			t.Fatalf("decode fanout payload: %v", err)
+		}
+		if stream != "FINDINGS" || deliveryPayload.Kind != "finding" || deliveryPayload.OrganizationID != orgA {
+			t.Fatalf("fanout delivery routing = destination=%s stream=%s payload=%#v", destinationID, stream, deliveryPayload)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate fanout deliveries: %v", err)
+	}
+	if len(deliveriesByDestination) != 2 || deliveriesByDestination[activeFindingsID] != 1 || deliveriesByDestination[errorFindingsID] != 1 {
+		t.Fatalf("expected exactly active+error same-tenant FINDINGS destinations, got %#v", deliveriesByDestination)
+	}
+	for name, destinationID := range map[string]string{
+		"paused findings": pausedFindingsID,
+		"events only":     eventsOnlyID,
+		"other tenant":    otherTenantID,
+	} {
+		if deliveriesByDestination[destinationID] != 0 {
+			t.Fatalf("%s destination received a delivery: %#v", name, deliveriesByDestination)
+		}
+	}
+}
+
 func TestDrainPreservesMutedFindingsAndPublishesLifecycleAfterCommit(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)

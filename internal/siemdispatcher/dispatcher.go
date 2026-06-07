@@ -171,12 +171,16 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 		WHERE attempts >= max_attempts
 		  AND status IN ('PENDING', 'FAILED', 'PROCESSING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
-		  AND EXISTS (
+		  AND (payload->>'organizationId' IS NULL OR payload->>'organizationId' = organization_id)
+		  AND (
+		    destination_id IS NULL OR EXISTS (
 			SELECT 1
 			FROM siem_destinations dst
 			WHERE dst.id = siem_deliveries.destination_id
 			  AND dst.organization_id = siem_deliveries.organization_id
 			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+			  AND siem_deliveries.stream = ANY(dst.streams)
+		    )
 		  )
 	`)
 	return err
@@ -189,13 +193,20 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 		WHERE id IN (
 			SELECT sd.id
 			FROM siem_deliveries sd
-			JOIN siem_destinations dst
-			  ON dst.id = sd.destination_id
-			 AND dst.organization_id = sd.organization_id
 			WHERE sd.attempts < sd.max_attempts
 			  AND sd.next_attempt_at <= NOW()
-			  AND dst.status IN ('ACTIVE', 'ERROR')
-			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+			  AND (sd.payload->>'organizationId' IS NULL OR sd.payload->>'organizationId' = sd.organization_id)
+			  AND (
+					sd.destination_id IS NULL OR EXISTS (
+						SELECT 1
+						FROM siem_destinations dst
+						WHERE dst.id = sd.destination_id
+						AND dst.organization_id = sd.organization_id
+						AND dst.status IN ('ACTIVE', 'ERROR')
+						AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+						AND sd.stream = ANY(dst.streams)
+					)
+			  )
 			  AND (
 					(sd.status IN ('PENDING', 'FAILED') AND (sd.lease_expires_at IS NULL OR sd.lease_expires_at <= NOW()))
 				 OR (sd.status = 'PROCESSING' AND sd.lease_expires_at <= NOW())
@@ -226,13 +237,20 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 	if err != nil {
 		return d.fail(ctx, item, true, err.Error())
 	}
-	if !item.DestinationID.Valid {
-		return d.fail(ctx, item, true, "destination not configured")
+	if payload.OrganizationID != item.OrganizationID {
+		return d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
 	}
-	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String)
+	return d.processPayload(ctx, item, payload)
+}
+
+func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload Payload) error {
+	if !item.DestinationID.Valid {
+		return d.failDelivery(ctx, item, true, "destination not configured")
+	}
+	dest, err := d.loadDestination(ctx, item.OrganizationID, item.DestinationID.String, item.Stream)
 	if err != nil {
 		permanent, message := destinationLoadFailure(err)
-		return d.fail(ctx, item, permanent, message)
+		return d.failDelivery(ctx, item, permanent, message)
 	}
 	switch dest.Kind {
 	case "JSON_FILE":
@@ -257,19 +275,27 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 }
 
 func (d *Dispatcher) fail(ctx context.Context, item delivery, permanent bool, message string) error {
-	if err := d.finish(ctx, item, false, permanent, message); err != nil {
+	return d.failWithHealth(ctx, item, permanent, message, true)
+}
+
+func (d *Dispatcher) failDelivery(ctx context.Context, item delivery, permanent bool, message string) error {
+	return d.failWithHealth(ctx, item, permanent, message, false)
+}
+
+func (d *Dispatcher) failWithHealth(ctx context.Context, item delivery, permanent bool, message string, updateDestinationHealth bool) error {
+	if err := d.finish(ctx, item, false, permanent, message, updateDestinationHealth); err != nil {
 		return err
 	}
 	return errors.New(message)
 }
 
-func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string) (destination, error) {
+func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string, stream string) (destination, error) {
 	var dest destination
 	err := d.db.QueryRowContext(ctx, `
 		SELECT id, organization_id, kind::text, name, endpoint_url, file_path, index, encrypted_token
 		FROM siem_destinations
-		WHERE id = $1 AND organization_id = $2 AND status IN ('ACTIVE', 'ERROR')
-	`, id, organizationID).Scan(&dest.ID, &dest.OrganizationID, &dest.Kind, &dest.Name, &dest.EndpointURL, &dest.FilePath, &dest.Index, &dest.EncryptedToken)
+		WHERE id = $1 AND organization_id = $2 AND status IN ('ACTIVE', 'ERROR') AND $3::"SiemStreamType" = ANY(streams)
+	`, id, organizationID, stream).Scan(&dest.ID, &dest.OrganizationID, &dest.Kind, &dest.Name, &dest.EndpointURL, &dest.FilePath, &dest.Index, &dest.EncryptedToken)
 	return dest, err
 }
 
@@ -280,7 +306,7 @@ func destinationLoadFailure(err error) (bool, string) {
 	return false, err.Error()
 }
 
-func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string) error {
+func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string, updateDestinationHealth ...bool) error {
 	attempts := item.Attempts + 1
 	if ok {
 		res, err := d.db.ExecContext(ctx, `
@@ -312,7 +338,11 @@ func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permane
 	if rows, err := res.RowsAffected(); err == nil && rows != 1 {
 		return errDeliveryLeaseLost
 	}
-	if item.DestinationID.Valid {
+	shouldUpdateDestinationHealth := true
+	if len(updateDestinationHealth) > 0 {
+		shouldUpdateDestinationHealth = updateDestinationHealth[0]
+	}
+	if shouldUpdateDestinationHealth && item.DestinationID.Valid {
 		_, _ = d.db.ExecContext(ctx, `
 			UPDATE siem_destinations
 			SET deliveries_fail = deliveries_fail + 1, last_error = $1, status = 'ERROR', updated_at = NOW()
