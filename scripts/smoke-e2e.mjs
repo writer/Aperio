@@ -234,7 +234,8 @@ export function createInitialReport() {
       consoleFailures: [],
       networkFailures: [],
       directApiV1Requests: [],
-      authorizationBearerRequests: []
+      authorizationBearerRequests: [],
+      siemConnectors: null
     },
     routes: CANONICAL_ROUTES.map((route) => ({
       path: route.path,
@@ -244,10 +245,10 @@ export function createInitialReport() {
     })),
     safeMutations: [
       {
-        surface: "product mutating RPCs",
-        status: "not_applicable",
+        surface: "/siem-connectors CRUD/test-ping/delete",
+        status: "pending",
         reason:
-          "This harness and seed feature does not change product mutation RPC behavior; logout is exercised as an auth-session control and seed idempotence is verified by rerunnable seed/migrate steps."
+          "Creates one local JSON_FILE SIEM destination through the browser, queues a test-ping through the Go API, drains it with the bounded Go dispatcher, and deletes the destination before logout."
       }
     ],
     workerSmokes: [],
@@ -1066,6 +1067,261 @@ async function navigateAndCheck(cdp, route) {
   );
 }
 
+async function browserConnectRpc(cdp, method, body = {}) {
+  const result = await evaluate(
+    cdp,
+    `fetch(${JSON.stringify(`${BROWSER_API_ORIGIN}/aperio.v1.AperioService/${method}`)}, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Connect-Protocol-Version": "1"},
+      credentials: "include",
+      body: ${JSON.stringify(JSON.stringify(body))}
+    }).then(async (response) => {
+      const text = await response.text();
+      let parsed = null;
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = {raw: text.slice(0, 500)};
+        }
+      }
+      return {ok: response.ok, status: response.status, body: parsed};
+    })`,
+    { awaitPromise: true }
+  );
+  if (!result.ok) {
+    throw new Error(
+      `${method} failed with status ${result.status}: ${redactEvidence(
+        JSON.stringify(result.body)
+      )}`
+    );
+  }
+  return result.body;
+}
+
+async function runSiemConnectorCrudFlow(cdp, report, setPhase) {
+  const suffix = `${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+  const destinationName = `Smoke JSON ${suffix}`;
+  const filePath = `smoke/${suffix}.jsonl`;
+  let destinationId = null;
+  let createdFilePath = null;
+  try {
+    setPhase("siem-connectors:create");
+    await cdp.command("Page.navigate", { url: `${WEB_ORIGIN}/siem-connectors` });
+    await waitForExpression(
+      cdp,
+      "SIEM connectors page before CRUD",
+      `location.pathname === "/siem-connectors" && document.body.innerText.includes("SIEM destinations") && document.body.innerText.includes("JSON Lines File")`,
+      45_000
+    );
+    await evaluate(
+      cdp,
+      `(() => {
+        const buttons = [...document.querySelectorAll("button")]
+          .filter((button) => button.innerText.includes("Add destination"));
+        const button = buttons.find((candidate) => {
+          let node = candidate.parentElement;
+          for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+            const text = node.innerText || "";
+            if (text.includes("JSON Lines File") && !text.includes("Splunk HEC")) {
+              return true;
+            }
+          }
+          return false;
+        });
+        if (!button) throw new Error("JSON Lines File add button not found");
+        button.click();
+        return true;
+      })()`
+    );
+    await waitForExpression(
+      cdp,
+      "JSON Lines File dialog",
+      `document.body.innerText.includes("Add JSON Lines File destination")`,
+      15_000
+    );
+    await evaluate(
+      cdp,
+      `(() => {
+        const setValue = (input, value) => {
+          if (!input) throw new Error("missing SIEM dialog input");
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+          setter.call(input, value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        const fieldInput = (labelText) => {
+          const label = [...document.querySelectorAll("[role='dialog'] label")]
+            .find((entry) => (entry.textContent || "").includes(labelText));
+          return label?.parentElement?.querySelector("input");
+        };
+        setValue(fieldInput("Name"), ${JSON.stringify(destinationName)});
+        setValue(fieldInput("Export file path"), ${JSON.stringify(filePath)});
+        document.querySelector("[role='dialog'] form").requestSubmit();
+        return true;
+      })()`
+    );
+    await waitForExpression(
+      cdp,
+      "created SIEM destination visible",
+      `document.body.innerText.includes(${JSON.stringify(destinationName)}) && !document.body.innerText.includes("Adding…")`,
+      30_000
+    );
+    const listAfterCreate = await browserConnectRpc(cdp, "ListSiemDestinations", {});
+    const created = listAfterCreate?.data?.find(
+      (destination) => destination.name === destinationName
+    );
+    const expectedFilePathSuffix = filePath.split("/").join(path.sep);
+    if (!created?.id || created.kind !== "JSON_FILE" || !created.filePath?.endsWith(expectedFilePathSuffix)) {
+      throw new Error(
+        `Created SIEM destination did not round-trip expected JSON_FILE fields: ${redactEvidence(
+          JSON.stringify(created)
+        )}`
+      );
+    }
+    createdFilePath = created.filePath;
+    const serializedCreated = JSON.stringify(created);
+    if (/token|encrypted/i.test(serializedCreated)) {
+      throw new Error("Created SIEM destination list response exposed token fields");
+    }
+    destinationId = created.id;
+
+    setPhase("siem-connectors:test-ping");
+    await evaluate(
+      cdp,
+      `(() => {
+        const row = [...document.querySelectorAll("tr")]
+          .find((entry) => entry.innerText.includes(${JSON.stringify(destinationName)}));
+        if (!row) throw new Error("created SIEM destination row not found");
+        const testButton = [...row.querySelectorAll("button")]
+          .find((button) => button.innerText.includes("Test"));
+        if (!testButton) throw new Error("created SIEM destination test button not found");
+        testButton.click();
+        return true;
+      })()`
+    );
+    await waitForExpression(
+      cdp,
+      "SIEM test-ping queued toast",
+      `document.body.innerText.includes("SIEM test payload queued for dispatcher") || document.body.innerText.includes("Test delivery succeeded")`,
+      30_000
+    );
+    const listBeforeDrain = await browserConnectRpc(cdp, "ListSiemDestinations", {});
+    const beforeDrain = listBeforeDrain?.data?.find(
+      (destination) => destination.id === destinationId
+    );
+    setPhase("siem-connectors:go-dispatcher-drain");
+    const drain = await runCommand("npm", ["run", "worker:siem:go", "--", "-once", "-limit", "5"], {
+      label: "siem connector test-ping drain",
+      timeoutMs: 120_000,
+      env: { DOCKER_HOST: undefined }
+    });
+    setPhase("siem-connectors:status-refresh");
+    await cdp.command("Page.reload", { ignoreCache: true });
+    await waitForExpression(
+      cdp,
+      "SIEM destination health after drain",
+      `(() => {
+        const row = [...document.querySelectorAll("tr")]
+          .find((entry) => entry.innerText.includes(${JSON.stringify(destinationName)}));
+        return row && row.innerText.includes("1 ok") && row.innerText.includes("0 fail");
+      })()`,
+      45_000
+    );
+    const listAfterDrain = await browserConnectRpc(cdp, "ListSiemDestinations", {});
+    const afterDrain = listAfterDrain?.data?.find(
+      (destination) => destination.id === destinationId
+    );
+    const afterDrainOK = afterDrain?.deliveriesOk ?? 0;
+    const afterDrainFail = afterDrain?.deliveriesFail ?? 0;
+    if (!afterDrain || afterDrainOK < 1 || afterDrainFail !== 0) {
+      throw new Error(
+        `SIEM destination health did not update after Go dispatcher drain: ${redactEvidence(
+          JSON.stringify(afterDrain)
+        )}`
+      );
+    }
+
+    setPhase("siem-connectors:delete");
+    await evaluate(
+      cdp,
+      `(() => {
+        const row = [...document.querySelectorAll("tr")]
+          .find((entry) => entry.innerText.includes(${JSON.stringify(destinationName)}));
+        if (!row) throw new Error("SIEM destination row missing before delete");
+        const buttons = [...row.querySelectorAll("button")];
+        const deleteButton = buttons[buttons.length - 1];
+        if (!deleteButton) throw new Error("SIEM destination delete button missing");
+        deleteButton.click();
+        return true;
+      })()`
+    );
+    await waitForExpression(
+      cdp,
+      "SIEM destination removed from browser list",
+      `!document.body.innerText.includes(${JSON.stringify(destinationName)})`,
+      30_000
+    );
+    const listAfterDelete = await browserConnectRpc(cdp, "ListSiemDestinations", {});
+    if (listAfterDelete?.data?.some((destination) => destination.id === destinationId)) {
+      throw new Error("Deleted SIEM destination remained visible through Go API list");
+    }
+    if (createdFilePath) {
+      await fsp.rm(createdFilePath, { force: true });
+    }
+    report.browser.siemConnectors = {
+      status: "passed",
+      route: "/siem-connectors",
+      destinationId,
+      destinationName,
+      kind: "JSON_FILE",
+      filePath,
+      healthBeforeDrain: beforeDrain
+        ? {
+            deliveriesOk: beforeDrain.deliveriesOk ?? 0,
+            deliveriesFail: beforeDrain.deliveriesFail ?? 0,
+            status: beforeDrain.status
+          }
+        : null,
+      healthAfterDrain: {
+        deliveriesOk: afterDrainOK,
+        deliveriesFail: afterDrainFail,
+        status: afterDrain.status
+      },
+      workerDrain: {
+        command: drain.command,
+        exitCode: drain.exitCode,
+        stdoutTail: drain.stdoutTail,
+        stderrTail: drain.stderrTail
+      },
+      redaction: "List responses contained no token or encrypted token fields"
+    };
+    report.safeMutations[0] = {
+      ...report.safeMutations[0],
+      status: "passed",
+      destinationId,
+      destinationName
+    };
+  } catch (error) {
+    report.safeMutations[0] = {
+      ...report.safeMutations[0],
+      status: "failed",
+      error: summarizeError(error)
+    };
+    if (destinationId) {
+      try {
+        await browserConnectRpc(cdp, "DeleteSiemDestination", { id: destinationId });
+      } catch {
+        // Keep the original browser-flow failure; seed/migrate remains idempotent.
+      }
+    }
+    if (createdFilePath) {
+      await fsp.rm(createdFilePath, { force: true }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
 async function runBrowserValidation(report) {
   const browser = await launchBrowser(report);
   let currentPhase = "startup";
@@ -1274,6 +1530,10 @@ async function runBrowserValidation(report) {
         throw new Error(`Route smoke failed for ${route.path}`);
       }
     }
+
+    await runSiemConnectorCrudFlow(cdp, report, (phase) => {
+      currentPhase = phase;
+    });
 
     currentPhase = "refresh-deep-link";
     await cdp.command("Page.navigate", {

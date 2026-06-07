@@ -344,6 +344,8 @@ func (a *App) dispatchCompatAPI(
 		return a.compatForceSync(ctx, segments[3], auth)
 	case method == http.MethodGet && path == "/api/v1/siem/catalog":
 		return map[string]any{"data": compatSiemCatalog()}, nil
+	case method == http.MethodGet && path == "/api/v1/siem":
+		return a.compatListSiem(ctx, auth)
 	case method == http.MethodPost && path == "/api/v1/siem":
 		return a.compatCreateSiem(ctx, body, auth)
 	case method == http.MethodDelete && len(segments) == 4 && segments[2] == "siem":
@@ -1091,16 +1093,26 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	id := compatID("siem")
-	kind, name := requiredString(body, "kind"), requiredString(body, "name")
+	kind, name := strings.ToUpper(requiredString(body, "kind")), requiredString(body, "name")
 	streams := stringSlice(body["streams"])
 	if len(streams) == 0 {
 		streams = []string{"FINDINGS"}
 	}
+	normalizedStreams, err := normalizeCompatSiemStreams(streams)
+	if err != nil {
+		return nil, err
+	}
+	streams = normalizedStreams
 	endpointURL := optionalStringPtr(body, "endpointUrl")
+	filePath := optionalStringPtr(body, "filePath")
+	index := optionalStringPtr(body, "index")
+	token := requiredString(body, "token")
+	if err := validateCompatSiemDestinationInput(kind, name, endpointURL, filePath, index, token, streams); err != nil {
+		return nil, err
+	}
 	if err := validateCompatSiemEndpoint(endpointURL); err != nil {
 		return nil, err
 	}
-	filePath := optionalStringPtr(body, "filePath")
 	// The dispatcher later normalizes export paths against its configured root;
 	// this request-time normalization catches traversal payloads early.
 	normalizedFilePath, err := normalizeCompatSiemFilePath(filePath)
@@ -1108,21 +1120,40 @@ func (a *App) compatCreateSiem(ctx context.Context, body map[string]any, auth co
 		return nil, err
 	}
 	filePath = normalizedFilePath
+	if filePath != nil && len(*filePath) > 500 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM file path is too long"))
+	}
 	encryptedToken, err := encryptedOptionalSecret(body, "token", auth.OrganizationID+":siem:"+id+":token")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM token encryption failed"))
 	}
-	_, err = a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, optionalStringPtr(body, "index"), encryptedToken, streams)
+	_, err = a.db.ExecContext(ctx, `INSERT INTO siem_destinations (id, organization_id, kind, name, endpoint_url, file_path, index, encrypted_token, streams, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',NOW(),NOW())`, id, auth.OrganizationID, kind, name, endpointURL, filePath, index, encryptedToken, streams)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	a.writeCompatAudit(ctx, auth, "siem.destination.create", "siem_destination", id, map[string]any{"kind": kind, "name": name, "streams": streams})
-	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": optionalStringPtr(body, "index"), "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": map[string]any{"id": id, "kind": kind, "name": name, "endpointUrl": endpointURL, "filePath": filePath, "index": index, "streams": streams, "status": "ACTIVE", "lastDeliveryAt": nil, "lastError": nil, "deliveriesOk": 0, "deliveriesFail": 0, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
+}
+
+func (a *App) compatListSiem(ctx context.Context, auth compatAuth) (any, error) {
+	rows, err := a.listSiemDestinations(ctx, auth.OrganizationID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM destinations unavailable"))
+	}
+	data := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		data = append(data, row.toCompatMap())
+	}
+	return map[string]any{"data": data}, nil
 }
 
 func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination id is required"))
 	}
 	_, err := a.db.ExecContext(ctx, `DELETE FROM siem_destinations WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
 	if err != nil {
@@ -1134,6 +1165,10 @@ func (a *App) compatDeleteSiem(ctx context.Context, id string, auth compatAuth) 
 func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination id is required"))
 	}
 	var kind string
 	var status string
@@ -1181,7 +1216,7 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 
 func compatSiemTestPingKindSupported(kind string) bool {
 	switch kind {
-	case "JSON_FILE", "GENERIC_WEBHOOK":
+	case "SPLUNK_HEC", "PANTHER", "PANOPTICON", "ELASTIC", "DATADOG", "GENERIC_WEBHOOK", "CEREBRO_CLAIMS", "JSON_FILE":
 		return true
 	default:
 		return false
@@ -1210,14 +1245,18 @@ func compatSiemTestPingStream(streams []string) (stream string, payloadKind stri
 
 func compatSiemTestPingRecord(stream string, deliveryID string) map[string]any {
 	record := map[string]any{
-		"test":     true,
-		"id":       deliveryID,
-		"title":    "Aperio SIEM connectivity test",
-		"provider": "APERIO",
+		"test":          true,
+		"id":            deliveryID,
+		"dedupeKey":     "siem-test:" + deliveryID,
+		"sourceEventId": "siem-test:" + deliveryID,
+		"title":         "Aperio SIEM connectivity test",
+		"provider":      "APERIO",
+		"source":        "aperio.siem.test",
 	}
 	switch stream {
 	case "FINDINGS":
 		record["severity"] = "INFO"
+		record["status"] = "OPEN"
 	case "EVENTS":
 		record["eventType"] = "aperio.siem.test"
 		record["severity"] = "INFO"
@@ -1226,6 +1265,124 @@ func compatSiemTestPingRecord(stream string, deliveryID string) map[string]any {
 		record["outcome"] = "QUEUED"
 	}
 	return record
+}
+
+func normalizeCompatSiemStreams(streams []string) ([]string, error) {
+	valid := map[string]struct{}{
+		"FINDINGS":   {},
+		"EVENTS":     {},
+		"AUDIT_LOGS": {},
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(streams))
+	for _, stream := range streams {
+		trimmed := strings.TrimSpace(stream)
+		if _, ok := valid[trimmed]; !ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported SIEM stream %q", stream))
+		}
+		if _, duplicate := seen[trimmed]; duplicate {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("at least one SIEM stream is required"))
+	}
+	return out, nil
+}
+
+func validateCompatSiemDestinationInput(kind string, name string, endpointURL *string, filePath *string, index *string, token string, streams []string) error {
+	definition := findCompatSiemDefinition(kind)
+	if definition == nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported SIEM kind %s", kind))
+	}
+	if strings.TrimSpace(name) == "" || len(name) > 160 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM destination name is required"))
+	}
+	if len(streams) == 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("at least one SIEM stream is required"))
+	}
+	allowedStreams := make(map[string]struct{}, len(definition.DefaultStreams))
+	for _, stream := range definition.DefaultStreams {
+		allowedStreams[stream] = struct{}{}
+	}
+	for _, stream := range streams {
+		if _, ok := allowedStreams[stream]; !ok {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s does not support SIEM stream %s", kind, stream))
+		}
+	}
+	if endpointURL != nil && len(*endpointURL) > 500 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM endpoint URL is too long"))
+	}
+	if filePath != nil && len(*filePath) > 500 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM file path is too long"))
+	}
+	if index != nil && len(*index) > 120 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM index is too long"))
+	}
+	if len(token) > 8192 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("SIEM token is too long"))
+	}
+	for _, field := range definition.Fields {
+		if !field.Required {
+			continue
+		}
+		switch field.Key {
+		case "endpointUrl":
+			if endpointURL == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "filePath":
+			if filePath == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "index":
+			if index == nil {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		case "token":
+			if token == "" {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field.Label))
+			}
+		}
+	}
+	return nil
+}
+
+func findCompatSiemDefinition(kind string) *siemDestinationDefinition {
+	catalog := compatSiemCatalog()
+	for index := range catalog {
+		if catalog[index].Kind == kind {
+			return &catalog[index]
+		}
+	}
+	return nil
+}
+
+func (row siemDestinationRow) toCompatMap() map[string]any {
+	return map[string]any{
+		"id":             row.ID,
+		"kind":           row.Kind,
+		"name":           row.Name,
+		"endpointUrl":    blankStringAsNil(row.EndpointURL),
+		"filePath":       blankStringAsNil(row.FilePath),
+		"index":          blankStringAsNil(row.Index),
+		"streams":        append([]string{}, row.Streams...),
+		"status":         row.Status,
+		"lastDeliveryAt": blankStringAsNil(nullTimeString(row.LastDeliveryAt)),
+		"lastError":      blankStringAsNil(row.LastError),
+		"deliveriesOk":   row.DeliveriesOk,
+		"deliveriesFail": row.DeliveriesFail,
+		"createdAt":      row.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func blankStringAsNil(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {

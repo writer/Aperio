@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -70,6 +72,43 @@ func dataMap(t *testing.T, result any) map[string]any {
 		t.Fatalf("expected data map, got %T", envelope["data"])
 	}
 	return data
+}
+
+type dbRouteCaptureTransport struct {
+	t        *testing.T
+	calls    []dbRouteCapturedRequest
+	failOnDo bool
+}
+
+type dbRouteCapturedRequest struct {
+	method string
+	url    string
+	header http.Header
+	body   []byte
+}
+
+func (transport *dbRouteCaptureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if transport.failOnDo {
+		transport.t.Fatalf("unexpected outbound SIEM request after destination deletion: %s %s", req.Method, req.URL.String())
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	transport.calls = append(transport.calls, dbRouteCapturedRequest{
+		method: req.Method,
+		url:    req.URL.String(),
+		header: req.Header.Clone(),
+		body:   append([]byte(nil), body...),
+	})
+	status := http.StatusOK
+	return &http.Response{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("")),
+		Request:    req,
+	}, nil
 }
 
 func seedSessionHeader(t *testing.T, app *App, auth compatAuth) http.Header {
@@ -328,6 +367,447 @@ func TestDBSiemLifecycle(t *testing.T) {
 	}
 }
 
+func TestDBSiemDestinationCRUDValidatesAndRedactsAcrossSurfaces(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+
+	const plaintextToken = "siem-redact"
+	createReq := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
+		Kind:        "GENERIC_WEBHOOK",
+		Name:        "Redacted webhook",
+		EndpointUrl: "https://8.8.8.8/aperio",
+		Streams:     []string{"FINDINGS", "FINDINGS"},
+		Token:       plaintextToken,
+	})
+	copyCompatHeaders(createReq.Header(), header)
+	createResp, err := app.CreateSiemDestination(ctx, createReq)
+	if err != nil {
+		t.Fatalf("typed create SIEM destination: %v", err)
+	}
+	destinationID := createResp.Msg.Data.Id
+	if createResp.Msg.Data.Kind != "GENERIC_WEBHOOK" || createResp.Msg.Data.Name != "Redacted webhook" {
+		t.Fatalf("typed create response = %#v", createResp.Msg.Data)
+	}
+	if len(createResp.Msg.Data.Streams) != 1 || createResp.Msg.Data.Streams[0] != "FINDINGS" {
+		t.Fatalf("streams should be validated and de-duplicated, got %#v", createResp.Msg.Data.Streams)
+	}
+	var encryptedToken sql.NullString
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT encrypted_token
+		FROM siem_destinations
+		WHERE id = $1 AND organization_id = $2
+	`, destinationID, auth.OrganizationID).Scan(&encryptedToken); err != nil {
+		t.Fatalf("query encrypted SIEM token: %v", err)
+	}
+	if !encryptedToken.Valid || encryptedToken.String == "" || strings.Contains(encryptedToken.String, plaintextToken) {
+		t.Fatalf("expected encrypted token material without plaintext, got valid=%v value=%q", encryptedToken.Valid, encryptedToken.String)
+	}
+
+	listReq := connect.NewRequest(&aperiov1.ListSiemDestinationsRequest{})
+	copyCompatHeaders(listReq.Header(), header)
+	listResp, err := app.ListSiemDestinations(ctx, listReq)
+	if err != nil {
+		t.Fatalf("typed list SIEM destinations: %v", err)
+	}
+	var listed *aperiov1.SiemDestination
+	for _, candidate := range listResp.Msg.Data {
+		if candidate.Id == destinationID {
+			listed = candidate
+			break
+		}
+	}
+	if listed == nil || listed.EndpointUrl != "https://8.8.8.8/aperio" || listed.FilePath != "" || listed.Index != "" {
+		t.Fatalf("typed list destination = %#v", listed)
+	}
+
+	compatList, err := callCompatViaCallAPI(t, app, ctx, header, http.MethodGet, "/api/v1/siem", "")
+	if err != nil {
+		t.Fatalf("compat list SIEM destinations: %v", err)
+	}
+	serializedCompatList, err := json.Marshal(compatList)
+	if err != nil {
+		t.Fatalf("serialize compat list: %v", err)
+	}
+	if strings.Contains(string(serializedCompatList), plaintextToken) || strings.Contains(string(serializedCompatList), encryptedToken.String) || strings.Contains(string(serializedCompatList), "encryptedToken") || strings.Contains(string(serializedCompatList), `"token"`) {
+		t.Fatalf("compat list leaked SIEM secret material: %s", string(serializedCompatList))
+	}
+	compatRows, ok := compatList["data"].([]any)
+	if !ok {
+		t.Fatalf("compat list data = %T", compatList["data"])
+	}
+	foundCompat := false
+	for _, raw := range compatRows {
+		row, _ := raw.(map[string]any)
+		if row["id"] == destinationID {
+			foundCompat = true
+			if row["endpointUrl"] != "https://8.8.8.8/aperio" || row["filePath"] != nil || row["index"] != nil {
+				t.Fatalf("compat list destination = %#v", row)
+			}
+		}
+	}
+	if !foundCompat {
+		t.Fatalf("compat list missing destination %s in %#v", destinationID, compatRows)
+	}
+
+	invalidTyped := []struct {
+		name string
+		req  *aperiov1.CreateSiemDestinationRequest
+	}{
+		{
+			name: "missing required token",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:        "SPLUNK_HEC",
+				Name:        "Missing token",
+				EndpointUrl: "https://8.8.8.8/services/collector",
+				Streams:     []string{"FINDINGS"},
+			},
+		},
+		{
+			name: "invalid stream",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:        "GENERIC_WEBHOOK",
+				Name:        "Invalid stream",
+				EndpointUrl: "https://8.8.8.8/aperio",
+				Streams:     []string{"FINDINGS", "BAD_STREAM"},
+			},
+		},
+		{
+			name: "unsafe endpoint",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:        "GENERIC_WEBHOOK",
+				Name:        "Unsafe endpoint",
+				EndpointUrl: "http://8.8.8.8/aperio",
+				Streams:     []string{"FINDINGS"},
+			},
+		},
+		{
+			name: "kind-specific unsupported stream",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:        "ELASTIC",
+				Name:        "Unsupported stream",
+				EndpointUrl: "https://8.8.8.8/_bulk",
+				Index:       "aperio-findings",
+				Token:       "elastic-token",
+				Streams:     []string{"EVENTS"},
+			},
+		},
+		{
+			name: "unsafe file path",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:     "JSON_FILE",
+				Name:     "Unsafe file path",
+				FilePath: "../escape.jsonl",
+				Streams:  []string{"FINDINGS"},
+			},
+		},
+		{
+			name: "unsupported kind",
+			req: &aperiov1.CreateSiemDestinationRequest{
+				Kind:    "UNKNOWN_SIEM",
+				Name:    "Unknown kind",
+				Streams: []string{"FINDINGS"},
+			},
+		},
+	}
+	for _, testCase := range invalidTyped {
+		t.Run(testCase.name, func(t *testing.T) {
+			before := countSiemDestinations(t, app, auth.OrganizationID)
+			req := connect.NewRequest(testCase.req)
+			copyCompatHeaders(req.Header(), header)
+			if _, err := app.CreateSiemDestination(ctx, req); connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Fatalf("typed invalid create code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+			}
+			if after := countSiemDestinations(t, app, auth.OrganizationID); after != before {
+				t.Fatalf("invalid typed create changed destination count from %d to %d", before, after)
+			}
+		})
+	}
+
+	beforeCompatInvalid := countSiemDestinations(t, app, auth.OrganizationID)
+	if _, err := callCompatViaCallAPI(t, app, ctx, header, http.MethodPost, "/api/v1/siem", `{"kind":"ELASTIC","name":"Missing index","endpointUrl":"https://8.8.8.8/_bulk","streams":["FINDINGS"],"token":"elastic-token"}`); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("compat invalid create code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+	if after := countSiemDestinations(t, app, auth.OrganizationID); after != beforeCompatInvalid {
+		t.Fatalf("invalid compat create changed destination count from %d to %d", beforeCompatInvalid, after)
+	}
+}
+
+func TestDBSiemTestPingCoversEveryGoOwnedAdapter(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+
+	type adapterConfig struct {
+		kind                 string
+		endpointURL          string
+		filePath             string
+		index                string
+		token                string
+		expectedHTTPRequests int
+	}
+	adapters := []adapterConfig{
+		{kind: "SPLUNK_HEC", endpointURL: "https://8.8.8.8/splunk", token: "splunk-test-token", expectedHTTPRequests: 2},
+		{kind: "PANTHER", endpointURL: "https://8.8.8.8/panther", token: "panther-test-token", expectedHTTPRequests: 2},
+		{kind: "PANOPTICON", endpointURL: "https://8.8.8.8/panopticon", expectedHTTPRequests: 2},
+		{kind: "ELASTIC", endpointURL: "https://8.8.8.8/_bulk", index: "aperio-test-ping", token: "elastic-test-token", expectedHTTPRequests: 2},
+		{kind: "DATADOG", endpointURL: "https://8.8.8.8/datadog", token: "datadog-test-token", expectedHTTPRequests: 2},
+		{kind: "GENERIC_WEBHOOK", endpointURL: "https://8.8.8.8/webhook", token: "webhook-test-token", expectedHTTPRequests: 2},
+		{kind: "CEREBRO_CLAIMS", endpointURL: "https://8.8.8.8/cerebro", index: "runtime-test-ping", token: "cerebro-test-token", expectedHTTPRequests: 4},
+		{kind: "JSON_FILE", filePath: "all-adapters-test-ping.jsonl"},
+	}
+
+	destinationIDs := map[string]string{}
+	for _, adapter := range adapters {
+		req := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
+			Kind:        adapter.kind,
+			Name:        adapter.kind + " test ping",
+			EndpointUrl: adapter.endpointURL,
+			FilePath:    adapter.filePath,
+			Index:       adapter.index,
+			Token:       adapter.token,
+			Streams:     []string{"FINDINGS"},
+		})
+		copyCompatHeaders(req.Header(), header)
+		resp, err := app.CreateSiemDestination(ctx, req)
+		if err != nil {
+			t.Fatalf("create %s SIEM destination: %v", adapter.kind, err)
+		}
+		destinationID := resp.Msg.Data.Id
+		destinationIDs[adapter.kind] = destinationID
+
+		compatResult, err := app.compatTestSiem(ctx, destinationID, auth)
+		if err != nil {
+			t.Fatalf("compat test-ping %s: %v", adapter.kind, err)
+		}
+		if dataMap(t, compatResult)["stream"] != "FINDINGS" {
+			t.Fatalf("%s compat test-ping stream = %#v", adapter.kind, dataMap(t, compatResult)["stream"])
+		}
+		typedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+		copyCompatHeaders(typedReq.Header(), header)
+		typedResp, err := app.TestSiemDestination(ctx, typedReq)
+		if err != nil {
+			t.Fatalf("typed test-ping %s: %v", adapter.kind, err)
+		}
+		if !typedResp.Msg.Data.Ok || typedResp.Msg.Data.DestinationId != destinationID {
+			t.Fatalf("%s typed test-ping response = %#v", adapter.kind, typedResp.Msg.Data)
+		}
+
+		rows, err := app.db.QueryContext(ctx, `
+			SELECT id, stream::text, payload
+			FROM siem_deliveries
+			WHERE destination_id = $1 AND organization_id = $2
+			ORDER BY created_at, id
+		`, destinationID, auth.OrganizationID)
+		if err != nil {
+			t.Fatalf("query queued %s test-pings: %v", adapter.kind, err)
+		}
+		queued := 0
+		for rows.Next() {
+			var deliveryID, stream string
+			var rawPayload json.RawMessage
+			if err := rows.Scan(&deliveryID, &stream, &rawPayload); err != nil {
+				t.Fatalf("scan queued %s test-ping: %v", adapter.kind, err)
+			}
+			var payload siemdispatcher.Payload
+			if err := json.Unmarshal(rawPayload, &payload); err != nil {
+				t.Fatalf("decode queued %s test-ping: %v", adapter.kind, err)
+			}
+			if stream != "FINDINGS" || payload.Kind != "finding" || payload.OrganizationID != auth.OrganizationID || payload.Record["test"] != true || payload.Record["id"] != deliveryID || payload.Record["sourceEventId"] == "" {
+				t.Fatalf("%s queued test-ping payload = stream=%s payload=%#v", adapter.kind, stream, payload)
+			}
+			queued++
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate queued %s test-pings: %v", adapter.kind, err)
+		}
+		rows.Close()
+		if queued != 2 {
+			t.Fatalf("%s expected two queued test-pings, got %d", adapter.kind, queued)
+		}
+	}
+
+	transport := &dbRouteCaptureTransport{t: t}
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	dispatcher.SetHTTPClientForTesting(&http.Client{Transport: transport})
+	dispatcher.SetEndpointSafetyCheckForTesting(func(_ context.Context, endpoint string) error {
+		if !strings.HasPrefix(endpoint, "https://8.8.8.8/") {
+			return fmt.Errorf("unexpected non-local SIEM test endpoint %s", endpoint)
+		}
+		return nil
+	})
+	drainResult, err := dispatcher.Drain(ctx, 100)
+	if err != nil {
+		t.Fatalf("drain all adapter test-pings: %v", err)
+	}
+	wantDeliveries := len(adapters) * 2
+	if drainResult.Processed != wantDeliveries || drainResult.Delivered != wantDeliveries || drainResult.Failed != 0 {
+		t.Fatalf("unexpected all-adapter test-ping drain result: %#v", drainResult)
+	}
+
+	wantHTTPRequests := 0
+	for _, adapter := range adapters {
+		wantHTTPRequests += adapter.expectedHTTPRequests
+		assertSiemDestinationHealth(t, app, adapter.kind, destinationIDs[adapter.kind], "ACTIVE", 2, 0)
+	}
+	if len(transport.calls) != wantHTTPRequests {
+		t.Fatalf("captured HTTP request count = %d, want %d", len(transport.calls), wantHTTPRequests)
+	}
+	for _, call := range transport.calls {
+		for _, adapter := range adapters {
+			if adapter.token != "" && strings.Contains(string(call.body), adapter.token) {
+				t.Fatalf("%s request body leaked token %q: %s", adapter.kind, adapter.token, string(call.body))
+			}
+		}
+	}
+	rawJSONL, err := os.ReadFile(filepath.Join(exportRoot, "all-adapters-test-ping.jsonl"))
+	if err != nil {
+		t.Fatalf("read JSON_FILE test-ping output: %v", err)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(rawJSONL)), "\n"); len(lines) != 2 {
+		t.Fatalf("JSON_FILE test-ping wrote %d lines, want 2: %q", len(lines), string(rawJSONL))
+	}
+}
+
+func TestDBSiemDestinationDeletionDeadLettersQueuedAndExpiredInFlightWithoutSending(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
+	ctx := context.Background()
+	header := seedSessionHeader(t, app, auth)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+
+	createReq := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
+		Kind:     "JSON_FILE",
+		Name:     "Delete safety JSON",
+		FilePath: "deleted-destination.jsonl",
+		Streams:  []string{"FINDINGS"},
+	})
+	copyCompatHeaders(createReq.Header(), header)
+	createResp, err := app.CreateSiemDestination(ctx, createReq)
+	if err != nil {
+		t.Fatalf("create delete-safety SIEM destination: %v", err)
+	}
+	destinationID := createResp.Msg.Data.Id
+	if _, err := app.compatTestSiem(ctx, destinationID, auth); err != nil {
+		t.Fatalf("queue compat delete-safety test-ping: %v", err)
+	}
+	typedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+	copyCompatHeaders(typedReq.Header(), header)
+	if _, err := app.TestSiemDestination(ctx, typedReq); err != nil {
+		t.Fatalf("queue typed delete-safety test-ping: %v", err)
+	}
+	var inFlightID string
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM siem_deliveries
+		WHERE destination_id = $1 AND organization_id = $2
+		ORDER BY created_at, id
+		LIMIT 1
+	`, destinationID, auth.OrganizationID).Scan(&inFlightID); err != nil {
+		t.Fatalf("query queued delete-safety delivery: %v", err)
+	}
+	if _, err := app.db.ExecContext(ctx, `
+		UPDATE siem_deliveries
+		SET status = 'PROCESSING'::"SiemDeliveryStatus",
+		    lease_owner = 'stale-delete-safety-worker',
+		    lease_expires_at = NOW() - INTERVAL '1 minute',
+		    updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2
+	`, inFlightID, auth.OrganizationID); err != nil {
+		t.Fatalf("mark delete-safety delivery in-flight: %v", err)
+	}
+
+	if _, err := app.compatDeleteSiem(ctx, destinationID, auth); err != nil {
+		t.Fatalf("delete SIEM destination with queued work: %v", err)
+	}
+	listReq := connect.NewRequest(&aperiov1.ListSiemDestinationsRequest{})
+	copyCompatHeaders(listReq.Header(), header)
+	listResp, err := app.ListSiemDestinations(ctx, listReq)
+	if err != nil {
+		t.Fatalf("list after delete: %v", err)
+	}
+	for _, destination := range listResp.Msg.Data {
+		if destination.Id == destinationID {
+			t.Fatalf("deleted destination remained listable: %#v", destination)
+		}
+	}
+	if _, err := app.compatTestSiem(ctx, destinationID, auth); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("deleted compat test-ping code = %v (%v), want CodeNotFound", connect.CodeOf(err), err)
+	}
+	deletedTypedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+	copyCompatHeaders(deletedTypedReq.Header(), header)
+	if _, err := app.TestSiemDestination(ctx, deletedTypedReq); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("deleted typed test-ping code = %v (%v), want CodeNotFound", connect.CodeOf(err), err)
+	}
+	var destinationReferences int
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id = $2
+	`, auth.OrganizationID, destinationID).Scan(&destinationReferences); err != nil {
+		t.Fatalf("count post-delete destination references: %v", err)
+	}
+	if destinationReferences != 0 {
+		t.Fatalf("delete left %d delivery references to destination %s", destinationReferences, destinationID)
+	}
+
+	transport := &dbRouteCaptureTransport{t: t, failOnDo: true}
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	dispatcher.SetHTTPClientForTesting(&http.Client{Transport: transport})
+	dispatcher.SetEndpointSafetyCheckForTesting(func(context.Context, string) error {
+		t.Fatal("deleted destination should fail before endpoint safety")
+		return nil
+	})
+	drainResult, err := dispatcher.Drain(ctx, 10)
+	if err != nil {
+		t.Fatalf("drain deleted destination work: %v", err)
+	}
+	if drainResult.Processed != 2 || drainResult.Delivered != 0 || drainResult.Failed != 2 {
+		t.Fatalf("unexpected deleted destination drain result: %#v", drainResult)
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, "deleted-destination.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("deleted destination wrote JSONL side effect, stat err=%v", err)
+	}
+	rows, err := app.db.QueryContext(ctx, `
+		SELECT status::text, attempts, delivered_at, last_error
+		FROM siem_deliveries
+		WHERE organization_id = $1 AND destination_id IS NULL
+		  AND payload->'record'->>'title' = 'Aperio SIEM connectivity test'
+		ORDER BY created_at, id
+	`, auth.OrganizationID)
+	if err != nil {
+		t.Fatalf("query deleted destination deliveries: %v", err)
+	}
+	defer rows.Close()
+	deadLetters := 0
+	for rows.Next() {
+		var status string
+		var attempts int
+		var deliveredAt sql.NullTime
+		var lastError sql.NullString
+		if err := rows.Scan(&status, &attempts, &deliveredAt, &lastError); err != nil {
+			t.Fatalf("scan deleted destination delivery: %v", err)
+		}
+		if status != "DEAD_LETTER" || attempts != 1 || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "destination not configured") {
+			t.Fatalf("deleted destination delivery state = status=%s attempts=%d delivered=%v error=%v", status, attempts, deliveredAt, lastError)
+		}
+		deadLetters++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate deleted destination deliveries: %v", err)
+	}
+	if deadLetters != 2 {
+		t.Fatalf("expected two deleted destination dead letters, got %d", deadLetters)
+	}
+}
+
 func TestDBSiemTestPingQueuesAndDrainsThroughDispatcher(t *testing.T) {
 	app, baseAuth := newTestDBApp(t)
 	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
@@ -488,20 +968,19 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 	app, baseAuth := newTestDBApp(t)
 	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
 	ctx := context.Background()
-	exportRoot := t.TempDir()
-	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
 
 	adminHeader := seedSessionHeader(t, app, auth)
 	createReq := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
-		Kind:     "JSON_FILE",
-		Name:     "Local JSON event test ping",
-		FilePath: "test-ping-events.jsonl",
-		Streams:  []string{"EVENTS"},
+		Kind:        "PANTHER",
+		Name:        "Panther event test ping",
+		EndpointUrl: "https://8.8.8.8/panther-events",
+		Token:       "panther-events-token",
+		Streams:     []string{"EVENTS"},
 	})
 	copyCompatHeaders(createReq.Header(), adminHeader)
 	createResp, err := app.CreateSiemDestination(ctx, createReq)
 	if err != nil {
-		t.Fatalf("typed create events-only JSON_FILE SIEM destination: %v", err)
+		t.Fatalf("typed create events-only PANTHER SIEM destination: %v", err)
 	}
 	destinationID := createResp.Msg.Data.Id
 
@@ -563,8 +1042,16 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 		t.Fatalf("expected compat+typed events-only test pings to enqueue two deliveries, got %v", queuedIDs)
 	}
 
+	transport := &dbRouteCaptureTransport{t: t}
 	dispatcher := siemdispatcher.New(app.db)
 	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	dispatcher.SetHTTPClientForTesting(&http.Client{Transport: transport})
+	dispatcher.SetEndpointSafetyCheckForTesting(func(_ context.Context, endpoint string) error {
+		if endpoint != "https://8.8.8.8/panther-events" {
+			return fmt.Errorf("unexpected events-only test endpoint %s", endpoint)
+		}
+		return nil
+	})
 	drainResult, err := dispatcher.Drain(ctx, 10)
 	if err != nil {
 		t.Fatalf("drain events-only test pings: %v", err)
@@ -572,21 +1059,19 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 	if drainResult.Processed != 2 || drainResult.Delivered != 2 || drainResult.Failed != 0 {
 		t.Fatalf("unexpected events-only test-ping drain result: %#v", drainResult)
 	}
-	raw, err := os.ReadFile(filepath.Join(exportRoot, "test-ping-events.jsonl"))
-	if err != nil {
-		t.Fatalf("read events-only test-ping JSONL: %v", err)
+	if len(transport.calls) != 2 {
+		t.Fatalf("expected two Panther event test-ping HTTP requests, got %d", len(transport.calls))
 	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("expected two dispatcher-written event test envelopes, got %d lines: %q", len(lines), string(raw))
-	}
-	for _, line := range lines {
+	for _, call := range transport.calls {
 		var envelope siemdispatcher.Envelope
-		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+		if err := json.Unmarshal(call.body, &envelope); err != nil {
 			t.Fatalf("decode events-only test-ping envelope: %v", err)
 		}
 		if envelope.SchemaVersion != "aperio.event.v1" || envelope.Kind != "event" || envelope.DestinationID != destinationID || envelope.OrganizationID != auth.OrganizationID || envelope.Record["test"] != true {
 			t.Fatalf("unexpected events-only test-ping envelope: %#v", envelope)
+		}
+		if strings.Contains(string(call.body), "panther-events-token") {
+			t.Fatalf("Panther event test-ping body leaked token: %s", string(call.body))
 		}
 	}
 
@@ -602,17 +1087,17 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 	`, noStreamID, auth.OrganizationID); err != nil {
 		t.Fatalf("seed no-stream SIEM destination: %v", err)
 	}
-	splunkID := compatID("siem")
+	pausedID := compatID("siem")
 	if _, err := app.db.ExecContext(ctx, `
 		INSERT INTO siem_destinations (
-			id, organization_id, kind, name, endpoint_url, streams, status, created_at, updated_at
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
 		)
 		VALUES (
-			$1, $2, 'SPLUNK_HEC'::"SiemKind", 'Unsupported Splunk test ping',
-			'https://8.8.8.8/services/collector', ARRAY['FINDINGS'::"SiemStreamType"], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+			$1, $2, 'JSON_FILE'::"SiemKind", 'Paused JSON test ping',
+			'paused.jsonl', ARRAY['FINDINGS'::"SiemStreamType"], 'PAUSED'::"SiemStatus", NOW(), NOW()
 		)
-	`, splunkID, auth.OrganizationID); err != nil {
-		t.Fatalf("seed unsupported SIEM destination: %v", err)
+	`, pausedID, auth.OrganizationID); err != nil {
+		t.Fatalf("seed paused SIEM destination: %v", err)
 	}
 	countDeliveries := func(destinationID string) int {
 		t.Helper()
@@ -624,7 +1109,7 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 	}
 	for name, unsupportedID := range map[string]string{
 		"no subscribed streams": noStreamID,
-		"unsupported kind":      splunkID,
+		"paused destination":    pausedID,
 	} {
 		t.Run(name, func(t *testing.T) {
 			before := countDeliveries(unsupportedID)
@@ -1560,6 +2045,56 @@ func callRemediationViaCallAPI(t *testing.T, app *App, ctx context.Context, head
 		t.Fatalf("decode CallApi remediation response: %v", err)
 	}
 	return dataMap(t, envelope), nil
+}
+
+func callCompatViaCallAPI(t *testing.T, app *App, ctx context.Context, header http.Header, method string, path string, bodyJSON string) (map[string]any, error) {
+	t.Helper()
+	req := connect.NewRequest(&aperiov1.CallApiRequest{
+		Method:   method,
+		Path:     path,
+		BodyJson: bodyJSON,
+	})
+	copyCompatHeaders(req.Header(), header)
+	resp, err := app.CallApi(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(resp.Msg.BodyJson), &envelope); err != nil {
+		t.Fatalf("decode CallApi %s %s response: %v", method, path, err)
+	}
+	return envelope, nil
+}
+
+func countSiemDestinations(t *testing.T, app *App, organizationID string) int {
+	t.Helper()
+	var count int
+	if err := app.db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM siem_destinations
+		WHERE organization_id = $1
+	`, organizationID).Scan(&count); err != nil {
+		t.Fatalf("count SIEM destinations: %v", err)
+	}
+	return count
+}
+
+func assertSiemDestinationHealth(t *testing.T, app *App, kind string, destinationID string, wantStatus string, wantOK int, wantFail int) {
+	t.Helper()
+	var status string
+	var deliveriesOK, deliveriesFail int
+	var lastDeliveryAt sql.NullTime
+	var lastError sql.NullString
+	if err := app.db.QueryRowContext(context.Background(), `
+		SELECT status::text, deliveries_ok, deliveries_fail, last_delivery_at, last_error
+		FROM siem_destinations
+		WHERE id = $1
+	`, destinationID).Scan(&status, &deliveriesOK, &deliveriesFail, &lastDeliveryAt, &lastError); err != nil {
+		t.Fatalf("query %s SIEM destination health: %v", kind, err)
+	}
+	if status != wantStatus || deliveriesOK != wantOK || deliveriesFail != wantFail || !lastDeliveryAt.Valid || lastError.Valid {
+		t.Fatalf("%s destination health = status=%s ok=%d fail=%d last=%v error=%v, want status=%s ok=%d fail=%d with last delivery and no error", kind, status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError, wantStatus, wantOK, wantFail)
+	}
 }
 
 func seedExhaustedRateLimitBucket(t *testing.T, app *App, header http.Header, method, path string) {

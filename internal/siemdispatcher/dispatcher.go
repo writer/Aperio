@@ -136,6 +136,18 @@ func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
 	d.organizationID = organizationID
 }
 
+// SetHTTPClientForTesting installs a deterministic local transport for DB-backed
+// surface tests so adapter drains can be proven without contacting real SIEMs.
+func (d *Dispatcher) SetHTTPClientForTesting(client *http.Client) {
+	d.httpClient = client
+}
+
+// SetEndpointSafetyCheckForTesting injects the local harness safety gate used by
+// DB-backed surface tests while keeping production endpoint safety enabled by default.
+func (d *Dispatcher) SetEndpointSafetyCheckForTesting(check func(context.Context, string) error) {
+	d.endpointSafetyCheck = check
+}
+
 func StableDeliveryKey(payload Payload, destinationID string, stream string) string {
 	record := payload.Record
 	stableRecordID := firstString(record["findingId"], record["id"], record["dedupeKey"], record["sourceEventId"])

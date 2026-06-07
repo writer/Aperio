@@ -104,6 +104,22 @@ test("worker smoke commands are bounded Go transition smokes", async () => {
   );
 });
 
+test("smoke harness exercises the SIEM connector browser CRUD flow", async () => {
+  const smoke = await loadSmokeHarness();
+  const report = smoke.createInitialReport();
+  const harness = readRepoFile("scripts/smoke-e2e.mjs");
+
+  assert.equal(report.browser.siemConnectors, null);
+  assert.equal(
+    report.safeMutations[0].surface,
+    "/siem-connectors CRUD/test-ping/delete"
+  );
+  assert.match(harness, /async function runSiemConnectorCrudFlow/);
+  assert.match(harness, /ListSiemDestinations/);
+  assert.match(harness, /DeleteSiemDestination/);
+  assert.match(harness, /worker:siem:go/);
+});
+
 test("browser launch startup failures clean up Chrome and temp profile", () => {
   const harness = readRepoFile("scripts/smoke-e2e.mjs");
   assert.match(harness, /async function launchBrowser\(report\)[\s\S]*try \{/);
