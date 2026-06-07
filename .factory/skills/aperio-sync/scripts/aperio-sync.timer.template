@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly aperio-sync timer
+Documentation=file://%h/.factory/skills/aperio-sync/SKILL.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=aperio-sync.service
+
+[Install]
+WantedBy=timers.target

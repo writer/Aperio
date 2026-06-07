@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync local Aperio clone with origin/main
+Documentation=file://%h/.factory/skills/aperio-sync/SKILL.md
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash "__SCRIPT_PATH__"
+StandardOutput=append:%h/.local/state/aperio-sync.log
+StandardError=append:%h/.local/state/aperio-sync.err.log
+
+[Install]
+WantedBy=default.target
