@@ -1,0 +1,176 @@
+package mcpbroker
+
+import (
+	"testing"
+	"time"
+)
+
+func TestApprovedToolsCatalog(t *testing.T) {
+	tools := ApprovedTools()
+	wantNames := []string{
+		"aperio.register_agent",
+		"aperio.create_task",
+		"aperio.send_message",
+		"aperio.list_tasks",
+		"aperio.propose_remediation",
+		"aperio.enqueue_siem_payload",
+	}
+	if len(tools) != len(wantNames) {
+		t.Fatalf("tool count = %d, want %d", len(tools), len(wantNames))
+	}
+	for index, wantName := range wantNames {
+		tool := tools[index]
+		if tool.Name != wantName {
+			t.Fatalf("tool[%d].Name = %q, want %q", index, tool.Name, wantName)
+		}
+		if tool.Description == "" {
+			t.Fatalf("%s missing description", tool.Name)
+		}
+		if got := tool.InputSchema["additionalProperties"]; got != false {
+			t.Fatalf("%s additionalProperties = %v, want false", tool.Name, got)
+		}
+		if tool.InputSchema["type"] != "object" {
+			t.Fatalf("%s schema type = %v, want object", tool.Name, tool.InputSchema["type"])
+		}
+	}
+
+	required := map[string][]any{}
+	for _, tool := range tools {
+		required[tool.Name], _ = tool.InputSchema["required"].([]any)
+	}
+	assertRequired(t, required["aperio.register_agent"], "organizationId", "key", "name")
+	assertRequired(t, required["aperio.create_task"], "organizationId", "taskType", "title")
+	assertRequired(t, required["aperio.send_message"], "organizationId", "content")
+	assertRequired(t, required["aperio.list_tasks"], "organizationId")
+	assertRequired(t, required["aperio.propose_remediation"], "organizationId", "action", "rationale", "payload")
+	assertRequired(t, required["aperio.enqueue_siem_payload"], "organizationId", "record")
+
+	registerProps := tools[0].InputSchema["properties"].(map[string]any)
+	if registerProps["kind"].(map[string]any)["default"] != "CUSTOM" {
+		t.Fatalf("register_agent kind default drifted")
+	}
+	if registerProps["status"].(map[string]any)["default"] != "ACTIVE" {
+		t.Fatalf("register_agent status default drifted")
+	}
+	sendProps := tools[2].InputSchema["properties"].(map[string]any)
+	if sendProps["messageType"].(map[string]any)["default"] != "a2a.message.v1" {
+		t.Fatalf("send_message messageType default drifted")
+	}
+	enqueueProps := tools[5].InputSchema["properties"].(map[string]any)
+	if enqueueProps["kind"].(map[string]any)["default"] != "finding" {
+		t.Fatalf("enqueue kind default drifted")
+	}
+	if enqueueProps["occurredAt"].(map[string]any)["format"] != "date-time" {
+		t.Fatalf("enqueue occurredAt must advertise date-time format")
+	}
+}
+
+func TestValidateToolArgumentsDefaultsAndTrimming(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 13, 14, 15, time.UTC)
+	register, err := ValidateToolArguments("aperio.register_agent", map[string]any{
+		"organizationId": " org_1 ",
+		"key":            " worker ",
+		"name":           " MCP Worker ",
+		"capabilities":   []any{" scan ", "remediate"},
+	}, now)
+	if err != nil {
+		t.Fatalf("register validation failed: %v", err)
+	}
+	if register["organizationId"] != "org_1" || register["key"] != "worker" || register["name"] != "MCP Worker" {
+		t.Fatalf("register trimming/defaults wrong: %#v", register)
+	}
+	if register["kind"] != "CUSTOM" || register["status"] != "ACTIVE" {
+		t.Fatalf("register enum defaults wrong: %#v", register)
+	}
+	if got := register["capabilities"].([]string); len(got) != 2 || got[0] != "scan" || got[1] != "remediate" {
+		t.Fatalf("capabilities = %#v", got)
+	}
+
+	task, err := ValidateToolArguments("aperio.create_task", map[string]any{
+		"organizationId": "org_1",
+		"taskType":       "analysis",
+		"title":          "Review alert",
+	}, now)
+	if err != nil {
+		t.Fatalf("create_task validation failed: %v", err)
+	}
+	if input := task["input"].(map[string]any); len(input) != 0 {
+		t.Fatalf("create_task input default = %#v", input)
+	}
+
+	message, err := ValidateToolArguments("aperio.send_message", map[string]any{
+		"organizationId": "org_1",
+		"content":        map[string]any{"text": "hello"},
+	}, now)
+	if err != nil {
+		t.Fatalf("send_message validation failed: %v", err)
+	}
+	if message["role"] != "AGENT" || message["messageType"] != "a2a.message.v1" {
+		t.Fatalf("send_message defaults wrong: %#v", message)
+	}
+
+	enqueue, err := ValidateToolArguments("aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": "org_1",
+		"record":         map[string]any{"id": "finding_1"},
+	}, now)
+	if err != nil {
+		t.Fatalf("enqueue validation failed: %v", err)
+	}
+	if enqueue["kind"] != "finding" || enqueue["occurredAt"] != now.Format(time.RFC3339Nano) {
+		t.Fatalf("enqueue defaults wrong: %#v", enqueue)
+	}
+}
+
+func TestValidateToolArgumentsRejectsInvalidInputs(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 13, 14, 0, time.UTC)
+	cases := []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{
+			name: "unknown property",
+			tool: "aperio.register_agent",
+			args: map[string]any{"organizationId": "org", "key": "agent", "name": "Agent", "extra": true},
+		},
+		{
+			name: "invalid enum",
+			tool: "aperio.register_agent",
+			args: map[string]any{"organizationId": "org", "key": "agent", "name": "Agent", "kind": "BOT"},
+		},
+		{
+			name: "invalid url",
+			tool: "aperio.register_agent",
+			args: map[string]any{"organizationId": "org", "key": "agent", "name": "Agent", "endpointUrl": "not a url"},
+		},
+		{
+			name: "invalid datetime",
+			tool: "aperio.enqueue_siem_payload",
+			args: map[string]any{"organizationId": "org", "record": map[string]any{"id": "1"}, "occurredAt": "yesterday"},
+		},
+		{
+			name: "record must be object",
+			tool: "aperio.enqueue_siem_payload",
+			args: map[string]any{"organizationId": "org", "record": []any{"bad"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ValidateToolArguments(tc.tool, tc.args, now); err == nil {
+				t.Fatalf("expected validation error")
+			}
+		})
+	}
+}
+
+func assertRequired(t *testing.T, got []any, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("required = %#v, want %#v", got, want)
+	}
+	for index, value := range want {
+		if got[index] != value {
+			t.Fatalf("required[%d] = %v, want %s (all %#v)", index, got[index], value, got)
+		}
+	}
+}

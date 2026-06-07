@@ -390,6 +390,22 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
     },
     {
+      "id": "cmd-mcp-broker-go-parity",
+      "state": "go-parity",
+      "covers": [
+        "repo-file:cmd/mcp-broker/*.go"
+      ],
+      "owner": "Go MCP broker parity entrypoint",
+      "rationale": "cmd/mcp-broker provides the Go stdio MCP protocol/catalog broker for parity validation while default command flip and TypeScript runtime deletion remain separate MCP cutover work.",
+      "evidence": [
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/catalog_test.go",
+        "test:internal/mcpbroker/mcpbroker_db_test.go",
+        "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
+      ],
+      "rollback": "Remove the Go MCP parity entrypoint and keep the TypeScript MCP reference until the next cutover attempt."
+    },
+    {
       "id": "workers-ingestion-runtime-removed",
       "state": "removable",
       "covers": [
@@ -507,6 +523,22 @@
         "command:npm run smoke:siem:adapters"
       ],
       "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
+    },
+    {
+      "id": "internal-mcpbroker-go-parity",
+      "state": "go-parity",
+      "covers": [
+        "repo-file:internal/mcpbroker/*.go"
+      ],
+      "owner": "Go MCP broker protocol and catalog parity",
+      "rationale": "internal/mcpbroker owns Go stdio frame parsing, initialize/ping/error lifecycle, approved six-tool catalog, strict schema/default validation, safe tool-call envelopes, and no-stdout-log behavior before the default command/deletion feature flips runtime ownership.",
+      "evidence": [
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/catalog_test.go",
+        "test:internal/mcpbroker/mcpbroker_db_test.go",
+        "validator:go test ./internal/mcpbroker"
+      ],
+      "rollback": "Revert the Go MCP parity package and continue using the TypeScript MCP reference broker until parity can be restored."
     },
     {
       "id": "proto-contract-source",

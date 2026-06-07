@@ -51,7 +51,7 @@
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/mcp-broker",
       "blockedBy": [
-        "Go stdio MCP broker does not exist yet"
+        "MCP default command flip waits for remaining DB-backed tool semantics and deletion feature"
       ],
       "requiredEvidence": [
         "package-script-dump",
@@ -134,7 +134,7 @@
       "currentState": "typescript-reference",
       "targetState": "removed",
       "blockedBy": [
-        "Go MCP broker is not implemented yet"
+        "MCP default command flip and TypeScript runtime deletion are scheduled after remaining MCP tool semantics pass"
       ],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
