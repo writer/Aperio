@@ -32,6 +32,9 @@ type GitHubParityFixture = {
       dedupeKey: string;
     };
   };
+  alias: {
+    payload: GitHubPayloadFixture;
+  };
   negative: {
     payload: GitHubPayloadFixture;
   };
@@ -73,6 +76,11 @@ test("GitHub public repository rule matches the shared worker parity fixture", (
 
 test("GitHub parity fixture covers private and disabled-check negatives", () => {
   const fixture = readFixture();
+
+  const aliasFindings = evaluateSecurityRules(payloadFromFixture(fixture.alias.payload));
+  assert.equal(aliasFindings.length, 1);
+  assert.equal(aliasFindings[0].ruleId, fixture.positive.expectedFinding.ruleId);
+  assert.equal(aliasFindings[0].target, fixture.positive.expectedFinding.target);
 
   assert.equal(evaluateSecurityRules(payloadFromFixture(fixture.negative.payload)).length, 0);
   assert.equal(

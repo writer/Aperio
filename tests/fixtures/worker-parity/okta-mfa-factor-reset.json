@@ -1,0 +1,122 @@
+{
+  "positive": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.mfa.factor.reset_all",
+      "source": "okta.system_log",
+      "actor": "helpdesk@example.com",
+      "occurredAt": "2026-06-06T03:00:00.000Z",
+      "payload": {
+        "actor": {
+          "alternateId": "helpdesk@example.com",
+          "type": "User"
+        },
+        "target": [
+          {
+            "alternateId": "employee@example.com",
+            "type": "User"
+          }
+        ],
+        "debugContext": {
+          "debugData": {
+            "factorType": "all"
+          }
+        }
+      }
+    },
+    "expectedFinding": {
+      "ruleId": "okta.mfa_factor_reset",
+      "title": "Okta MFA factor reset by admin",
+      "description": "An administrator reset MFA factors for another Okta user, which can be legitimate helpdesk activity or an account-takeover precursor.",
+      "severity": "HIGH",
+      "riskScore": 82,
+      "target": "employee@example.com",
+      "evidence": {
+        "user": "employee@example.com",
+        "actor": "helpdesk@example.com",
+        "factor": "all",
+        "subject": "employee@example.com:helpdesk@example.com"
+      },
+      "dedupeKey": "8d1a80558653f44df8df33005cb1aad5345b6900147e2d40a8b5d1ddf5596a8a"
+    }
+  },
+  "aliases": [
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "user.mfa.factor.reset",
+        "source": "okta.system_log",
+        "actor": "helpdesk@example.com",
+        "occurredAt": "2026-06-06T03:05:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "helpdesk@example.com",
+            "type": "User"
+          },
+          "target": [
+            {
+              "alternateId": "employee@example.com",
+              "type": "User"
+            }
+          ],
+          "debugContext": {
+            "debugData": {
+              "factor": "sms"
+            }
+          }
+        }
+      }
+    },
+    {
+      "payload": {
+        "organizationId": "org_1",
+        "integrationId": "int_okta_1",
+        "provider": "OKTA",
+        "eventType": "MFA_FACTOR_RESET",
+        "source": "okta.system_log",
+        "actor": "helpdesk@example.com",
+        "occurredAt": "2026-06-06T03:10:00.000Z",
+        "payload": {
+          "actor": {
+            "alternateId": "helpdesk@example.com",
+            "type": "User"
+          },
+          "target": [
+            {
+              "alternateId": "employee@example.com",
+              "type": "User"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "negative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_okta_1",
+      "provider": "OKTA",
+      "eventType": "user.mfa.factor.reset",
+      "source": "okta.system_log",
+      "actor": "employee@example.com",
+      "occurredAt": "2026-06-06T03:15:00.000Z",
+      "payload": {
+        "actor": {
+          "alternateId": "employee@example.com",
+          "type": "User"
+        },
+        "target": [
+          {
+            "alternateId": "employee@example.com",
+            "type": "User"
+          }
+        ]
+      }
+    }
+  },
+  "disabledCheck": "okta.mfa_factor_reset"
+}

@@ -32,6 +32,25 @@
       "dedupeKey": "19ee6798462d3e0e56d02df0795cfeff7114cf4f88f6f735abeff8b625b472f7"
     }
   },
+  "alias": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_1",
+      "provider": "GITHUB",
+      "eventType": "PUBLIC_REPOSITORY_CREATED",
+      "source": "github-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T00:02:00.000Z",
+      "payload": {
+        "repository": {
+          "full_name": "writer/aperio",
+          "name": "aperio",
+          "private": false,
+          "visibility": "public"
+        }
+      }
+    }
+  },
   "negative": {
     "payload": {
       "organizationId": "org_1",

@@ -33,8 +33,7 @@
         "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "Go now decrypts and integrity-checks canonical/legacy encrypted integration credentials and provider config fields before side effects, but this row remains blocked until every GitHub visibility alias is individually fixture-backed.",
-        "GitHub payload-predicate detection is fixture-tested and the shared publicized event alias is DB-backed, while broader GitHub repository visibility aliases remain TypeScript-reference fallback until individually fixture-backed."
+        "GitHub public repository parity is fixture-backed for canonical and repository-publicized events with DB side-effect coverage; Go-default remains blocked until every ingestion rule row is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
@@ -54,15 +53,14 @@
         "internal/ingestionworker/worker_db_test.go"
       ],
       "cutoverBlockers": [
-        "Go now decrypts and integrity-checks canonical/legacy encrypted integration credentials and optional Slack webhook config before side effects, but this row remains blocked until every Slack rule slice is fixture-backed.",
-        "Only fixture-backed MFA-disabled Slack event aliases are allowlisted; all other Slack events remain TypeScript-reference fallback."
+        "Slack MFA-disabled parity is fixture-backed for canonical and normalized aliases with DB side-effect coverage; Go-default remains blocked until every ingestion rule row is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "okta.admin_role_assigned",
       "provider": "OKTA",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "USER_ACCOUNT_PRIVILEGE_GRANT",
         "USER_ACCOUNT_PRIVILEGE_GRANTED",
@@ -70,36 +68,66 @@
         "ROLE_ASSIGNMENT_CREATED"
       ],
       "typescriptPayloadPredicates": ["isPrivilegedOktaRole(grantedRole)"],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "USER_ACCOUNT_PRIVILEGE_GRANT",
+        "USER_ACCOUNT_PRIVILEGE_GRANTED",
+        "ADMIN_ROLE_ASSIGNED",
+        "ROLE_ASSIGNMENT_CREATED",
+        "user.account.privilege.grant",
+        "user.account.privilege.granted",
+        "admin.role.assigned",
+        "role.assignment.created"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/okta-admin-role-assigned.json"
+      ],
+      "tests": [
+        "tests/okta-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or provider credential/config parity exists for this Okta rule slice."
+        "Okta admin-role assignment parity is fixture-backed for privileged grants, non-privileged negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "okta.mfa_factor_reset",
       "provider": "OKTA",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "USER_MFA_FACTOR_RESET",
         "USER_MFA_FACTOR_RESET_ALL",
         "MFA_FACTOR_RESET"
       ],
       "typescriptPayloadPredicates": ["actor.toLowerCase() !== user.toLowerCase()"],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "USER_MFA_FACTOR_RESET",
+        "USER_MFA_FACTOR_RESET_ALL",
+        "MFA_FACTOR_RESET",
+        "user.mfa.factor.reset",
+        "user.mfa.factor.reset_all",
+        "mfa.factor.reset"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/okta-mfa-factor-reset.json"
+      ],
+      "tests": [
+        "tests/okta-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or provider credential/config parity exists for this Okta rule slice."
+        "Okta MFA factor reset parity is fixture-backed for admin resets, self-service negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "okta.password_policy_weakened",
       "provider": "OKTA",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "POLICY_LIFECYCLE_UPDATE",
         "PASSWORD_POLICY_UPDATED"
@@ -108,29 +136,55 @@
         "oktaIsPasswordPolicy(payload)",
         "oktaPasswordPolicyWeakened(payload)"
       ],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "POLICY_LIFECYCLE_UPDATE",
+        "PASSWORD_POLICY_UPDATED",
+        "policy.lifecycle.update",
+        "password.policy.updated"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/okta-password-policy-weakened.json"
+      ],
+      "tests": [
+        "tests/okta-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or provider credential/config parity exists for this Okta rule slice."
+        "Okta password policy weakening parity is fixture-backed for weakened settings, stronger-change negatives, non-password-policy negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },
     {
       "ruleId": "okta.suspicious_signin",
       "provider": "OKTA",
-      "state": "typescript-reference",
+      "state": "go-parity",
       "typescriptEventAliases": [
         "SECURITY_THREAT_DETECTED",
         "USER_AUTHENTICATION_FAILED",
         "USER_SESSION_START"
       ],
       "typescriptPayloadPredicates": ["threatSuspected"],
-      "goClaimedEventTypes": [],
-      "fixtures": [],
-      "tests": ["tests/ingestion-parity-matrix.test.ts"],
+      "goClaimedEventTypes": [
+        "SECURITY_THREAT_DETECTED",
+        "USER_AUTHENTICATION_FAILED",
+        "USER_SESSION_START",
+        "security.threat.detected",
+        "user.authentication.failed",
+        "user.session.start"
+      ],
+      "fixtures": [
+        "tests/fixtures/worker-parity/okta-suspicious-signin.json"
+      ],
+      "tests": [
+        "tests/okta-rules.test.ts",
+        "tests/ingestion-parity-matrix.test.ts",
+        "internal/ingestionworker/worker_test.go",
+        "internal/ingestionworker/worker_db_test.go"
+      ],
       "cutoverBlockers": [
-        "No Go detector, shared output fixture, DB-backed side-effect coverage, or provider credential/config parity exists for this Okta rule slice."
+        "Okta suspicious sign-in parity is fixture-backed for threat/proxy/high-risk positives, normal sign-in negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
       ],
       "goDefaultBlocked": true
     },

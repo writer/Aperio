@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,7 @@ type Finding struct {
 	RiskScore        int
 	RemediationSteps []string
 	Target           string
+	DedupeTarget     string
 	Evidence         map[string]any
 }
 
@@ -145,6 +147,26 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 			findings = append(findings, finding)
 		}
 	}
+	if _, ok := disabled["okta.admin_role_assigned"]; !ok {
+		if finding, ok := evaluateOktaAdminRoleAssigned(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["okta.mfa_factor_reset"]; !ok {
+		if finding, ok := evaluateOktaMFAFactorReset(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["okta.password_policy_weakened"]; !ok {
+		if finding, ok := evaluateOktaPasswordPolicyWeakened(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	if _, ok := disabled["okta.suspicious_signin"]; !ok {
+		if finding, ok := evaluateOktaSuspiciousSignin(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
 	return findings
 }
 
@@ -216,12 +238,187 @@ func evaluateSlackMFADisabled(payload JobPayload) (Finding, bool) {
 	}, true
 }
 
+func evaluateOktaAdminRoleAssigned(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "OKTA" {
+		return Finding{}, false
+	}
+	switch normalizeEventType(payload.EventType) {
+	case "USER_ACCOUNT_PRIVILEGE_GRANT", "USER_ACCOUNT_PRIVILEGE_GRANTED", "ADMIN_ROLE_ASSIGNED", "ROLE_ASSIGNMENT_CREATED":
+	default:
+		return Finding{}, false
+	}
+	user := oktaUserTarget(payload)
+	grantedRole := oktaRoleName(payload)
+	if !isPrivilegedOktaRole(grantedRole) {
+		return Finding{}, false
+	}
+	subject := user + ":" + grantedRole
+	return Finding{
+		RuleID:      "okta.admin_role_assigned",
+		Title:       "Okta admin role assigned",
+		Description: "An Okta account was granted a highly privileged administrator role.",
+		Severity:    "CRITICAL",
+		RiskScore:   93,
+		RemediationSteps: []string{
+			"Validate that the Okta admin role assignment was approved through change control.",
+			"Remove the role if the assignment is not explicitly authorized.",
+			"Review recent sign-ins and admin activity for the affected Okta account.",
+		},
+		Target:       user,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"user":        user,
+			"grantedRole": grantedRole,
+			"actor":       oktaActor(payload),
+			"subject":     subject,
+		}),
+	}, true
+}
+
+func evaluateOktaMFAFactorReset(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "OKTA" {
+		return Finding{}, false
+	}
+	switch normalizeEventType(payload.EventType) {
+	case "USER_MFA_FACTOR_RESET", "USER_MFA_FACTOR_RESET_ALL", "MFA_FACTOR_RESET":
+	default:
+		return Finding{}, false
+	}
+	user := oktaUserTarget(payload)
+	actor := oktaActor(payload)
+	if strings.EqualFold(actor, user) {
+		return Finding{}, false
+	}
+	debugData := oktaDebugData(payload)
+	factor := firstNonEmpty(
+		nestedString(debugData, "factor"),
+		nestedString(debugData, "factorType"),
+		"all factors",
+	)
+	subject := user + ":" + actor
+	return Finding{
+		RuleID:      "okta.mfa_factor_reset",
+		Title:       "Okta MFA factor reset by admin",
+		Description: "An administrator reset MFA factors for another Okta user, which can be legitimate helpdesk activity or an account-takeover precursor.",
+		Severity:    "HIGH",
+		RiskScore:   82,
+		RemediationSteps: []string{
+			"Confirm the MFA reset was requested by the affected user.",
+			"Force a password reset and session revocation if the reset was not approved.",
+			"Review recent sign-ins and admin actions by the actor who reset the factor.",
+		},
+		Target:       user,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"user":    user,
+			"actor":   actor,
+			"factor":  factor,
+			"subject": subject,
+		}),
+	}, true
+}
+
+func evaluateOktaPasswordPolicyWeakened(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "OKTA" {
+		return Finding{}, false
+	}
+	switch normalizeEventType(payload.EventType) {
+	case "POLICY_LIFECYCLE_UPDATE", "PASSWORD_POLICY_UPDATED":
+	default:
+		return Finding{}, false
+	}
+	if !oktaIsPasswordPolicy(payload) || !oktaPasswordPolicyWeakened(payload) {
+		return Finding{}, false
+	}
+	policyName := oktaPasswordPolicyName(payload)
+	return Finding{
+		RuleID:      "okta.password_policy_weakened",
+		Title:       "Okta password policy weakened",
+		Description: "An Okta password policy was changed to reduce password length, complexity, rotation, history, or lockout protections.",
+		Severity:    "HIGH",
+		RiskScore:   84,
+		RemediationSteps: []string{
+			"Review the policy change and confirm it was approved.",
+			"Restore the previous password policy settings if the change was not authorized.",
+			"Audit affected user sign-ins while the weaker policy was active.",
+		},
+		Target:       policyName,
+		DedupeTarget: policyName,
+		Evidence: compactEvidence(map[string]any{
+			"policyName":       policyName,
+			"actor":            oktaActor(payload),
+			"weakenedSettings": oktaWeakenedSettingNames(payload),
+			"subject":          policyName,
+		}),
+	}, true
+}
+
+func evaluateOktaSuspiciousSignin(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "OKTA" {
+		return Finding{}, false
+	}
+	switch normalizeEventType(payload.EventType) {
+	case "SECURITY_THREAT_DETECTED", "USER_AUTHENTICATION_FAILED", "USER_SESSION_START":
+	default:
+		return Finding{}, false
+	}
+	debugData := oktaDebugData(payload)
+	securityContext := nestedRecord(payload.Payload, "securityContext")
+	outcome := nestedRecord(payload.Payload, "outcome")
+	risk := firstNonEmpty(
+		nestedString(securityContext, "risk"),
+		nestedString(debugData, "risk"),
+		nestedString(outcome, "reason"),
+	)
+	threatSuspected := nestedBoolValue(debugData, "threatSuspected") ||
+		nestedBoolValue(securityContext, "isProxy") ||
+		oktaRiskHasThreatIndicator(risk)
+	if !threatSuspected {
+		return Finding{}, false
+	}
+	user := oktaActor(payload)
+	ipAddress := firstNonEmpty(
+		nestedString(payload.Payload, "client", "ipAddress"),
+		nestedString(debugData, "ipAddress"),
+	)
+	dedupeSignal := ipAddress
+	if dedupeSignal == "" {
+		dedupeSignal = risk
+	}
+	subject := user + ":" + dedupeSignal
+	return Finding{
+		RuleID:      "okta.suspicious_signin",
+		Title:       "Okta suspicious sign-in detected",
+		Description: "Okta flagged sign-in activity with threat, proxy, or high-risk indicators.",
+		Severity:    "MEDIUM",
+		RiskScore:   62,
+		RemediationSteps: []string{
+			"Verify the sign-in with the affected user.",
+			"Reset the user's password and MFA factors if the sign-in was not expected.",
+			"Block the source IP or strengthen sign-on policy if the pattern recurs.",
+		},
+		Target:       user,
+		DedupeTarget: subject,
+		Evidence: compactEvidence(map[string]any{
+			"user":      user,
+			"ipAddress": optionalString(ipAddress),
+			"risk":      risk,
+			"actor":     oktaActor(payload),
+			"subject":   subject,
+		}),
+	}, true
+}
+
 func DedupeKey(payload JobPayload, finding Finding) string {
+	dedupeTarget := finding.Target
+	if strings.TrimSpace(finding.DedupeTarget) != "" {
+		dedupeTarget = finding.DedupeTarget
+	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		payload.OrganizationID,
 		payload.IntegrationID,
 		finding.RuleID,
-		finding.Target,
+		dedupeTarget,
 	}, ":")))
 	return hex.EncodeToString(sum[:])
 }
@@ -260,6 +457,15 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 		  AND (
 				(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
 			 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
+			 OR (provider = 'OKTA' AND event_type IN (
+					'USER_ACCOUNT_PRIVILEGE_GRANT', 'USER_ACCOUNT_PRIVILEGE_GRANTED', 'ADMIN_ROLE_ASSIGNED', 'ROLE_ASSIGNMENT_CREATED',
+					'user.account.privilege.grant', 'user.account.privilege.granted', 'admin.role.assigned', 'role.assignment.created',
+					'USER_MFA_FACTOR_RESET', 'USER_MFA_FACTOR_RESET_ALL', 'MFA_FACTOR_RESET',
+					'user.mfa.factor.reset', 'user.mfa.factor.reset_all', 'mfa.factor.reset',
+					'POLICY_LIFECYCLE_UPDATE', 'PASSWORD_POLICY_UPDATED', 'policy.lifecycle.update', 'password.policy.updated',
+					'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
+					'security.threat.detected', 'user.authentication.failed', 'user.session.start'
+				))
 		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
@@ -279,6 +485,15 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 			  AND (
 					(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
 				 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
+				 OR (provider = 'OKTA' AND event_type IN (
+						'USER_ACCOUNT_PRIVILEGE_GRANT', 'USER_ACCOUNT_PRIVILEGE_GRANTED', 'ADMIN_ROLE_ASSIGNED', 'ROLE_ASSIGNMENT_CREATED',
+						'user.account.privilege.grant', 'user.account.privilege.granted', 'admin.role.assigned', 'role.assignment.created',
+						'USER_MFA_FACTOR_RESET', 'USER_MFA_FACTOR_RESET_ALL', 'MFA_FACTOR_RESET',
+						'user.mfa.factor.reset', 'user.mfa.factor.reset_all', 'mfa.factor.reset',
+						'POLICY_LIFECYCLE_UPDATE', 'PASSWORD_POLICY_UPDATED', 'policy.lifecycle.update', 'password.policy.updated',
+						'SECURITY_THREAT_DETECTED', 'USER_AUTHENTICATION_FAILED', 'USER_SESSION_START',
+						'security.threat.detected', 'user.authentication.failed', 'user.session.start'
+					))
 			  )
 			  AND (
 					(status IN ('QUEUED', 'FAILED') AND (lease_expires_at IS NULL OR lease_expires_at <= NOW()))
@@ -595,10 +810,14 @@ func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding 
 }
 
 func buildFindingEvidence(payload JobPayload, finding Finding, eventID string) map[string]any {
+	subject := finding.Target
+	if strings.TrimSpace(finding.DedupeTarget) != "" {
+		subject = finding.DedupeTarget
+	}
 	evidence := map[string]any{
 		"ruleId":        finding.RuleID,
 		"target":        finding.Target,
-		"subject":       finding.Target,
+		"subject":       subject,
 		"provider":      payload.Provider,
 		"source":        payload.Source,
 		"eventType":     payload.EventType,
@@ -822,6 +1041,54 @@ func normalizeEventType(value string) string {
 	return strings.Trim(builder.String(), "_")
 }
 
+func recordArray(value any) []map[string]any {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	records := []map[string]any{}
+	for _, item := range items {
+		record, ok := item.(map[string]any)
+		if ok {
+			records = append(records, record)
+		}
+	}
+	return records
+}
+
+func topLevelRecord(value map[string]any, key string) map[string]any {
+	record, _ := value[key].(map[string]any)
+	return record
+}
+
+func stringValue(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func optionalString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.TrimSpace(value)
+}
+
+func nestedRecord(value map[string]any, path ...string) map[string]any {
+	var current any = value
+	for _, segment := range path {
+		next, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = next[segment]
+	}
+	record, _ := current.(map[string]any)
+	return record
+}
+
 func nestedString(value map[string]any, path ...string) string {
 	var current any = value
 	for _, segment := range path {
@@ -848,6 +1115,55 @@ func nestedBool(value map[string]any, path ...string) (bool, bool) {
 	return result, ok
 }
 
+func nestedBoolValue(value map[string]any, path ...string) bool {
+	result, ok := nestedBool(value, path...)
+	return ok && result
+}
+
+func numericValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func booleanValue(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
+	}
+	return false, false
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -855,6 +1171,232 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func oktaEntityLabel(entity map[string]any) string {
+	if entity == nil {
+		return ""
+	}
+	return firstNonEmpty(
+		stringValue(entity["alternateId"]),
+		stringValue(entity["id"]),
+		stringValue(entity["displayName"]),
+		stringValue(entity["login"]),
+	)
+}
+
+func oktaActor(payload JobPayload) string {
+	return firstNonEmpty(
+		oktaEntityLabel(topLevelRecord(payload.Payload, "actor")),
+		payload.Actor,
+		"unknown actor",
+	)
+}
+
+func oktaTargets(payload JobPayload) []map[string]any {
+	return recordArray(payload.Payload["target"])
+}
+
+func oktaTargetByType(payload JobPayload, fragments []string) map[string]any {
+	normalized := make([]string, 0, len(fragments))
+	for _, fragment := range fragments {
+		normalized = append(normalized, strings.ToLower(fragment))
+	}
+	for _, target := range oktaTargets(payload) {
+		targetType := strings.ToLower(stringValue(target["type"]))
+		for _, fragment := range normalized {
+			if strings.Contains(targetType, fragment) {
+				return target
+			}
+		}
+	}
+	return nil
+}
+
+func oktaUserTarget(payload JobPayload) string {
+	targets := oktaTargets(payload)
+	firstTarget := map[string]any(nil)
+	if len(targets) > 0 {
+		firstTarget = targets[0]
+	}
+	return firstNonEmpty(
+		oktaEntityLabel(oktaTargetByType(payload, []string{"user"})),
+		oktaEntityLabel(firstTarget),
+		payload.Actor,
+		"unknown user",
+	)
+}
+
+func oktaDebugData(payload JobPayload) map[string]any {
+	if debugData := nestedRecord(payload.Payload, "debugContext", "debugData"); debugData != nil {
+		return debugData
+	}
+	return map[string]any{}
+}
+
+func oktaRoleName(payload JobPayload) string {
+	debugData := oktaDebugData(payload)
+	roleTarget := oktaTargetByType(payload, []string{"role", "privilege"})
+	return firstNonEmpty(
+		nestedString(debugData, "role"),
+		nestedString(debugData, "roleName"),
+		nestedString(debugData, "privilege"),
+		nestedString(debugData, "privilegeName"),
+		oktaEntityLabel(roleTarget),
+		"admin role",
+	)
+}
+
+func isPrivilegedOktaRole(role string) bool {
+	normalized := normalizeEventType(role)
+	return strings.Contains(normalized, "SUPER_ADMIN") ||
+		strings.Contains(normalized, "SUPER_ADMINISTRATOR") ||
+		strings.Contains(normalized, "ORG_ADMIN") ||
+		strings.Contains(normalized, "ORGANIZATION_ADMINISTRATOR") ||
+		strings.Contains(normalized, "APP_ADMIN") ||
+		strings.Contains(normalized, "APPLICATION_ADMINISTRATOR")
+}
+
+func oktaPasswordPolicyName(payload JobPayload) string {
+	debugData := oktaDebugData(payload)
+	return firstNonEmpty(
+		nestedString(debugData, "policyName"),
+		nestedString(debugData, "policy"),
+		oktaEntityLabel(oktaTargetByType(payload, []string{"policy"})),
+		"Okta password policy",
+	)
+}
+
+func oktaIsPasswordPolicy(payload JobPayload) bool {
+	debugData := oktaDebugData(payload)
+	candidates := []string{
+		nestedString(debugData, "policyType"),
+		nestedString(debugData, "type"),
+		nestedString(debugData, "policyName"),
+		nestedString(debugData, "policy"),
+	}
+	for _, target := range oktaTargets(payload) {
+		candidates = append(candidates,
+			stringValue(target["type"]),
+			stringValue(target["displayName"]),
+			stringValue(target["name"]),
+		)
+	}
+	for _, candidate := range candidates {
+		if strings.Contains(strings.ToLower(candidate), "password") {
+			return true
+		}
+	}
+	return false
+}
+
+func valueByKeys(record map[string]any, keys ...string) (any, bool) {
+	for _, key := range keys {
+		if value, ok := record[key]; ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func oktaChangeDetails(payload JobPayload) []map[string]any {
+	debugData := oktaDebugData(payload)
+	changes := []map[string]any{}
+	changes = append(changes, recordArray(payload.Payload["changeDetails"])...)
+	changes = append(changes, recordArray(debugData["changeDetails"])...)
+	return changes
+}
+
+func oktaPasswordPolicyWeakened(payload JobPayload) bool {
+	debugData := oktaDebugData(payload)
+	if nestedBoolValue(debugData, "policyWeakened") {
+		return true
+	}
+	for _, change := range oktaChangeDetails(payload) {
+		field := strings.ToLower(firstNonEmpty(
+			stringValue(change["field"]),
+			stringValue(change["name"]),
+			stringValue(change["setting"]),
+		))
+		oldValue, _ := valueByKeys(change, "oldValue", "old", "from")
+		newValue, _ := valueByKeys(change, "newValue", "new", "to")
+		oldNumber, hasOldNumber := numericValue(oldValue)
+		newNumber, hasNewNumber := numericValue(newValue)
+		if hasOldNumber && hasNewNumber {
+			if strings.Contains(field, "length") && newNumber < oldNumber {
+				return true
+			}
+			if strings.Contains(field, "history") && newNumber < oldNumber {
+				return true
+			}
+			if strings.Contains(field, "min") && newNumber < oldNumber {
+				return true
+			}
+			if (strings.Contains(field, "max") || strings.Contains(field, "rotation") || strings.Contains(field, "expire")) && newNumber > oldNumber {
+				return true
+			}
+			if (strings.Contains(field, "attempt") || strings.Contains(field, "lockout")) && newNumber > oldNumber {
+				return true
+			}
+		}
+		oldBool, hasOldBool := booleanValue(oldValue)
+		newBool, hasNewBool := booleanValue(newValue)
+		if hasOldBool && hasNewBool && oldBool && !newBool &&
+			(strings.Contains(field, "complex") ||
+				strings.Contains(field, "uppercase") ||
+				strings.Contains(field, "lowercase") ||
+				strings.Contains(field, "symbol") ||
+				strings.Contains(field, "number") ||
+				strings.Contains(field, "dictionary") ||
+				strings.Contains(field, "history")) {
+			return true
+		}
+	}
+	return false
+}
+
+func oktaWeakenedSettingNames(payload JobPayload) []string {
+	settings := []string{}
+	for _, change := range oktaChangeDetails(payload) {
+		settings = append(settings, firstNonEmpty(
+			stringValue(change["field"]),
+			stringValue(change["name"]),
+			stringValue(change["setting"]),
+			"unknown",
+		))
+	}
+	return settings
+}
+
+func oktaRiskHasThreatIndicator(risk string) bool {
+	normalized := strings.ToLower(risk)
+	for _, indicator := range []string{"threat", "risk", "proxy", "impossible", "suspicious"} {
+		if strings.Contains(normalized, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactEvidence(value map[string]any) map[string]any {
+	compacted := map[string]any{}
+	for key, entry := range value {
+		if entry == nil {
+			continue
+		}
+		switch typed := entry.(type) {
+		case []string:
+			if len(typed) == 0 {
+				continue
+			}
+		case []any:
+			if len(typed) == 0 {
+				continue
+			}
+		}
+		compacted[key] = entry
+	}
+	return compacted
 }
 
 func nullableString(value sql.NullString) string {

@@ -34,6 +34,9 @@ type githubParityFixture struct {
 			DedupeKey   string         `json:"dedupeKey"`
 		} `json:"expectedFinding"`
 	} `json:"positive"`
+	Alias struct {
+		Payload githubFixturePayload `json:"payload"`
+	} `json:"alias"`
 	Negative struct {
 		Payload githubFixturePayload `json:"payload"`
 	} `json:"negative"`
@@ -85,6 +88,44 @@ type slackFixturePayload struct {
 	Payload        map[string]any `json:"payload"`
 }
 
+type oktaParityFixture struct {
+	Positive struct {
+		Payload         oktaFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"positive"`
+	Aliases []struct {
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"aliases"`
+	Negative struct {
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"negative"`
+	AdditionalNegatives []struct {
+		Name    string             `json:"name"`
+		Payload oktaFixturePayload `json:"payload"`
+	} `json:"additionalNegatives"`
+	DisabledCheck string `json:"disabledCheck"`
+}
+
+type oktaFixturePayload struct {
+	OrganizationID string         `json:"organizationId"`
+	IntegrationID  string         `json:"integrationId"`
+	Provider       string         `json:"provider"`
+	EventType      string         `json:"eventType"`
+	Source         string         `json:"source"`
+	Actor          string         `json:"actor"`
+	OccurredAt     string         `json:"occurredAt"`
+	Payload        map[string]any `json:"payload"`
+}
+
 func readGitHubParityFixture(t *testing.T) githubParityFixture {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "github-public-repository.json"))
@@ -111,12 +152,44 @@ func readSlackParityFixture(t *testing.T) slackParityFixture {
 	return fixture
 }
 
+func readOktaParityFixture(t *testing.T, name string) oktaParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", name))
+	if err != nil {
+		t.Fatalf("read Okta parity fixture %s: %v", name, err)
+	}
+	var fixture oktaParityFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode Okta parity fixture %s: %v", name, err)
+	}
+	return fixture
+}
+
+func readOktaParityFixtures(t *testing.T) []oktaParityFixture {
+	t.Helper()
+	fixtureNames := []string{
+		"okta-admin-role-assigned.json",
+		"okta-mfa-factor-reset.json",
+		"okta-password-policy-weakened.json",
+		"okta-suspicious-signin.json",
+	}
+	fixtures := make([]oktaParityFixture, 0, len(fixtureNames))
+	for _, name := range fixtureNames {
+		fixtures = append(fixtures, readOktaParityFixture(t, name))
+	}
+	return fixtures
+}
+
 func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
 	cases := map[string]string{
 		"repository.publicized":        "REPOSITORY_PUBLICIZED",
 		" two-factor auth disabled ":   "TWO_FACTOR_AUTH_DISABLED",
 		"//public-repository-created/": "PUBLIC_REPOSITORY_CREATED",
 		"mfa.disabled":                 "MFA_DISABLED",
+		"user.account.privilege.grant": "USER_ACCOUNT_PRIVILEGE_GRANT",
+		"user.mfa.factor.reset_all":    "USER_MFA_FACTOR_RESET_ALL",
+		"policy.lifecycle.update":      "POLICY_LIFECYCLE_UPDATE",
+		"user.session.start":           "USER_SESSION_START",
 	}
 	for input, want := range cases {
 		if got := normalizeEventType(input); got != want {
@@ -161,6 +234,47 @@ func (p slackFixturePayload) jobPayload(t *testing.T) JobPayload {
 	}
 }
 
+func (p oktaFixturePayload) jobPayload(t *testing.T) JobPayload {
+	t.Helper()
+	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
+	if err != nil {
+		t.Fatalf("parse fixture occurredAt: %v", err)
+	}
+	return JobPayload{
+		OrganizationID: p.OrganizationID,
+		IntegrationID:  p.IntegrationID,
+		Provider:       p.Provider,
+		EventType:      p.EventType,
+		Source:         p.Source,
+		Actor:          p.Actor,
+		OccurredAt:     occurredAt,
+		Payload:        p.Payload,
+	}
+}
+
+func assertJSONEqual(t *testing.T, got any, want any) {
+	t.Helper()
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal got JSON: %v", err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal want JSON: %v", err)
+	}
+	var gotNormalized any
+	var wantNormalized any
+	if err := json.Unmarshal(gotJSON, &gotNormalized); err != nil {
+		t.Fatalf("normalize got JSON: %v", err)
+	}
+	if err := json.Unmarshal(wantJSON, &wantNormalized); err != nil {
+		t.Fatalf("normalize want JSON: %v", err)
+	}
+	if !reflect.DeepEqual(gotNormalized, wantNormalized) {
+		t.Fatalf("JSON mismatch: got %#v, want %#v", gotNormalized, wantNormalized)
+	}
+}
+
 func TestEvaluateGitHubPublicRepository(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -187,6 +301,10 @@ func TestEvaluateGitHubPublicRepository(t *testing.T) {
 		t.Fatalf("evidence = %#v, want %#v", findings[0].Evidence, fixture.Positive.ExpectedFinding.Evidence)
 	}
 
+	aliasFindings := Evaluate(fixture.Alias.Payload.jobPayload(t), nil)
+	if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+		t.Fatalf("expected canonical event alias to produce GitHub public repository finding, got %#v", aliasFindings)
+	}
 	if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
 		t.Fatalf("expected private repository negative to produce no findings, got %#v", got)
 	}
@@ -236,6 +354,55 @@ func TestEvaluateSlackMFADisabled(t *testing.T) {
 	}
 }
 
+func TestEvaluateOktaRules(t *testing.T) {
+	for _, fixture := range readOktaParityFixtures(t) {
+		t.Run(fixture.Positive.ExpectedFinding.RuleID, func(t *testing.T) {
+			payload := fixture.Positive.Payload.jobPayload(t)
+			findings := Evaluate(payload, nil)
+			if len(findings) != 1 {
+				t.Fatalf("expected one finding, got %d", len(findings))
+			}
+			finding := findings[0]
+			if finding.RuleID != fixture.Positive.ExpectedFinding.RuleID {
+				t.Fatalf("rule id = %s", finding.RuleID)
+			}
+			if finding.Title != fixture.Positive.ExpectedFinding.Title {
+				t.Fatalf("title = %s", finding.Title)
+			}
+			if finding.Description != fixture.Positive.ExpectedFinding.Description {
+				t.Fatalf("description = %s", finding.Description)
+			}
+			if finding.Target != fixture.Positive.ExpectedFinding.Target {
+				t.Fatalf("target = %s", finding.Target)
+			}
+			if finding.Severity != fixture.Positive.ExpectedFinding.Severity || finding.RiskScore != fixture.Positive.ExpectedFinding.RiskScore {
+				t.Fatalf("unexpected severity/risk: %#v", finding)
+			}
+			assertJSONEqual(t, finding.Evidence, fixture.Positive.ExpectedFinding.Evidence)
+			if got := DedupeKey(payload, finding); got != fixture.Positive.ExpectedFinding.DedupeKey {
+				t.Fatalf("dedupe key = %s, want TS-compatible hash", got)
+			}
+			for _, alias := range fixture.Aliases {
+				aliasFindings := Evaluate(alias.Payload.jobPayload(t), nil)
+				if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+					t.Fatalf("expected alias %s to produce %s finding, got %#v", alias.Payload.EventType, fixture.Positive.ExpectedFinding.RuleID, aliasFindings)
+				}
+			}
+			if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
+				t.Fatalf("expected negative fixture to produce no findings, got %#v", got)
+			}
+			for _, negative := range fixture.AdditionalNegatives {
+				if got := Evaluate(negative.Payload.jobPayload(t), nil); len(got) != 0 {
+					t.Fatalf("expected negative fixture %q to produce no findings, got %#v", negative.Name, got)
+				}
+			}
+			if got := Evaluate(payload, []string{fixture.DisabledCheck}); len(got) != 0 {
+				t.Fatalf("expected disabled check to produce no findings, got %#v", got)
+			}
+		})
+	}
+}
+
 func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -255,6 +422,12 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	payload.Provider = "SLACK"
 	if DedupeKey(payload, finding) != first {
 		t.Fatal("dedupe key should exclude provider to match the TypeScript worker")
+	}
+	oktaFixture := readOktaParityFixture(t, "okta-admin-role-assigned.json")
+	oktaPayload := oktaFixture.Positive.Payload.jobPayload(t)
+	oktaFinding := Evaluate(oktaPayload, nil)[0]
+	if got := DedupeKey(oktaPayload, oktaFinding); got != oktaFixture.Positive.ExpectedFinding.DedupeKey {
+		t.Fatalf("Okta dedupe key = %s, want TS-compatible dedupeTarget hash", got)
 	}
 }
 

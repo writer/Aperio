@@ -236,6 +236,33 @@ func assertNoIngestionSideEffects(t *testing.T, db *sql.DB, orgID string) {
 	}
 }
 
+func seedOktaFixtureJob(t *testing.T, db *sql.DB, orgID, integrationID string, fixturePayload oktaFixturePayload) string {
+	t.Helper()
+	payloadJSON, err := json.Marshal(fixturePayload.Payload)
+	if err != nil {
+		t.Fatalf("marshal Okta fixture payload: %v", err)
+	}
+	return seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "OKTA", eventType: fixturePayload.EventType, status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+}
+
+func oktaJobPayloadForDB(t *testing.T, fixturePayload oktaFixturePayload, orgID, integrationID string) JobPayload {
+	t.Helper()
+	payload := fixturePayload.jobPayload(t)
+	payload.OrganizationID = orgID
+	payload.IntegrationID = integrationID
+	return payload
+}
+
 func captureIngestionTelemetry(t *testing.T) (*bytes.Buffer, func()) {
 	t.Helper()
 	var sink bytes.Buffer
@@ -316,7 +343,7 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 	cases := []unsupportedCase{
 		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
 		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
-		{name: "okta fallback rule", provider: "OKTA", eventType: "ADMIN_ROLE_ASSIGNED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"},{"type":"Role","displayName":"Super Admin"}]}`)},
+		{name: "okta unsupported event", provider: "OKTA", eventType: "USER_LIFECYCLE_DEACTIVATE", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"}]}`)},
 		{name: "google fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EXTERNAL_SHARING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"resource":{"name":"Board Deck"},"parameters":{"visibility":"public_on_the_web"}}`)},
 		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
 	}
@@ -603,6 +630,176 @@ func TestDrainProcessesSupportedSlackDisabledCheckWithoutFinding(t *testing.T) {
 	}
 	if eventCount != 1 || findingCount != 0 {
 		t.Fatalf("disabled check should persist event only, got events=%d findings=%d", eventCount, findingCount)
+	}
+}
+
+func TestDrainPersistsSupportedOktaRuleSideEffects(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'okta-rule-side-effects.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	type expectedOktaFinding struct {
+		jobID   string
+		payload JobPayload
+		finding Finding
+		dedupe  string
+	}
+	expected := map[string]expectedOktaFinding{}
+	for _, fixture := range readOktaParityFixtures(t) {
+		jobID := seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload)
+		payload := oktaJobPayloadForDB(t, fixture.Positive.Payload, orgID, integrationID)
+		findings := Evaluate(payload, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected fixture %s to produce one finding, got %#v", fixture.Positive.ExpectedFinding.RuleID, findings)
+		}
+		finding := findings[0]
+		expected[finding.RuleID] = expectedOktaFinding{
+			jobID:   jobID,
+			payload: payload,
+			finding: finding,
+			dedupe:  DedupeKey(payload, finding),
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(expected))
+	if err != nil {
+		t.Fatalf("drain Okta rule jobs: %v", err)
+	}
+	if result.Processed != len(expected) || result.Succeeded != len(expected) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta rule drain result: %#v", result)
+	}
+
+	for ruleID, want := range expected {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, want.jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("%s job state = status=%s attempts=%d lease=%v processed=%v error=%v", ruleID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+
+		var persistedFindingID, title, severity string
+		var riskScore int
+		var rawEvidence json.RawMessage
+		if err := db.QueryRowContext(context.Background(), `
+			SELECT id, title, severity::text, risk_score, evidence
+			FROM security_findings
+			WHERE organization_id = $1 AND dedupe_key = $2
+		`, orgID, want.dedupe).Scan(&persistedFindingID, &title, &severity, &riskScore, &rawEvidence); err != nil {
+			t.Fatalf("query %s security finding: %v", ruleID, err)
+		}
+		var evidence map[string]any
+		if err := json.Unmarshal(rawEvidence, &evidence); err != nil {
+			t.Fatalf("decode %s security finding evidence: %v", ruleID, err)
+		}
+		if persistedFindingID == "" || title != want.finding.Title || severity != want.finding.Severity || riskScore != want.finding.RiskScore {
+			t.Fatalf("%s finding fields = id=%s title=%s severity=%s risk=%d", ruleID, persistedFindingID, title, severity, riskScore)
+		}
+		if evidence["ruleId"] != ruleID || evidence["target"] != want.finding.Target || evidence["sourceEventId"] == "" {
+			t.Fatalf("%s finding evidence missing required fields: %#v", ruleID, evidence)
+		}
+		for key, value := range want.finding.Evidence {
+			assertJSONEqual(t, evidence[key], value)
+		}
+	}
+
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(expected) || findings != len(expected) || deliveries != len(expected) {
+		t.Fatalf("expected Okta event/finding/delivery side effects for every rule, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesOktaDisabledChecksWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+	destinationID := testWorkerID("dst")
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'JSON file', 'okta-disabled-checks.jsonl',
+			ARRAY['FINDINGS']::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed SIEM destination: %v", err)
+	}
+
+	fixtures := readOktaParityFixtures(t)
+	disabledChecks := make([]string, 0, len(fixtures))
+	jobIDs := []string{}
+	for _, fixture := range fixtures {
+		disabledChecks = append(disabledChecks, fixture.DisabledCheck)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET disabled_checks = $1::text[]
+		WHERE id = $2
+	`, postgresTextArray(disabledChecks), integrationID); err != nil {
+		t.Fatalf("disable Okta checks: %v", err)
+	}
+	for _, fixture := range fixtures {
+		jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Positive.Payload))
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Okta disabled checks: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta disabled-check drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("disabled-check job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("disabled Okta checks should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
+	}
+}
+
+func TestDrainProcessesOktaNegativeFixturesWithoutFindings(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED")
+
+	jobIDs := []string{}
+	for _, fixture := range readOktaParityFixtures(t) {
+		jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, fixture.Negative.Payload))
+		for _, negative := range fixture.AdditionalNegatives {
+			jobIDs = append(jobIDs, seedOktaFixtureJob(t, db, orgID, integrationID, negative.Payload))
+		}
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), len(jobIDs))
+	if err != nil {
+		t.Fatalf("drain Okta negative fixtures: %v", err)
+	}
+	if result.Processed != len(jobIDs) || result.Succeeded != len(jobIDs) || result.Failed != 0 {
+		t.Fatalf("unexpected Okta negative drain result: %#v", result)
+	}
+	for _, jobID := range jobIDs {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+		if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+			t.Fatalf("negative fixture job %s state = status=%s attempts=%d lease=%v processed=%v error=%v", jobID, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+	events, findings, deliveries := ingestionSideEffectCounts(t, db, orgID)
+	if events != len(jobIDs) || findings != 0 || deliveries != 0 {
+		t.Fatalf("negative Okta fixtures should persist events only, got events=%d findings=%d deliveries=%d", events, findings, deliveries)
 	}
 }
 
