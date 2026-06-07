@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"github.com/writer/aperio/internal/config"
+	"github.com/writer/aperio/internal/siemdispatcher"
 )
 
 // newTestDBApp wires an App against a real Postgres instance. The tests are
@@ -138,6 +140,58 @@ func remediationExternalAccountID(provider string) string {
 	}
 }
 
+func TestDBDisableMFARequiresCurrentCode(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	ctx := context.Background()
+	auth := seedOrgUserWithRole(t, app, baseAuth.OrganizationID, "ADMIN")
+	password := strings.Join([]string{"correct", "horse", "battery", "staple"}, " ")
+	const secret = "JBSWY3DPEHPK3PXP"
+	if _, err := app.db.ExecContext(ctx, `
+		UPDATE users
+		SET password_hash = $1, mfa_enabled = TRUE, mfa_secret_encrypted = $2, mfa_last_counter = NULL, updated_at = NOW()
+		WHERE id = $3 AND organization_id = $4
+	`, compatHashPassword(password), secret, auth.UserID, auth.OrganizationID); err != nil {
+		t.Fatalf("enable seeded MFA: %v", err)
+	}
+
+	header := seedSessionHeader(t, app, auth)
+	validCode := compatHOTP([]byte("Hello!\xde\xad\xbe\xef"), uint64(time.Now().Unix()/30))
+	badCode := "000000"
+	if badCode == validCode {
+		badCode = "111111"
+	}
+	badReq := connect.NewRequest(&aperiov1.DisableMfaRequest{Password: password, Code: badCode})
+	copyCompatHeaders(badReq.Header(), header)
+	if _, err := app.DisableMfa(ctx, badReq); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("DisableMfa wrong code = %v (%v), want CodeInvalidArgument", connect.CodeOf(err), err)
+	}
+
+	var enabled bool
+	var storedSecret sql.NullString
+	if err := app.db.QueryRowContext(ctx, `SELECT mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&enabled, &storedSecret); err != nil {
+		t.Fatalf("query MFA after bad code: %v", err)
+	}
+	if !enabled || !storedSecret.Valid {
+		t.Fatal("wrong MFA code should not disable MFA")
+	}
+
+	goodReq := connect.NewRequest(&aperiov1.DisableMfaRequest{Password: password, Code: validCode})
+	copyCompatHeaders(goodReq.Header(), header)
+	resp, err := app.DisableMfa(ctx, goodReq)
+	if err != nil {
+		t.Fatalf("DisableMfa valid code: %v", err)
+	}
+	if resp.Msg.Data == nil || resp.Msg.Data.User == nil || resp.Msg.Data.User.MfaEnabled {
+		t.Fatalf("DisableMfa response MFA state = %#v, want disabled", resp.Msg.Data)
+	}
+	if err := app.db.QueryRowContext(ctx, `SELECT mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND organization_id = $2`, auth.UserID, auth.OrganizationID).Scan(&enabled, &storedSecret); err != nil {
+		t.Fatalf("query MFA after valid code: %v", err)
+	}
+	if enabled || storedSecret.Valid {
+		t.Fatalf("valid MFA disable persisted enabled=%v secretValid=%v, want disabled/null", enabled, storedSecret.Valid)
+	}
+}
+
 func TestDBIntegrationLifecycle(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()
@@ -222,8 +276,8 @@ func TestDBSiemLifecycle(t *testing.T) {
 
 	const plaintextToken = "splunk-hec-example-token-1234567890"
 	created, err := app.compatCreateSiem(ctx, map[string]any{
-		"kind":        "SPLUNK_HEC",
-		"name":        "Splunk",
+		"kind":        "GENERIC_WEBHOOK",
+		"name":        "Webhook",
 		"endpointUrl": "https://8.8.8.8/services/collector",
 		"streams":     []any{"FINDINGS"},
 		"token":       plaintextToken,
@@ -238,8 +292,8 @@ func TestDBSiemLifecycle(t *testing.T) {
 	if err := app.db.QueryRowContext(ctx, `SELECT kind::text, encrypted_token FROM siem_destinations WHERE id = $1 AND organization_id = $2`, destinationID, auth.OrganizationID).Scan(&kind, &encryptedToken); err != nil {
 		t.Fatalf("query siem destination: %v", err)
 	}
-	if kind != "SPLUNK_HEC" {
-		t.Fatalf("kind = %s, want SPLUNK_HEC", kind)
+	if kind != "GENERIC_WEBHOOK" {
+		t.Fatalf("kind = %s, want GENERIC_WEBHOOK", kind)
 	}
 	if !encryptedToken.Valid || encryptedToken.String == "" {
 		t.Fatal("expected encrypted token to be stored")
@@ -258,6 +312,9 @@ func TestDBSiemLifecycle(t *testing.T) {
 	if deliveryStatus != "PENDING" {
 		t.Fatalf("delivery status = %s, want PENDING", deliveryStatus)
 	}
+	if _, err := app.db.ExecContext(ctx, `DELETE FROM siem_deliveries WHERE destination_id = $1 AND organization_id = $2`, destinationID, auth.OrganizationID); err != nil {
+		t.Fatalf("delete queued lifecycle test delivery: %v", err)
+	}
 
 	if _, err := app.compatDeleteSiem(ctx, destinationID, auth); err != nil {
 		t.Fatalf("delete siem: %v", err)
@@ -268,6 +325,321 @@ func TestDBSiemLifecycle(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Fatal("expected siem destination to be deleted")
+	}
+}
+
+func TestDBSiemTestPingQueuesAndDrainsThroughDispatcher(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
+	ctx := context.Background()
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+
+	adminHeader := seedSessionHeader(t, app, auth)
+	createReq := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
+		Kind:     "JSON_FILE",
+		Name:     "Local JSON test ping",
+		FilePath: "test-ping.jsonl",
+		Streams:  []string{"FINDINGS"},
+	})
+	copyCompatHeaders(createReq.Header(), adminHeader)
+	createResp, err := app.CreateSiemDestination(ctx, createReq)
+	if err != nil {
+		t.Fatalf("typed create JSON_FILE SIEM destination: %v", err)
+	}
+	destinationID := createResp.Msg.Data.Id
+
+	deliveryCount := func() int {
+		t.Helper()
+		var count int
+		if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM siem_deliveries WHERE destination_id = $1`, destinationID).Scan(&count); err != nil {
+			t.Fatalf("count SIEM test deliveries: %v", err)
+		}
+		return count
+	}
+	analyst := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	analystHeader := seedSessionHeader(t, app, analyst)
+	deniedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+	copyCompatHeaders(deniedReq.Header(), analystHeader)
+	if _, err := app.TestSiemDestination(ctx, deniedReq); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("non-owner typed test SIEM code = %v (%v), want CodePermissionDenied", connect.CodeOf(err), err)
+	}
+	if count := deliveryCount(); count != 0 {
+		t.Fatalf("permission-denied test ping enqueued %d deliveries", count)
+	}
+
+	compatResult, err := app.compatTestSiem(ctx, destinationID, auth)
+	if err != nil {
+		t.Fatalf("compat test SIEM: %v", err)
+	}
+	compatDeliveryID := dataMap(t, compatResult)["deliveryId"].(string)
+	typedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+	copyCompatHeaders(typedReq.Header(), adminHeader)
+	typedResp, err := app.TestSiemDestination(ctx, typedReq)
+	if err != nil {
+		t.Fatalf("typed test SIEM: %v", err)
+	}
+	if !typedResp.Msg.Data.Ok || typedResp.Msg.Data.DestinationId != destinationID || !strings.Contains(typedResp.Msg.Data.Message, "queued") {
+		t.Fatalf("unexpected typed test response: %#v", typedResp.Msg.Data)
+	}
+
+	rows, err := app.db.QueryContext(ctx, `
+		SELECT id, status::text, attempts, max_attempts, stream::text, dedupe_key, payload
+		FROM siem_deliveries
+		WHERE destination_id = $1 AND organization_id = $2
+		ORDER BY created_at, id
+	`, destinationID, auth.OrganizationID)
+	if err != nil {
+		t.Fatalf("query queued test deliveries: %v", err)
+	}
+	defer rows.Close()
+	queuedIDs := []string{}
+	for rows.Next() {
+		var deliveryID, status, stream, dedupe string
+		var attempts, maxAttempts int
+		var rawPayload json.RawMessage
+		if err := rows.Scan(&deliveryID, &status, &attempts, &maxAttempts, &stream, &dedupe, &rawPayload); err != nil {
+			t.Fatalf("scan queued test delivery: %v", err)
+		}
+		var payload siemdispatcher.Payload
+		if err := json.Unmarshal(rawPayload, &payload); err != nil {
+			t.Fatalf("decode queued test payload: %v", err)
+		}
+		if status != "PENDING" || attempts != 0 || maxAttempts != 5 || stream != "FINDINGS" {
+			t.Fatalf("queued test delivery state = id=%s status=%s attempts=%d max=%d stream=%s", deliveryID, status, attempts, maxAttempts, stream)
+		}
+		if payload.Kind != "finding" || payload.OrganizationID != auth.OrganizationID || payload.Record["test"] != true || payload.Record["id"] != deliveryID {
+			t.Fatalf("queued test payload = id=%s payload=%#v", deliveryID, payload)
+		}
+		if payload.Record["title"] != "Aperio SIEM connectivity test" || payload.Record["severity"] != "INFO" || payload.Record["provider"] != "APERIO" {
+			t.Fatalf("queued test record = %#v", payload.Record)
+		}
+		if want := siemdispatcher.StableDeliveryKey(payload, destinationID, "FINDINGS"); dedupe != want {
+			t.Fatalf("queued test dedupe = %s, want %s", dedupe, want)
+		}
+		queuedIDs = append(queuedIDs, deliveryID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate queued test deliveries: %v", err)
+	}
+	if len(queuedIDs) != 2 {
+		t.Fatalf("expected compat+typed test pings to enqueue two deliveries, got %v", queuedIDs)
+	}
+	if queuedIDs[0] != compatDeliveryID && queuedIDs[1] != compatDeliveryID {
+		t.Fatalf("compat delivery id %s not found in queued ids %v", compatDeliveryID, queuedIDs)
+	}
+
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	drainResult, err := dispatcher.Drain(ctx, 10)
+	if err != nil {
+		t.Fatalf("drain queued test pings: %v", err)
+	}
+	if drainResult.Processed != 2 || drainResult.Delivered != 2 || drainResult.Failed != 0 {
+		t.Fatalf("unexpected test-ping drain result: %#v", drainResult)
+	}
+	var delivered int
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE destination_id = $1 AND status = 'DELIVERED'::"SiemDeliveryStatus"
+	`, destinationID).Scan(&delivered); err != nil {
+		t.Fatalf("count delivered test pings: %v", err)
+	}
+	if delivered != 2 {
+		t.Fatalf("expected two delivered test pings, got %d", delivered)
+	}
+	raw, err := os.ReadFile(filepath.Join(exportRoot, "test-ping.jsonl"))
+	if err != nil {
+		t.Fatalf("read test-ping JSONL: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two dispatcher-written test envelopes, got %d lines: %q", len(lines), string(raw))
+	}
+	for _, line := range lines {
+		var envelope siemdispatcher.Envelope
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			t.Fatalf("decode test-ping envelope: %v", err)
+		}
+		if envelope.SchemaVersion != "aperio.finding.v1" || envelope.DestinationID != destinationID || envelope.OrganizationID != auth.OrganizationID || envelope.Record["test"] != true {
+			t.Fatalf("unexpected test-ping envelope: %#v", envelope)
+		}
+	}
+	listReq := connect.NewRequest(&aperiov1.ListSiemDestinationsRequest{})
+	copyCompatHeaders(listReq.Header(), adminHeader)
+	listResp, err := app.ListSiemDestinations(ctx, listReq)
+	if err != nil {
+		t.Fatalf("list SIEM destinations after drain: %v", err)
+	}
+	var listed *aperiov1.SiemDestination
+	for _, destination := range listResp.Msg.Data {
+		if destination.Id == destinationID {
+			listed = destination
+			break
+		}
+	}
+	if listed == nil || listed.Status != "ACTIVE" || listed.DeliveriesOk != 2 || listed.DeliveriesFail != 0 || listed.LastDeliveryAt == "" || listed.LastError != "" {
+		t.Fatalf("listed SIEM health after test drain = %#v", listed)
+	}
+}
+
+func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *testing.T) {
+	app, baseAuth := newTestDBApp(t)
+	auth := seedOrgAdmin(t, app, baseAuth.OrganizationID)
+	ctx := context.Background()
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+
+	adminHeader := seedSessionHeader(t, app, auth)
+	createReq := connect.NewRequest(&aperiov1.CreateSiemDestinationRequest{
+		Kind:     "JSON_FILE",
+		Name:     "Local JSON event test ping",
+		FilePath: "test-ping-events.jsonl",
+		Streams:  []string{"EVENTS"},
+	})
+	copyCompatHeaders(createReq.Header(), adminHeader)
+	createResp, err := app.CreateSiemDestination(ctx, createReq)
+	if err != nil {
+		t.Fatalf("typed create events-only JSON_FILE SIEM destination: %v", err)
+	}
+	destinationID := createResp.Msg.Data.Id
+
+	compatResult, err := app.compatTestSiem(ctx, destinationID, auth)
+	if err != nil {
+		t.Fatalf("compat events-only test SIEM: %v", err)
+	}
+	compatData := dataMap(t, compatResult)
+	if compatData["stream"] != "EVENTS" {
+		t.Fatalf("compat test stream = %v, want EVENTS", compatData["stream"])
+	}
+	typedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: destinationID})
+	copyCompatHeaders(typedReq.Header(), adminHeader)
+	typedResp, err := app.TestSiemDestination(ctx, typedReq)
+	if err != nil {
+		t.Fatalf("typed events-only test SIEM: %v", err)
+	}
+	if !typedResp.Msg.Data.Ok || typedResp.Msg.Data.DestinationId != destinationID {
+		t.Fatalf("unexpected typed events-only test response: %#v", typedResp.Msg.Data)
+	}
+
+	rows, err := app.db.QueryContext(ctx, `
+		SELECT id, status::text, attempts, max_attempts, stream::text, dedupe_key, payload
+		FROM siem_deliveries
+		WHERE destination_id = $1 AND organization_id = $2
+		ORDER BY created_at, id
+	`, destinationID, auth.OrganizationID)
+	if err != nil {
+		t.Fatalf("query events-only test deliveries: %v", err)
+	}
+	defer rows.Close()
+	queuedIDs := []string{}
+	for rows.Next() {
+		var deliveryID, status, stream, dedupe string
+		var attempts, maxAttempts int
+		var rawPayload json.RawMessage
+		if err := rows.Scan(&deliveryID, &status, &attempts, &maxAttempts, &stream, &dedupe, &rawPayload); err != nil {
+			t.Fatalf("scan events-only test delivery: %v", err)
+		}
+		var payload siemdispatcher.Payload
+		if err := json.Unmarshal(rawPayload, &payload); err != nil {
+			t.Fatalf("decode events-only test payload: %v", err)
+		}
+		if status != "PENDING" || attempts != 0 || maxAttempts != 5 || stream != "EVENTS" {
+			t.Fatalf("events-only test delivery state = id=%s status=%s attempts=%d max=%d stream=%s", deliveryID, status, attempts, maxAttempts, stream)
+		}
+		if payload.Kind != "event" || payload.OrganizationID != auth.OrganizationID || payload.Record["test"] != true || payload.Record["id"] != deliveryID || payload.Record["eventType"] != "aperio.siem.test" {
+			t.Fatalf("events-only test payload = id=%s payload=%#v", deliveryID, payload)
+		}
+		if want := siemdispatcher.StableDeliveryKey(payload, destinationID, "EVENTS"); dedupe != want {
+			t.Fatalf("events-only test dedupe = %s, want %s", dedupe, want)
+		}
+		queuedIDs = append(queuedIDs, deliveryID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate events-only test deliveries: %v", err)
+	}
+	if len(queuedIDs) != 2 {
+		t.Fatalf("expected compat+typed events-only test pings to enqueue two deliveries, got %v", queuedIDs)
+	}
+
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	drainResult, err := dispatcher.Drain(ctx, 10)
+	if err != nil {
+		t.Fatalf("drain events-only test pings: %v", err)
+	}
+	if drainResult.Processed != 2 || drainResult.Delivered != 2 || drainResult.Failed != 0 {
+		t.Fatalf("unexpected events-only test-ping drain result: %#v", drainResult)
+	}
+	raw, err := os.ReadFile(filepath.Join(exportRoot, "test-ping-events.jsonl"))
+	if err != nil {
+		t.Fatalf("read events-only test-ping JSONL: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two dispatcher-written event test envelopes, got %d lines: %q", len(lines), string(raw))
+	}
+	for _, line := range lines {
+		var envelope siemdispatcher.Envelope
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			t.Fatalf("decode events-only test-ping envelope: %v", err)
+		}
+		if envelope.SchemaVersion != "aperio.event.v1" || envelope.Kind != "event" || envelope.DestinationID != destinationID || envelope.OrganizationID != auth.OrganizationID || envelope.Record["test"] != true {
+			t.Fatalf("unexpected events-only test-ping envelope: %#v", envelope)
+		}
+	}
+
+	noStreamID := compatID("siem")
+	if _, err := app.db.ExecContext(ctx, `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", 'No stream JSON test ping',
+			'no-stream.jsonl', ARRAY[]::"SiemStreamType"[], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, noStreamID, auth.OrganizationID); err != nil {
+		t.Fatalf("seed no-stream SIEM destination: %v", err)
+	}
+	splunkID := compatID("siem")
+	if _, err := app.db.ExecContext(ctx, `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, endpoint_url, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'SPLUNK_HEC'::"SiemKind", 'Unsupported Splunk test ping',
+			'https://8.8.8.8/services/collector', ARRAY['FINDINGS'::"SiemStreamType"], 'ACTIVE'::"SiemStatus", NOW(), NOW()
+		)
+	`, splunkID, auth.OrganizationID); err != nil {
+		t.Fatalf("seed unsupported SIEM destination: %v", err)
+	}
+	countDeliveries := func(destinationID string) int {
+		t.Helper()
+		var count int
+		if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM siem_deliveries WHERE destination_id = $1`, destinationID).Scan(&count); err != nil {
+			t.Fatalf("count SIEM deliveries for %s: %v", destinationID, err)
+		}
+		return count
+	}
+	for name, unsupportedID := range map[string]string{
+		"no subscribed streams": noStreamID,
+		"unsupported kind":      splunkID,
+	} {
+		t.Run(name, func(t *testing.T) {
+			before := countDeliveries(unsupportedID)
+			if _, err := app.compatTestSiem(ctx, unsupportedID, auth); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				t.Fatalf("compat unsupported test SIEM code = %v (%v), want CodeFailedPrecondition", connect.CodeOf(err), err)
+			}
+			unsupportedTypedReq := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: unsupportedID})
+			copyCompatHeaders(unsupportedTypedReq.Header(), adminHeader)
+			if _, err := app.TestSiemDestination(ctx, unsupportedTypedReq); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				t.Fatalf("typed unsupported test SIEM code = %v (%v), want CodeFailedPrecondition", connect.CodeOf(err), err)
+			}
+			if after := countDeliveries(unsupportedID); after != before {
+				t.Fatalf("unsupported test ping changed delivery count from %d to %d", before, after)
+			}
+		})
 	}
 }
 

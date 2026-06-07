@@ -128,6 +128,16 @@ worker-siem-go: require-env ## Run the explicit Go transition SIEM dispatcher wo
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/siem-dispatcher $(GO_WORKER_ARGS)
 
+.PHONY: smoke-workers-go
+smoke-workers-go: require-env ## Run bounded explicit Go worker transition smokes
+	@$(MAKE) --no-print-directory db-up migrate
+	@$(LOAD_ENV) npm run worker:ingestion:go -- -once -limit 1
+	@$(LOAD_ENV) npm run worker:siem:go -- -once -limit 1
+
+.PHONY: smoke-e2e
+smoke-e2e: require-env ## Run the local Go API + TypeScript FE E2E smoke harness
+	@npm run smoke:e2e
+
 .PHONY: mcp
 mcp: require-env ## Run the stdio MCP broker
 	@$(LOAD_ENV) npx tsx apps/mcp/src/server.ts
@@ -236,6 +246,10 @@ lint: fmt-check vet proto-lint ## Run Go + protobuf linters
 typecheck: ## TypeScript type checking
 	@npm run typecheck
 
+.PHONY: guardrails-migration
+guardrails-migration: ## Run migration ownership and fallback guardrails
+	@npm run guardrails:migration
+
 .PHONY: test
 test: test-go test-api ## Run Go and API tests
 
@@ -261,7 +275,7 @@ audit: ## Audit production dependencies
 	@npm run audit:prod
 
 .PHONY: verify
-verify: db-generate typecheck proto-lint test-go test-api db-validate leak-check audit ## Run the full pre-PR preflight
+verify: db-generate typecheck guardrails-migration generate-check lint test-go test-go-db test-api db-validate build-web smoke-workers-go smoke-e2e audit leak-check ## Run the full pre-PR preflight
 
 ##@ Build
 

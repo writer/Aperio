@@ -1,6 +1,7 @@
 package ingestionworker
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 type githubParityFixture struct {
@@ -48,6 +51,40 @@ type githubFixturePayload struct {
 	Payload        map[string]any `json:"payload"`
 }
 
+type slackParityFixture struct {
+	Positive struct {
+		Payload         slackFixturePayload `json:"payload"`
+		ExpectedFinding struct {
+			RuleID      string         `json:"ruleId"`
+			Title       string         `json:"title"`
+			Description string         `json:"description"`
+			Severity    string         `json:"severity"`
+			RiskScore   int            `json:"riskScore"`
+			Target      string         `json:"target"`
+			Evidence    map[string]any `json:"evidence"`
+			DedupeKey   string         `json:"dedupeKey"`
+		} `json:"expectedFinding"`
+	} `json:"positive"`
+	Alias struct {
+		Payload slackFixturePayload `json:"payload"`
+	} `json:"alias"`
+	Negative struct {
+		Payload slackFixturePayload `json:"payload"`
+	} `json:"negative"`
+	DisabledCheck string `json:"disabledCheck"`
+}
+
+type slackFixturePayload struct {
+	OrganizationID string         `json:"organizationId"`
+	IntegrationID  string         `json:"integrationId"`
+	Provider       string         `json:"provider"`
+	EventType      string         `json:"eventType"`
+	Source         string         `json:"source"`
+	Actor          string         `json:"actor"`
+	OccurredAt     string         `json:"occurredAt"`
+	Payload        map[string]any `json:"payload"`
+}
+
 func readGitHubParityFixture(t *testing.T) githubParityFixture {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "github-public-repository.json"))
@@ -61,7 +98,52 @@ func readGitHubParityFixture(t *testing.T) githubParityFixture {
 	return fixture
 }
 
+func readSlackParityFixture(t *testing.T) slackParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "slack-mfa-disabled.json"))
+	if err != nil {
+		t.Fatalf("read Slack parity fixture: %v", err)
+	}
+	var fixture slackParityFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode Slack parity fixture: %v", err)
+	}
+	return fixture
+}
+
+func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
+	cases := map[string]string{
+		"repository.publicized":        "REPOSITORY_PUBLICIZED",
+		" two-factor auth disabled ":   "TWO_FACTOR_AUTH_DISABLED",
+		"//public-repository-created/": "PUBLIC_REPOSITORY_CREATED",
+		"mfa.disabled":                 "MFA_DISABLED",
+	}
+	for input, want := range cases {
+		if got := normalizeEventType(input); got != want {
+			t.Fatalf("normalizeEventType(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func (p githubFixturePayload) jobPayload(t *testing.T) JobPayload {
+	t.Helper()
+	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
+	if err != nil {
+		t.Fatalf("parse fixture occurredAt: %v", err)
+	}
+	return JobPayload{
+		OrganizationID: p.OrganizationID,
+		IntegrationID:  p.IntegrationID,
+		Provider:       p.Provider,
+		EventType:      p.EventType,
+		Source:         p.Source,
+		Actor:          p.Actor,
+		OccurredAt:     occurredAt,
+		Payload:        p.Payload,
+	}
+}
+
+func (p slackFixturePayload) jobPayload(t *testing.T) JobPayload {
 	t.Helper()
 	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)
 	if err != nil {
@@ -113,6 +195,47 @@ func TestEvaluateGitHubPublicRepository(t *testing.T) {
 	}
 }
 
+func TestEvaluateSlackMFADisabled(t *testing.T) {
+	fixture := readSlackParityFixture(t)
+	payload := fixture.Positive.Payload.jobPayload(t)
+	findings := Evaluate(payload, nil)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %d", len(findings))
+	}
+	if findings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+		t.Fatalf("rule id = %s", findings[0].RuleID)
+	}
+	if findings[0].Title != fixture.Positive.ExpectedFinding.Title {
+		t.Fatalf("title = %s", findings[0].Title)
+	}
+	if findings[0].Description != fixture.Positive.ExpectedFinding.Description {
+		t.Fatalf("description = %s", findings[0].Description)
+	}
+	if findings[0].Target != fixture.Positive.ExpectedFinding.Target {
+		t.Fatalf("target = %s", findings[0].Target)
+	}
+	if findings[0].Severity != fixture.Positive.ExpectedFinding.Severity || findings[0].RiskScore != fixture.Positive.ExpectedFinding.RiskScore {
+		t.Fatalf("unexpected severity/risk: %#v", findings[0])
+	}
+	if !reflect.DeepEqual(findings[0].Evidence, fixture.Positive.ExpectedFinding.Evidence) {
+		t.Fatalf("evidence = %#v, want %#v", findings[0].Evidence, fixture.Positive.ExpectedFinding.Evidence)
+	}
+	if got := DedupeKey(payload, findings[0]); got != fixture.Positive.ExpectedFinding.DedupeKey {
+		t.Fatalf("dedupe key = %s, want TS-compatible hash", got)
+	}
+
+	aliasFindings := Evaluate(fixture.Alias.Payload.jobPayload(t), nil)
+	if len(aliasFindings) != 1 || aliasFindings[0].RuleID != fixture.Positive.ExpectedFinding.RuleID {
+		t.Fatalf("expected two-factor auth alias to produce Slack MFA finding, got %#v", aliasFindings)
+	}
+	if got := Evaluate(fixture.Negative.Payload.jobPayload(t), nil); len(got) != 0 {
+		t.Fatalf("expected unrelated Slack event to produce no findings, got %#v", got)
+	}
+	if got := Evaluate(payload, []string{fixture.DisabledCheck}); len(got) != 0 {
+		t.Fatalf("expected disabled check to produce no findings, got %#v", got)
+	}
+}
+
 func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	fixture := readGitHubParityFixture(t)
 	payload := fixture.Positive.Payload.jobPayload(t)
@@ -132,6 +255,58 @@ func TestDedupeKeyIsStableAcrossObservations(t *testing.T) {
 	payload.Provider = "SLACK"
 	if DedupeKey(payload, finding) != first {
 		t.Fatal("dedupe key should exclude provider to match the TypeScript worker")
+	}
+}
+
+func TestIngestionJobWideEventCoversOutcomesWithoutSecrets(t *testing.T) {
+	base := job{
+		ID:             "job_1",
+		OrganizationID: "org_1",
+		Provider:       "GITHUB",
+		EventType:      "PUBLIC_REPOSITORY_CREATED",
+		Attempts:       0,
+		MaxAttempts:    3,
+	}
+	success := ingestionJobWideEvent(base, nil, 7*time.Millisecond)
+	if success.Name != "ingestion.job.process" || success.Service != "ingestion-worker" {
+		t.Fatalf("unexpected telemetry identity: %#v", success)
+	}
+	if success.Organization != "org_1" || success.Dimensions["outcome"] != "succeeded" || success.Dimensions["provider"] != "GITHUB" || success.Dimensions["event_type"] != "PUBLIC_REPOSITORY_CREATED" {
+		t.Fatalf("unexpected success dimensions: %#v", success.Dimensions)
+	}
+	if success.Measurements["attempt"] != 1 || success.Measurements["max_attempts"] != 3 || success.Measurements["duration_ms"] != 7 {
+		t.Fatalf("unexpected success measurements: %#v", success.Measurements)
+	}
+	if _, ok := success.Dimensions["error_kind"]; ok {
+		t.Fatalf("success telemetry should not include error_kind: %#v", success.Dimensions)
+	}
+
+	retry := ingestionJobWideEvent(base, errors.New("database password should not be serialized"), time.Millisecond)
+	if retry.Dimensions["outcome"] != "failed" || retry.Dimensions["error_kind"] != "error" {
+		t.Fatalf("unexpected retry telemetry: %#v", retry.Dimensions)
+	}
+	if strings.Contains(fmt.Sprint(retry.Dimensions), "password") {
+		t.Fatalf("telemetry dimensions leaked raw error text: %#v", retry.Dimensions)
+	}
+
+	deadLetterJob := base
+	deadLetterJob.Attempts = 2
+	deadLetter := ingestionJobWideEvent(deadLetterJob, errors.New("boom"), time.Millisecond)
+	if deadLetter.Dimensions["outcome"] != "dead_letter" || deadLetter.Measurements["attempt"] != 3 {
+		t.Fatalf("unexpected dead-letter telemetry: %#v %#v", deadLetter.Dimensions, deadLetter.Measurements)
+	}
+
+	lostLease := ingestionJobWideEvent(base, errIngestionLeaseLost, time.Millisecond)
+	if lostLease.Dimensions["outcome"] != "lost_lease" || lostLease.Dimensions["error_kind"] != "lease_lost" {
+		t.Fatalf("unexpected lost-lease telemetry: %#v", lostLease.Dimensions)
+	}
+
+	var sink bytes.Buffer
+	restore := telemetry.SetOutput(&sink)
+	emitIngestionJobWideEvent(base, nil, time.Millisecond)
+	restore()
+	if !strings.Contains(sink.String(), `"event_name":"ingestion.job.process"`) || strings.Contains(sink.String(), "password") {
+		t.Fatalf("unexpected emitted telemetry: %s", sink.String())
 	}
 }
 

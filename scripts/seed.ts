@@ -10,6 +10,7 @@ const analystUserId = "usr_demo_security_analyst";
 const githubIntegrationId = "int_demo_github";
 const slackIntegrationId = "int_demo_slack";
 const googleIntegrationId = "int_demo_google";
+const siemDestinationId = "siem_demo_json_file";
 
 const githubAppAssetId = "asset_demo_app_github";
 const slackAppAssetId = "asset_demo_app_slack";
@@ -35,6 +36,31 @@ async function upsertSaasIdentity(
         organizationId,
         provider: data.provider,
         externalId: data.externalId
+      }
+    },
+    update: data,
+    create: {
+      id,
+      organizationId,
+      ...data
+    }
+  });
+}
+
+async function upsertOauthAppGrant(
+  id: string,
+  data: Omit<
+    Parameters<typeof prisma.oauthAppGrant.upsert>[0]["create"],
+    "id" | "organizationId"
+  >
+) {
+  await prisma.oauthAppGrant.upsert({
+    where: {
+      organizationId_integrationId_externalAppId_userEmail: {
+        organizationId,
+        integrationId: data.integrationId,
+        externalAppId: data.externalAppId,
+        userEmail: data.userEmail
       }
     },
     update: data,
@@ -330,7 +356,7 @@ async function main() {
     name: "Acme CI Deploy",
     summary: "Third-party CI orchestrator with broad repository administration scopes.",
     externalId: "oauth-app-acme-ci",
-    labels: ["repo:admin", "workflow", "third-party"],
+    labels: ["repo:admin", "workflow", "third-party", "shadow-it"],
     criticality: "HIGH",
     exposureLevel: "TRUSTED_EXTERNAL",
     ownershipStatus: "ASSIGNED",
@@ -385,7 +411,7 @@ async function main() {
     name: "Vendor Analytics Add-on",
     summary: "Unowned reporting add-on retaining access to Drive and mail metadata.",
     externalId: "vendor-analytics-addon",
-    labels: ["third-party", "drive", "mail"],
+    labels: ["third-party", "drive", "mail", "shadow-it"],
     criticality: "MEDIUM",
     exposureLevel: "TRUSTED_EXTERNAL",
     ownershipStatus: "UNASSIGNED",
@@ -488,6 +514,51 @@ async function main() {
     isExternal: true,
     lastObservedAt: new Date("2026-05-28T17:12:00.000Z"),
     riskScore: 46
+  });
+
+  await upsertOauthAppGrant("grant_demo_ci_deploy_breakglass", {
+    integrationId: githubIntegrationId,
+    assetId: githubOauthAssetId,
+    provider: "GITHUB",
+    externalAppId: "oauth-app-acme-ci",
+    appDisplayName: "Acme CI Deploy",
+    userEmail: "breakglass@aperio.local",
+    userExternalId: "github:user:breakglass",
+    userDisplayName: "Break Glass Admin",
+    scopes: ["repo", "admin:org", "workflow"],
+    anonymous: false,
+    nativeApp: false,
+    lastObservedAt: new Date("2026-05-29T16:45:00.000Z")
+  });
+
+  await upsertOauthAppGrant("grant_demo_vendor_analytics_morgan", {
+    integrationId: googleIntegrationId,
+    assetId: vendorAnalyticsAssetId,
+    provider: "GOOGLE_WORKSPACE",
+    externalAppId: "vendor-analytics-addon",
+    appDisplayName: "Vendor Analytics Add-on",
+    userEmail: "morgan.finance@acme.test",
+    userExternalId: "google:user:morgan-finance",
+    userDisplayName: "Morgan Finance",
+    scopes: ["drive.readonly", "gmail.metadata"],
+    anonymous: false,
+    nativeApp: false,
+    lastObservedAt: new Date("2026-05-12T09:30:00.000Z")
+  });
+
+  await upsertOauthAppGrant("grant_demo_vendor_analytics_guest", {
+    integrationId: googleIntegrationId,
+    assetId: vendorAnalyticsAssetId,
+    provider: "GOOGLE_WORKSPACE",
+    externalAppId: "vendor-analytics-addon",
+    appDisplayName: "Vendor Analytics Add-on",
+    userEmail: "guest.contractor@vendor.test",
+    userExternalId: "google:user:guest-contractor",
+    userDisplayName: "Finance Shared Channel Guest",
+    scopes: ["drive.readonly"],
+    anonymous: false,
+    nativeApp: false,
+    lastObservedAt: new Date("2026-05-13T10:15:00.000Z")
   });
 
   const detectedAt = new Date();
@@ -671,6 +742,33 @@ async function main() {
       status: "ACTIVE",
       expiresAt: new Date("2026-06-07T18:00:00.000Z"),
       approvedAt: new Date("2026-05-29T20:00:00.000Z")
+    }
+  });
+
+  await prisma.siemDestination.upsert({
+    where: { id: siemDestinationId },
+    update: {
+      kind: "JSON_FILE",
+      name: "Demo local JSONL",
+      endpointUrl: null,
+      filePath: "demo/findings.jsonl",
+      index: null,
+      encryptedToken: null,
+      streams: ["FINDINGS"],
+      status: "ACTIVE",
+      lastError: null
+    },
+    create: {
+      id: siemDestinationId,
+      organizationId,
+      kind: "JSON_FILE",
+      name: "Demo local JSONL",
+      endpointUrl: null,
+      filePath: "demo/findings.jsonl",
+      index: null,
+      encryptedToken: null,
+      streams: ["FINDINGS"],
+      status: "ACTIVE"
     }
   });
 }

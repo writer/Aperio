@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "finding_open",
+      "destinationId": "dst_1",
+      "stream": "FINDINGS",
+      "payload": {
+        "kind": "finding",
+        "organizationId": "org_1",
+        "occurredAt": "2026-06-06T00:00:00.000Z",
+        "record": {
+          "findingId": "fnd_1",
+          "dedupeKey": "stable-finding",
+          "sourceEventId": "evt_1",
+          "status": "OPEN",
+          "ruleId": "github.public_repository_created",
+          "title": "Public GitHub repository created"
+        }
+      },
+      "expectedDeliveryKey": "64d8bc670765462f2e1a22e94817879593b3ed9d7a716330b326beb259de7338"
+    },
+    {
+      "name": "finding_reopened",
+      "destinationId": "dst_1",
+      "stream": "FINDINGS",
+      "payload": {
+        "kind": "finding",
+        "organizationId": "org_1",
+        "occurredAt": "2026-06-06T01:00:00.000Z",
+        "record": {
+          "findingId": "fnd_1",
+          "dedupeKey": "stable-finding",
+          "sourceEventId": "evt_2",
+          "status": "OPEN",
+          "ruleId": "github.public_repository_created",
+          "title": "Public GitHub repository created"
+        }
+      },
+      "expectedDeliveryKey": "024c988e917d963a3eb385d7d6c2fd8dc7f889d96a5d1f376c4084eef0a33f70"
+    },
+    {
+      "name": "event_stable_id",
+      "destinationId": "dst_1",
+      "stream": "EVENTS",
+      "payload": {
+        "kind": "event",
+        "organizationId": "org_1",
+        "occurredAt": "2026-06-06T02:00:00.000Z",
+        "record": {
+          "id": "evt_audit_1",
+          "eventType": "github.repository.created",
+          "provider": "GITHUB"
+        }
+      },
+      "expectedDeliveryKey": "d9d20a129b338f46ec2ba9e0c4132daca83f67f76dd22693f4fa6fd9ab968b4a"
+    },
+    {
+      "name": "audit_log_missing_stable_id",
+      "destinationId": "dst_1",
+      "stream": "AUDIT_LOGS",
+      "payload": {
+        "kind": "audit_log",
+        "organizationId": "org_1",
+        "occurredAt": "2026-06-06T03:00:00.000Z",
+        "record": {
+          "action": "siem.destination.create",
+          "actor": "owner@example.com"
+        }
+      },
+      "expectedDeliveryKey": "a383d5418b595140600b4f0eb30765143166d98f21c8f2cd5c55b78be5c539bc"
+    },
+    {
+      "name": "cross_destination",
+      "destinationId": "dst_2",
+      "stream": "FINDINGS",
+      "payload": {
+        "kind": "finding",
+        "organizationId": "org_1",
+        "occurredAt": "2026-06-06T00:00:00.000Z",
+        "record": {
+          "findingId": "fnd_1",
+          "dedupeKey": "stable-finding",
+          "sourceEventId": "evt_1",
+          "status": "OPEN",
+          "ruleId": "github.public_repository_created",
+          "title": "Public GitHub repository created"
+        }
+      },
+      "expectedDeliveryKey": "bd484f69f48445bf2c2d8b142b8ba7bb647066275b88ff7ad0c974b520f86aec"
+    },
+    {
+      "name": "cross_tenant",
+      "destinationId": "dst_1",
+      "stream": "FINDINGS",
+      "payload": {
+        "kind": "finding",
+        "organizationId": "org_2",
+        "occurredAt": "2026-06-06T00:00:00.000Z",
+        "record": {
+          "findingId": "fnd_1",
+          "dedupeKey": "stable-finding",
+          "sourceEventId": "evt_1",
+          "status": "OPEN",
+          "ruleId": "github.public_repository_created",
+          "title": "Public GitHub repository created"
+        }
+      },
+      "expectedDeliveryKey": "3125a1150b65ff6d4592b7b5d1a6d11b619e58ad64ef5ed3c2549294f48363c0"
+    }
+  ]
+}

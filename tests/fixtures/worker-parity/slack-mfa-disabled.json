@@ -1,0 +1,67 @@
+{
+  "positive": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_slack_1",
+      "provider": "SLACK",
+      "eventType": "mfa.disabled",
+      "source": "slack-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T01:00:00.000Z",
+      "payload": {
+        "user": {
+          "id": "U123",
+          "email": "user@example.com"
+        }
+      }
+    },
+    "expectedFinding": {
+      "ruleId": "slack.mfa_disabled",
+      "title": "Slack multi-factor authentication disabled",
+      "description": "A Slack user disabled MFA, increasing the likelihood of account takeover and lateral movement.",
+      "severity": "CRITICAL",
+      "riskScore": 90,
+      "target": "user@example.com",
+      "evidence": {
+        "user": "user@example.com",
+        "subject": "user@example.com"
+      },
+      "dedupeKey": "fe26fa694a697137ee7e66f7c984385a01391b6928975f431d95dc640f557d4a"
+    }
+  },
+  "alias": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_slack_1",
+      "provider": "SLACK",
+      "eventType": "two-factor auth disabled",
+      "source": "slack-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T01:05:00.000Z",
+      "payload": {
+        "user": {
+          "id": "U123",
+          "email": "user@example.com"
+        }
+      }
+    }
+  },
+  "negative": {
+    "payload": {
+      "organizationId": "org_1",
+      "integrationId": "int_slack_1",
+      "provider": "SLACK",
+      "eventType": "user_login",
+      "source": "slack-audit-log",
+      "actor": "admin@example.com",
+      "occurredAt": "2026-06-06T01:10:00.000Z",
+      "payload": {
+        "user": {
+          "id": "U123",
+          "email": "user@example.com"
+        }
+      }
+    }
+  },
+  "disabledCheck": "slack.mfa_disabled"
+}

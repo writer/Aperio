@@ -456,7 +456,6 @@ func copyCompatHeaders(dst http.Header, src http.Header) {
 
 func authSessionFromMap(data map[string]any) *aperiov1.AuthSession {
 	return &aperiov1.AuthSession{
-		Token:        stringFromAny(data["token"]),
 		User:         authUserFromAny(data["user"]),
 		Organization: authOrganizationFromAny(data["organization"]),
 	}
@@ -654,6 +653,7 @@ func securityIdentitiesFromAny(value any) []*aperiov1.SecurityIdentity {
 			Role:             stringFromAny(data["role"]),
 			Privileged:       boolFromAny(data["privileged"]),
 			MfaEnabled:       boolFromAny(data["mfaEnabled"]),
+			MfaEnabledState:  optionalBoolFromAny(data["mfaEnabled"]),
 			Status:           stringFromAny(data["status"]),
 			IsExternal:       boolFromAny(data["isExternal"]),
 			LastObservedAt:   optionalStringFromAny(data["lastObservedAt"]),

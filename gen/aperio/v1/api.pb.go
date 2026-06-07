@@ -7427,6 +7427,7 @@ type SecurityIdentity struct {
 	LastObservedAt   string                 `protobuf:"bytes,13,opt,name=last_observed_at,json=lastObservedAt,proto3" json:"last_observed_at,omitempty"`
 	LinkedAssetCount int32                  `protobuf:"varint,14,opt,name=linked_asset_count,json=linkedAssetCount,proto3" json:"linked_asset_count,omitempty"`
 	RiskScore        int32                  `protobuf:"varint,15,opt,name=risk_score,json=riskScore,proto3" json:"risk_score,omitempty"`
+	MfaEnabledState  *bool                  `protobuf:"varint,16,opt,name=mfa_enabled_state,json=mfaEnabledState,proto3,oneof" json:"mfa_enabled_state,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -7564,6 +7565,13 @@ func (x *SecurityIdentity) GetRiskScore() int32 {
 		return x.RiskScore
 	}
 	return 0
+}
+
+func (x *SecurityIdentity) GetMfaEnabledState() bool {
+	if x != nil && x.MfaEnabledState != nil {
+		return *x.MfaEnabledState
+	}
+	return false
 }
 
 type SecurityGraph struct {
@@ -9986,7 +9994,7 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x13exposed_data_assets\x18\x04 \x01(\x05R\x11exposedDataAssets\x12%\n" +
 	"\x0eunowned_assets\x18\x05 \x01(\x05R\runownedAssets\x12+\n" +
 	"\x11active_exceptions\x18\x06 \x01(\x05R\x10activeExceptions\x123\n" +
-	"\x16top_blast_radius_score\x18\a \x01(\x05R\x13topBlastRadiusScore\"\xdf\x03\n" +
+	"\x16top_blast_radius_score\x18\a \x01(\x05R\x13topBlastRadiusScore\"\xa6\x04\n" +
 	"\x10SecurityIdentity\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tentity_id\x18\x02 \x01(\tR\bentityId\x12\x12\n" +
@@ -10008,7 +10016,9 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x10last_observed_at\x18\r \x01(\tR\x0elastObservedAt\x12,\n" +
 	"\x12linked_asset_count\x18\x0e \x01(\x05R\x10linkedAssetCount\x12\x1d\n" +
 	"\n" +
-	"risk_score\x18\x0f \x01(\x05R\triskScore\"w\n" +
+	"risk_score\x18\x0f \x01(\x05R\triskScore\x12/\n" +
+	"\x11mfa_enabled_state\x18\x10 \x01(\bH\x00R\x0fmfaEnabledState\x88\x01\x01B\x14\n" +
+	"\x12_mfa_enabled_state\"w\n" +
 	"\rSecurityGraph\x122\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x1c.aperio.v1.SecurityGraphNodeR\x05nodes\x122\n" +
 	"\x05edges\x18\x02 \x03(\v2\x1c.aperio.v1.SecurityGraphEdgeR\x05edges\"\xd5\x01\n" +
@@ -10637,6 +10647,7 @@ func file_aperio_v1_api_proto_init() {
 		return
 	}
 	file_aperio_v1_api_proto_msgTypes[107].OneofWrappers = []any{}
+	file_aperio_v1_api_proto_msgTypes[127].OneofWrappers = []any{}
 	file_aperio_v1_api_proto_msgTypes[139].OneofWrappers = []any{}
 	file_aperio_v1_api_proto_msgTypes[148].OneofWrappers = []any{}
 	type x struct{}

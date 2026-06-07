@@ -1028,6 +1028,17 @@ func boolFromAny(value any) bool {
 	return typed
 }
 
+func optionalBoolFromAny(value any) *bool {
+	switch typed := value.(type) {
+	case bool:
+		result := typed
+		return &result
+	case *bool:
+		return typed
+	}
+	return nil
+}
+
 func typedRateLimitSubjectBody(auth compatAuth) map[string]any {
 	return map[string]any{"email": auth.Email}
 }

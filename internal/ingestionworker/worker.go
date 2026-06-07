@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/writer/aperio/internal/siemdispatcher"
+	"github.com/writer/aperio/internal/telemetry"
 )
 
 const leaseDuration = 5 * time.Minute
@@ -44,8 +45,9 @@ type Finding struct {
 }
 
 type persistedFinding struct {
-	ID     string
-	Status string
+	ID             string
+	Status         string
+	PreviousStatus string
 }
 
 type Result struct {
@@ -55,8 +57,29 @@ type Result struct {
 }
 
 type Worker struct {
-	db         *sql.DB
-	leaseOwner string
+	db             *sql.DB
+	leaseOwner     string
+	eventPublisher IngestionEventPublisher
+}
+
+type FindingLifecycleEvent struct {
+	FindingID      string
+	OrganizationID string
+	IntegrationID  string
+	PreviousStatus string
+	NextStatus     string
+	OccurredAt     time.Time
+	ResolutionNote string
+}
+
+type IngestionEventPublisher interface {
+	PublishFindingLifecycle(context.Context, FindingLifecycleEvent) error
+}
+
+type noopIngestionEventPublisher struct{}
+
+func (noopIngestionEventPublisher) PublishFindingLifecycle(context.Context, FindingLifecycleEvent) error {
+	return nil
 }
 
 type job struct {
@@ -78,7 +101,11 @@ func New(db *sql.DB) *Worker {
 	if hostname == "" {
 		hostname = "unknown-host"
 	}
-	return &Worker{db: db, leaseOwner: fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID())}
+	return &Worker{
+		db:             db,
+		leaseOwner:     fmt.Sprintf("%s:%d:%s", hostname, os.Getpid(), randomID()),
+		eventPublisher: noopIngestionEventPublisher{},
+	}
 }
 
 func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
@@ -86,24 +113,36 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 	for _, check := range disabledChecks {
 		disabled[check] = struct{}{}
 	}
-	if _, ok := disabled["github.public_repository_created"]; ok {
-		return nil
+	findings := []Finding{}
+	if _, ok := disabled["github.public_repository_created"]; !ok {
+		if finding, ok := evaluateGitHubPublicRepository(payload); ok {
+			findings = append(findings, finding)
+		}
 	}
+	if _, ok := disabled["slack.mfa_disabled"]; !ok {
+		if finding, ok := evaluateSlackMFADisabled(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	return findings
+}
+
+func evaluateGitHubPublicRepository(payload JobPayload) (Finding, bool) {
 	if payload.Provider != "GITHUB" {
-		return nil
+		return Finding{}, false
 	}
 	normalized := normalizeEventType(payload.EventType)
 	private, hasPrivate := nestedBool(payload.Payload, "repository", "private")
 	visibility := nestedString(payload.Payload, "repository", "visibility")
 	if normalized != "PUBLIC_REPOSITORY_CREATED" && (!hasPrivate || private) && visibility != "public" {
-		return nil
+		return Finding{}, false
 	}
 	repository := firstNonEmpty(
 		nestedString(payload.Payload, "repository", "full_name"),
 		nestedString(payload.Payload, "repository", "name"),
 		"unknown repository",
 	)
-	return []Finding{{
+	return Finding{
 		RuleID:      "github.public_repository_created",
 		Title:       "Public GitHub repository created",
 		Description: "A repository was created or changed to public visibility, which can expose source code, secrets, or customer data.",
@@ -120,7 +159,40 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 			"subject":    repository,
 			"visibility": firstNonEmpty(visibility, "public"),
 		},
-	}}
+	}, true
+}
+
+func evaluateSlackMFADisabled(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "SLACK" {
+		return Finding{}, false
+	}
+	normalized := normalizeEventType(payload.EventType)
+	if normalized != "MFA_DISABLED" && normalized != "TWO_FACTOR_AUTH_DISABLED" {
+		return Finding{}, false
+	}
+	user := firstNonEmpty(
+		nestedString(payload.Payload, "user", "email"),
+		nestedString(payload.Payload, "user", "id"),
+		payload.Actor,
+		"unknown user",
+	)
+	return Finding{
+		RuleID:      "slack.mfa_disabled",
+		Title:       "Slack multi-factor authentication disabled",
+		Description: "A Slack user disabled MFA, increasing the likelihood of account takeover and lateral movement.",
+		Severity:    "CRITICAL",
+		RiskScore:   90,
+		RemediationSteps: []string{
+			"Re-enable MFA for the affected Slack user immediately.",
+			"Force a session reset for the affected account.",
+			"Review recent login history and connected Slack apps for suspicious activity.",
+		},
+		Target: user,
+		Evidence: map[string]any{
+			"user":    user,
+			"subject": user,
+		},
+	}, true
 }
 
 func DedupeKey(payload JobPayload, finding Finding) string {
@@ -147,7 +219,10 @@ func (w *Worker) Drain(ctx context.Context, limit int) (Result, error) {
 	}
 	result := Result{Processed: len(jobs)}
 	for _, item := range jobs {
-		if err := w.process(ctx, item); err != nil {
+		startedAt := time.Now()
+		err := w.process(ctx, item)
+		emitIngestionJobWideEvent(item, err, time.Since(startedAt))
+		if err != nil {
 			result.Failed++
 		} else {
 			result.Succeeded++
@@ -161,8 +236,10 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 		UPDATE ingestion_jobs
 		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
 		WHERE attempts >= max_attempts
-		  AND provider = 'GITHUB'
-		  AND event_type = 'PUBLIC_REPOSITORY_CREATED'
+		  AND (
+				(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
+			 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
+		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
 	`)
@@ -178,8 +255,10 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 			FROM ingestion_jobs
 			WHERE attempts < max_attempts
 			  AND next_attempt_at <= NOW()
-			  AND provider = 'GITHUB'
-			  AND event_type = 'PUBLIC_REPOSITORY_CREATED'
+			  AND (
+					(provider = 'GITHUB' AND event_type IN ('PUBLIC_REPOSITORY_CREATED', 'repository.publicized'))
+				 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED', 'mfa.disabled', 'two-factor auth disabled'))
+			  )
 			  AND (
 					(status IN ('QUEUED', 'FAILED') AND (lease_expires_at IS NULL OR lease_expires_at <= NOW()))
 				 OR (status = 'RUNNING' AND lease_expires_at <= NOW())
@@ -229,11 +308,12 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		_ = tx.Rollback()
 		return w.fail(ctx, item, err.Error())
 	}
+	lifecycleEvents := []FindingLifecycleEvent{}
 	eventID := "evt_" + randomID()
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO ingested_events (id, organization_id, integration_id, ingestion_job_id, provider, event_type, source, actor, severity, payload, processing_status, occurred_at, processed_at, created_at)
-		VALUES ($1,$2,$3,$4,$5::"SaaSProvider",$6,$7,$8,'INFO'::"Severity",$9::jsonb,'PROCESSED'::"EventProcessingStatus",$10,NOW(),NOW())
-		ON CONFLICT (ingestion_job_id) DO UPDATE SET payload = EXCLUDED.payload, processing_status = 'PROCESSED'::"EventProcessingStatus", processed_at = NOW()
+		VALUES ($1,$2,$3,$4,$5::"SaaSProvider",$6,$7,$8,'INFO'::"Severity",$9::jsonb,'RECEIVED'::"EventProcessingStatus",$10,NULL,NOW())
+		ON CONFLICT (ingestion_job_id) DO UPDATE SET payload = EXCLUDED.payload, processing_status = 'RECEIVED'::"EventProcessingStatus", processed_at = NULL, severity = 'INFO'::"Severity"
 		RETURNING id
 	`, eventID, item.OrganizationID, item.IntegrationID, item.ID, item.Provider, item.EventType, item.Source, nullableString(item.Actor), string(item.Payload), item.OccurredAt).Scan(&eventID); err != nil {
 		return fail(fmt.Errorf("upsert ingested event: %w", err))
@@ -246,6 +326,24 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		if err := enqueueFindingDelivery(ctx, tx, payload, finding, eventID, persisted); err != nil {
 			return fail(fmt.Errorf("enqueue SIEM delivery: %w", err))
 		}
+		if shouldPublishFindingLifecycle(persisted) {
+			lifecycleEvents = append(lifecycleEvents, FindingLifecycleEvent{
+				FindingID:      persisted.ID,
+				OrganizationID: payload.OrganizationID,
+				IntegrationID:  payload.IntegrationID,
+				PreviousStatus: persisted.PreviousStatus,
+				NextStatus:     persisted.Status,
+				OccurredAt:     payload.OccurredAt,
+				ResolutionNote: lifecycleResolutionNote(persisted),
+			})
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ingested_events
+		SET severity = $2::"Severity", processing_status = 'PROCESSED'::"EventProcessingStatus", processed_at = NOW()
+		WHERE id = $1 AND organization_id = $3
+	`, eventID, eventSeverity(findings), item.OrganizationID); err != nil {
+		return fail(fmt.Errorf("finalize ingested event: %w", err))
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE integration_connections
@@ -272,6 +370,7 @@ func (w *Worker) process(ctx context.Context, item job) error {
 		return w.fail(ctx, item, fmt.Errorf("commit transaction: %w", err).Error())
 	}
 	txDone = true
+	w.publishFindingLifecycleEvents(ctx, lifecycleEvents)
 	return nil
 }
 
@@ -308,15 +407,23 @@ func (w *Worker) loadDisabledChecks(ctx context.Context, item job) ([]string, er
 
 func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding Finding, eventID string) (persistedFinding, error) {
 	dedupe := DedupeKey(payload, finding)
-	evidence := map[string]any{}
-	for key, value := range finding.Evidence {
-		evidence[key] = value
-	}
-	evidence["ruleId"] = finding.RuleID
-	evidence["sourceEventId"] = eventID
-	evidenceJSON, _ := json.Marshal(evidence)
-	var persisted persistedFinding
+	previousStatus := "NEW"
+	var existingStatus string
 	err := tx.QueryRowContext(ctx, `
+		SELECT status::text
+		FROM security_findings
+		WHERE organization_id = $1 AND dedupe_key = $2
+	`, payload.OrganizationID, dedupe).Scan(&existingStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return persistedFinding{}, err
+	}
+	if err == nil {
+		previousStatus = existingStatus
+	}
+	evidence := buildFindingEvidence(payload, finding, eventID)
+	evidenceJSON, _ := json.Marshal(evidence)
+	persisted := persistedFinding{PreviousStatus: previousStatus}
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO security_findings (
 			id, organization_id, integration_id, event_id, dedupe_key, title, description, severity,
 			status, risk_score, remediation_steps, evidence, detected_at
@@ -336,6 +443,73 @@ func upsertFinding(ctx context.Context, tx *sql.Tx, payload JobPayload, finding 
 		RETURNING id, status::text
 	`, "fnd_"+randomID(), payload.OrganizationID, payload.IntegrationID, eventID, dedupe, finding.Title, finding.Description, finding.Severity, finding.RiskScore, postgresTextArray(finding.RemediationSteps), string(evidenceJSON), payload.OccurredAt).Scan(&persisted.ID, &persisted.Status)
 	return persisted, err
+}
+
+func buildFindingEvidence(payload JobPayload, finding Finding, eventID string) map[string]any {
+	evidence := map[string]any{
+		"ruleId":        finding.RuleID,
+		"target":        finding.Target,
+		"subject":       finding.Target,
+		"provider":      payload.Provider,
+		"source":        payload.Source,
+		"eventType":     payload.EventType,
+		"sourceEventId": eventID,
+	}
+	addNonEmptyEvidence(evidence, "actor", payload.Actor)
+	addNonEmptyEvidence(evidence, "application", nestedString(payload.Payload, "application"))
+	addNonEmptyEvidence(evidence, "sourceIp", nestedString(payload.Payload, "ipAddress"))
+	for key, value := range finding.Evidence {
+		if value != nil {
+			evidence[key] = value
+		}
+	}
+	return evidence
+}
+
+func addNonEmptyEvidence(evidence map[string]any, key string, value string) {
+	if strings.TrimSpace(value) != "" {
+		evidence[key] = strings.TrimSpace(value)
+	}
+}
+
+func eventSeverity(findings []Finding) string {
+	for _, finding := range findings {
+		if finding.Severity == "CRITICAL" {
+			return "CRITICAL"
+		}
+	}
+	if len(findings) > 0 && strings.TrimSpace(findings[0].Severity) != "" {
+		return findings[0].Severity
+	}
+	return "INFO"
+}
+
+func shouldPublishFindingLifecycle(finding persistedFinding) bool {
+	return finding.PreviousStatus == "NEW" || (finding.PreviousStatus != "" && finding.PreviousStatus != finding.Status)
+}
+
+func lifecycleResolutionNote(finding persistedFinding) string {
+	if finding.PreviousStatus == "RESOLVED" && finding.Status == "OPEN" {
+		return "Finding observed again during ingestion"
+	}
+	return "Finding observed during ingestion"
+}
+
+func (w *Worker) publisher() IngestionEventPublisher {
+	if w.eventPublisher != nil {
+		return w.eventPublisher
+	}
+	return noopIngestionEventPublisher{}
+}
+
+func (w *Worker) publishFindingLifecycleEvents(ctx context.Context, events []FindingLifecycleEvent) {
+	if len(events) == 0 {
+		return
+	}
+	publisher := w.publisher()
+	for _, event := range events {
+		_ = publisher.PublishFindingLifecycle(ctx, event)
+	}
 }
 
 func postgresTextArray(values []string) string {
@@ -483,7 +657,20 @@ func (j job) toPayload() (JobPayload, error) {
 }
 
 func normalizeEventType(value string) string {
-	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(value), ".", "_"))
+	var builder strings.Builder
+	lastWasSeparator := false
+	for _, char := range strings.ToUpper(value) {
+		if (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+			lastWasSeparator = false
+			continue
+		}
+		if !lastWasSeparator {
+			builder.WriteByte('_')
+			lastWasSeparator = true
+		}
+	}
+	return strings.Trim(builder.String(), "_")
 }
 
 func nestedString(value map[string]any, path ...string) string {
@@ -536,6 +723,55 @@ func boundedLimit(limit int) int {
 		return 1000
 	}
 	return limit
+}
+
+func emitIngestionJobWideEvent(item job, processErr error, duration time.Duration) {
+	telemetry.EmitWide(ingestionJobWideEvent(item, processErr, duration))
+}
+
+func ingestionJobWideEvent(item job, processErr error, duration time.Duration) telemetry.WideEvent {
+	dimensions := map[string]string{
+		"outcome":    ingestionJobOutcome(item, processErr),
+		"provider":   item.Provider,
+		"event_type": item.EventType,
+	}
+	if kind := ingestionErrorKind(processErr); kind != "" {
+		dimensions["error_kind"] = kind
+	}
+	return telemetry.WideEvent{
+		Name:         "ingestion.job.process",
+		Service:      "ingestion-worker",
+		Organization: item.OrganizationID,
+		Dimensions:   dimensions,
+		Measurements: map[string]int64{
+			"attempt":      int64(item.Attempts + 1),
+			"max_attempts": int64(item.MaxAttempts),
+			"duration_ms":  duration.Milliseconds(),
+		},
+	}
+}
+
+func ingestionJobOutcome(item job, processErr error) string {
+	if processErr == nil {
+		return "succeeded"
+	}
+	if errors.Is(processErr, errIngestionLeaseLost) {
+		return "lost_lease"
+	}
+	if item.Attempts+1 >= item.MaxAttempts {
+		return "dead_letter"
+	}
+	return "failed"
+}
+
+func ingestionErrorKind(processErr error) string {
+	if processErr == nil {
+		return ""
+	}
+	if errors.Is(processErr, errIngestionLeaseLost) {
+		return "lease_lost"
+	}
+	return "error"
 }
 
 func nextRetryDelay(attempt int) time.Duration {

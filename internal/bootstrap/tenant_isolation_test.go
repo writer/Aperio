@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 )
 
 // seedIsolationOrg provisions a second organization alongside the one created by
@@ -127,6 +128,14 @@ func TestTenantIsolationByIDRoutesRejectForeignResources(t *testing.T) {
 	t.Run("test siem", func(t *testing.T) {
 		out, err := app.compatTestSiem(ctx, victimSiemID, attacker)
 		assertNotFound(t, "compatTestSiem", out, err)
+	})
+	t.Run("typed test siem", func(t *testing.T) {
+		req := connect.NewRequest(&aperiov1.TestSiemDestinationRequest{Id: victimSiemID})
+		copyCompatHeaders(req.Header(), seedSessionHeader(t, app, attacker))
+		_, err := app.TestSiemDestination(ctx, req)
+		if code := connect.CodeOf(err); code != connect.CodeNotFound {
+			t.Fatalf("typed TestSiemDestination: expected CodeNotFound, got %v (%v)", code, err)
+		}
 	})
 	t.Run("remediate finding", func(t *testing.T) {
 		out, err := app.compatRemediateFinding(ctx, victimFindingID, map[string]any{"action": "google.suspend_user"}, attacker)
