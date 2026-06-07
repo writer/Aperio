@@ -15,6 +15,6 @@ Aperio is now a Go API, Go worker, and Go MCP runtime with a TypeScript web/tool
 | `nats` | validation/event-bus tooling | Optional event publication in local tests |
 | `tsx`, `typescript` | tests and scripts | TypeScript execution and checking |
 
-## Removed runtime dependencies
+## Runtime boundary
 
-The legacy Express API dependencies (`express`, `cors`, `helmet`, `compression`) are no longer present. Browser CORS and HTTP hardening live in the Go API and deployment edge configuration.
+Browser CORS and HTTP hardening live in the Go API and deployment edge configuration. Node dependencies are intentionally scoped to the web console, generated contracts, tests, Prisma, and local tooling.

@@ -8,4 +8,4 @@ The detection layer lives mostly in `internal/ingestionworker`, where queued Saa
 
 The latest orchestration layer is the A2A/MCP model. `packages/shared/src/a2a.ts`, `internal/mcpbroker`, the Go compatibility handlers, and the `Agent*` tables in Prisma let agents create tasks, exchange messages, and propose human-approved actions.
 
-Recent migration work removed the legacy Express API tree and TypeScript backend/worker/MCP runtimes. The remaining Node/TypeScript runtime is intentional: frontend, generated contracts, tests, scripts, Prisma, and npm tooling.
+Aperio's backend runtime ownership is Go-first: the API, ingestion worker, SIEM dispatcher, and MCP broker run from `cmd/` and `internal/`. The remaining Node/TypeScript code is intentional: the Next.js frontend, generated contracts, tests, scripts, Prisma, and npm tooling.

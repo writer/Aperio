@@ -745,6 +745,10 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   assert.match(ci, /npm run db:validate/);
   assert.match(ci, /npm run build:web/);
   assert.match(ci, /npm run audit:prod/);
+  assert.match(ci, /npm run leak:check/);
+  assert.match(ci, /npm run smoke:e2e/);
+  assert.match(ci, /make lint/);
+  assert.match(ci, /needs: \[verify-shard, go-connect, e2e-smoke\]/);
   assert.match(ci, /go test \.\/\.\.\./);
   assert.match(contracts, /buf\/cmd\/buf@v1\.59\.0 lint/);
   assert.match(contracts, /buf\/cmd\/buf@v1\.59\.0 breaking/);

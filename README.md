@@ -32,7 +32,7 @@ In practical terms, Aperio ingests connector events, evaluates detection rules, 
                        |                              |
                        v                              v
               Go/ConnectRPC API                 MCP broker
-             (cmd/aperio, internal)            (apps/mcp)
+             (cmd/aperio, internal)     (cmd/mcp-broker, internal/mcpbroker)
                        |
         +-----------------------------+
         |              |              |
@@ -139,7 +139,7 @@ Remaining TypeScript is limited to the Next.js frontend, generated clients/contr
 | Audit shadow IT | `/shadow-it` | Lists every third-party OAuth app users have granted, with per-user drilldown. |
 | Author detection rules | `internal/ingestionworker` | Go rules produce findings and SIEM deliveries from queued ingestion events. |
 | Inspect the schema | `packages/db/prisma/schema.prisma` | Single Prisma schema for all entities. |
-| Run all checks | `npm run typecheck && npm run test:api && npm run db:validate` | The same set CI is expected to run. |
+| Run all checks | `npm run verify` | Aggregate gate for generation, typecheck, guardrails, tests, build, smokes, production audit, and leak check. |
 
 ---
 
@@ -377,7 +377,7 @@ The `droid-wiki/` directory contains generated documentation. Useful entry point
 | Web console | Next.js 16 + React 18 + Tailwind |
 | ORM | Prisma 5 |
 | Database | PostgreSQL 15+ |
-| Background workers | tsx + custom durable outbox |
+| Background workers | Go ingestion worker + Go SIEM dispatcher with database-backed queues/outbox |
 | Contracts | Protobuf + Buf + generated Go/TypeScript clients + Cerebro event envelopes |
 | Event bus | Optional NATS JetStream (`APERIO_EVENT_BUS=nats`) |
 | Validation | Zod |

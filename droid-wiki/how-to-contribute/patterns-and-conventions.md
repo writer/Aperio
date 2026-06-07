@@ -12,7 +12,7 @@ flowchart LR
   TS --> Web[apps/web/lib/api.ts]
 ```
 
-Use `CallApi` compatibility handlers only when preserving an existing `/api/v1/*` browser contract during migration.
+Use `CallApi` compatibility handlers only when preserving an existing `/api/v1/*` browser contract.
 
 ## Tenant scoping
 
@@ -29,4 +29,4 @@ Every API handler, worker lease, and MCP tool must scope data by organization. N
 
 ## Secrets
 
-Use shared AES-GCM envelopes for credentials. If Go writes a secret that a frontend, test, or tooling TypeScript surface reads, add a contract test or fixture proving compatibility without reintroducing a TypeScript runtime.
+Use shared AES-GCM envelopes for credentials. If Go writes a secret that a frontend, test, or tooling TypeScript surface reads, add a contract test or fixture proving compatibility with `internal/runtimeutil` and `packages/security`.

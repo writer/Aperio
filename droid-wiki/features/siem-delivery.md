@@ -21,4 +21,4 @@ flowchart LR
   Dispatcher --> Dest[Splunk / Panther / Elastic / Datadog / Webhook / JSONL]
 ```
 
-The dispatcher handles retry/backoff and adapter-specific payload shaping. Destination credentials must be written with the shared encryption envelope so the TypeScript dispatcher can decrypt values created by the Go API.
+The Go dispatcher handles retry/backoff and adapter-specific payload shaping. Destination credentials use the shared AES-256-GCM envelope and tenant/destination AAD so the Go API and Go SIEM dispatcher can exchange encrypted values without exposing plaintext.

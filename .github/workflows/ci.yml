@@ -27,6 +27,8 @@ jobs:
             command: npm run build:web
           - name: prod-audit
             command: npm run audit:prod
+          - name: leak-check
+            command: npm run leak:check
     services:
       postgres:
         image: postgres:16-alpine
@@ -64,7 +66,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-latest
-    needs: [verify-shard, go-connect]
+    needs: [verify-shard, go-connect, e2e-smoke]
     if: always()
     steps:
       - name: Check verify shards
@@ -75,6 +77,10 @@ jobs:
           fi
           if [ "${{ needs.go-connect.result }}" != "success" ]; then
             echo "Go/ConnectRPC checks failed"
+            exit 1
+          fi
+          if [ "${{ needs.e2e-smoke.result }}" != "success" ]; then
+            echo "E2E smoke failed"
             exit 1
           fi
           echo "All verify shards passed"
@@ -122,6 +128,8 @@ jobs:
 
       - run: go run github.com/bufbuild/buf/cmd/buf@v1.59.0 lint
 
+      - run: make lint
+
       - name: Verify generated code is current
         run: |
           go run github.com/bufbuild/buf/cmd/buf@v1.59.0 generate
@@ -132,3 +140,34 @@ jobs:
 
       - name: Run bounded Go worker smokes
         run: npm run smoke:workers:go
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://aperio:aperio@127.0.0.1:5433/aperio?schema=public
+      APERIO_NATS_URL: nats://127.0.0.1:4222
+      APERIO_ENCRYPTION_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APERIO_AUTH_SECRET: ci-auth-secret-at-least-thirty-two-chars
+      APERIO_WEB_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_CONNECT_API_BASE_URL: http://localhost:4100
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: go mod download
+
+      - run: npm run db:generate
+
+      - name: Run Go API and web E2E smoke
+        run: npm run smoke:e2e
