@@ -49,6 +49,7 @@ func (s *ToolService) CallTool(ctx context.Context, name string, args any) (any,
 	if err := s.assertScope(scoped); err != nil {
 		return nil, err
 	}
+	delete(scoped, "authToken")
 	if s.db == nil {
 		return nil, fmt.Errorf("database is not configured for MCP tool calls")
 	}
@@ -180,7 +181,7 @@ func (s *ToolService) sendMessage(ctx context.Context, input map[string]any) (an
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"messageId": messageID, "createdAt": createdAt.UTC().Format(time.RFC3339Nano)}, nil
+	return map[string]any{"messageId": messageID, "createdAt": formatMCPTime(createdAt)}, nil
 }
 
 func (s *ToolService) listTasks(ctx context.Context, input map[string]any) (any, error) {
@@ -412,8 +413,8 @@ func (r agentTaskRow) toJSON() map[string]any {
 		"leaseExpiresAt":   nullableTime(r.LeaseExpiresAt),
 		"startedAt":        nullableTime(r.StartedAt),
 		"completedAt":      nullableTime(r.CompletedAt),
-		"createdAt":        r.CreatedAt.UTC().Format(time.RFC3339Nano),
-		"updatedAt":        r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		"createdAt":        formatMCPTime(r.CreatedAt),
+		"updatedAt":        formatMCPTime(r.UpdatedAt),
 		"createdByAgent":   agentSummary(r.CreatedByKey, r.CreatedByName, r.CreatedByKind),
 		"assignedAgent":    agentSummary(r.AssignedKey, r.AssignedName, r.AssignedKind),
 	}
@@ -457,7 +458,11 @@ func nullableTime(value sql.NullTime) any {
 	if !value.Valid {
 		return nil
 	}
-	return value.Time.UTC().Format(time.RFC3339Nano)
+	return formatMCPTime(value.Time)
+}
+
+func formatMCPTime(value time.Time) string {
+	return value.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 }
 
 func nullableString(value string) any {
