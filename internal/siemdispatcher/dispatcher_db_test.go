@@ -421,6 +421,10 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 			t.Fatalf("invalid delivery %s state = status=%s attempts=%d lease=%v delivered=%v error=%v", id, status, attempts, leaseOwner, deliveredAt, lastError)
 		}
 	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastDeliveryAt.Valid || destinationError.Valid {
+		t.Fatalf("invalid payload changed destination health: status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
 }
 
 func TestProcessJSONFileDeliveryMarksDeliveredAndDestinationHealthy(t *testing.T) {

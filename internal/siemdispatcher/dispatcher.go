@@ -243,7 +243,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 	payload, err := parsePayload(item.Payload)
 	if err != nil {
-		return d.fail(ctx, item, true, err.Error())
+		return d.failDelivery(ctx, item, true, err.Error())
 	}
 	if payload.OrganizationID != item.OrganizationID {
 		return d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
