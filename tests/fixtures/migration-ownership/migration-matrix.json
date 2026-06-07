@@ -1,7 +1,7 @@
 {
   "version": 1,
   "finalCutoverPlan": {
-    "status": "siem-go-default-enforced",
+    "status": "mcp-go-default-enforced",
     "defaultsFlippedInThisFeature": true,
     "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
     "tracks": [
@@ -94,17 +94,21 @@
       "rollback": "Revert the API entrypoint change or use the previous committed Go API/runtime bundle."
     },
     {
-      "id": "package-mcp-typescript-reference",
-      "state": "typescript-reference",
+      "id": "package-mcp-broker-go-default",
+      "state": "go-default",
       "covers": [
         "package-script:mcp:broker"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP stdio backend process remains TypeScript-owned pending the MCP cutover, but its SIEM enqueue tool no longer imports or drains the deleted TypeScript SIEM dispatcher.",
+      "owner": "Go MCP broker default runtime",
+      "rationale": "The unsuffixed MCP command runs the Go stdio broker with shared local env and pgx-safe DATABASE_URL handling; no TypeScript MCP runtime fallback remains in package scripts.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
-        "command:npm run mcp:broker"
-      ]
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:internal/mcpbroker/framing_test.go",
+        "test:internal/mcpbroker/tools_db_test.go",
+        "command:npm run mcp:broker",
+        "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference command."
     },
     {
       "id": "package-proto-contract-tools",
@@ -212,17 +216,20 @@
       "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
     },
     {
-      "id": "make-mcp-typescript-reference",
-      "state": "typescript-reference",
+      "id": "make-mcp-broker-go-default",
+      "state": "go-default",
       "covers": [
         "make-target:mcp"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP broker remains a TypeScript backend process and is not flipped by Go worker/API cutover.",
+      "owner": "Go MCP broker default Make target",
+      "rationale": "The unsuffixed Make MCP target runs the Go stdio broker through the shared local env and pgx-safe DATABASE_URL path.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:make -n mcp",
+        "command:make mcp",
         "source:Makefile"
-      ]
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP Make target."
     },
     {
       "id": "make-contract-validation",
@@ -390,20 +397,20 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
     },
     {
-      "id": "cmd-mcp-broker-go-parity",
-      "state": "go-parity",
+      "id": "cmd-mcp-broker-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:cmd/mcp-broker/*.go"
       ],
-      "owner": "Go MCP broker parity entrypoint",
-      "rationale": "cmd/mcp-broker provides the Go stdio MCP protocol/catalog broker for parity validation while default command flip and TypeScript runtime deletion remain separate MCP cutover work.",
+      "owner": "Go MCP broker default entrypoint",
+      "rationale": "cmd/mcp-broker is the default stdio MCP broker entrypoint after the unsuffixed npm and Make command cutover.",
       "evidence": [
         "test:internal/mcpbroker/framing_test.go",
         "test:internal/mcpbroker/catalog_test.go",
         "test:internal/mcpbroker/mcpbroker_db_test.go",
         "command:go test ./internal/mcpbroker ./cmd/mcp-broker"
       ],
-      "rollback": "Remove the Go MCP parity entrypoint and keep the TypeScript MCP reference until the next cutover attempt."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference command."
     },
     {
       "id": "workers-ingestion-runtime-removed",
@@ -451,17 +458,20 @@
       ]
     },
     {
-      "id": "mcp-typescript-reference-runtime",
-      "state": "typescript-reference",
+      "id": "mcp-typescript-runtime-removed",
+      "state": "removable",
       "covers": [
-        "repo-file:apps/mcp/src/*.ts"
+        "repo-file:apps/mcp/src/server.ts"
       ],
-      "owner": "TypeScript MCP broker",
-      "rationale": "The MCP broker is a TypeScript backend process pending the MCP migration; it no longer imports the deleted TypeScript SIEM dispatcher runtime.",
+      "owner": "Deleted TypeScript MCP runtime",
+      "rationale": "The TypeScript MCP backend runtime has been deleted after Go protocol/tool parity and default command cutover; tests use Go stdio and DB-backed coverage rather than importing it as a hidden oracle.",
       "evidence": [
-        "source:apps/mcp/src/server.ts",
-        "command:npm run mcp:broker"
-      ]
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:tests/foundation-cutover-harness.test.ts",
+        "command:test ! -e apps/mcp/src/server.ts",
+        "command:npm run guardrails:migration"
+      ],
+      "rollback": "Revert this cutover commit if the Go default MCP broker must be rolled back."
     },
     {
       "id": "internal-bootstrap-go-api",
@@ -525,20 +535,21 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
     },
     {
-      "id": "internal-mcpbroker-go-parity",
-      "state": "go-parity",
+      "id": "internal-mcpbroker-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:internal/mcpbroker/*.go"
       ],
-      "owner": "Go MCP broker protocol and catalog parity",
-      "rationale": "internal/mcpbroker owns Go stdio frame parsing, initialize/ping/error lifecycle, approved six-tool catalog, strict schema/default validation, safe tool-call envelopes, and no-stdout-log behavior before the default command/deletion feature flips runtime ownership.",
+      "owner": "Go MCP broker protocol, catalog, and tool runtime",
+      "rationale": "internal/mcpbroker owns the default MCP stdio frame parser, initialize/ping/error lifecycle, approved six-tool catalog, strict schema/default validation, tool execution, notification no-side-effect behavior, and stdout purity.",
       "evidence": [
         "test:internal/mcpbroker/framing_test.go",
         "test:internal/mcpbroker/catalog_test.go",
         "test:internal/mcpbroker/mcpbroker_db_test.go",
+        "test:internal/mcpbroker/tools_db_test.go",
         "validator:go test ./internal/mcpbroker"
       ],
-      "rollback": "Revert the Go MCP parity package and continue using the TypeScript MCP reference broker until parity can be restored."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript MCP reference runtime."
     },
     {
       "id": "proto-contract-source",

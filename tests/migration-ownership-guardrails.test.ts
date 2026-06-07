@@ -50,6 +50,9 @@ function packageScripts() {
 
 function filesUnder(relativeDir: string, predicate: (relativePath: string) => boolean): string[] {
   const absoluteDir = path.join(repoRoot, relativeDir);
+  if (!existsSync(absoluteDir)) {
+    return [];
+  }
   const entries = readdirSync(absoluteDir);
   return entries.flatMap((entry) => {
     const absolutePath = path.join(absoluteDir, entry);
@@ -251,6 +254,40 @@ test("ingestion and SIEM defaults are Go-owned", () => {
   );
   assert.equal(stateFor(matrix, "package-script:smoke:workers:go"), "go-default");
   assert.equal(stateFor(matrix, "make-target:smoke-workers-go"), "go-default");
+});
+
+test("MCP default is Go-owned and TypeScript runtime is removed", () => {
+  const matrix = loadMatrix();
+  const scripts = packageScripts();
+  const makefile = readRepoFile("Makefile");
+
+  assert.match(scripts["mcp:broker"], /go run \.\/cmd\/mcp-broker/);
+  assert.match(scripts["mcp:broker"], /DATABASE_URL="?\$\(node scripts\/dev-config\.mjs go-database-url\)"?/);
+  assert.doesNotMatch(scripts["mcp:broker"], /\btsx\b|\bts-node\b|apps\/mcp\/src\/server\.ts/);
+
+  const makeMCP = makeTargetBlock(makefile, "mcp");
+  assert.match(makeMCP, /go run \.\/cmd\/mcp-broker/);
+  assert.doesNotMatch(makeMCP, /\bnpx\s+tsx\b|\btsx\b|apps\/mcp\/src\/server\.ts/);
+  assert.equal(
+    existsSync(path.join(repoRoot, "apps/mcp/src/server.ts")),
+    false,
+    "TypeScript MCP backend runtime must be deleted"
+  );
+
+  for (const item of [
+    "package-script:mcp:broker",
+    "make-target:mcp",
+    "repo-file:cmd/mcp-broker/main.go",
+    "repo-file:internal/mcpbroker/server.go",
+    "repo-file:internal/mcpbroker/tools.go"
+  ]) {
+    assert.equal(stateFor(matrix, item), "go-default", `${item} must be Go default`);
+  }
+  assert.equal(
+    stateFor(matrix, "repo-file:apps/mcp/src/server.ts"),
+    "removable",
+    "deleted MCP runtime must be represented as removed/removable"
+  );
 });
 
 test("frontend legacy API and browser auth guardrails are registered as merge gates", () => {

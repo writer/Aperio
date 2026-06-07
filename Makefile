@@ -136,8 +136,8 @@ smoke-e2e: require-env ## Run the local Go API + TypeScript FE E2E smoke harness
 	@npm run smoke:e2e
 
 .PHONY: mcp
-mcp: require-env ## Run the stdio MCP broker
-	@$(LOAD_ENV) npx tsx apps/mcp/src/server.ts
+mcp: require-env ## Run the Go stdio MCP broker
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/mcp-broker
 
 ##@ Database & infra
 

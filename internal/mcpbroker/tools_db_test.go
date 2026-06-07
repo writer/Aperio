@@ -368,6 +368,64 @@ func TestMCPSharedSecretAndTenantBoundariesRejectBeforeSideEffectsAndDoNotPersis
 	assertMCPSecretNotPersisted(t, db, orgID, secret)
 }
 
+func TestDBBackedMutatingToolNotificationsDoNotCreateSideEffects(t *testing.T) {
+	db := openMCPToolTestDB(t)
+	orgID := seedMCPToolOrganization(t, db, "MCP Notification Org")
+	_ = seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "ACTIVE", "notification-finding.jsonl")
+	service := NewToolService(db)
+
+	before := mcpSideEffectCount(t, db, orgID)
+	notification := func(name string, args map[string]any) map[string]any {
+		return map[string]any{
+			"jsonrpc": "2.0",
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      name,
+				"arguments": args,
+			},
+		}
+	}
+	input := joinFrames(t,
+		notification("aperio.register_agent", map[string]any{
+			"organizationId": orgID,
+			"key":            "notify-agent",
+			"name":           "Notification Agent",
+		}),
+		notification("aperio.create_task", map[string]any{
+			"organizationId": orgID,
+			"taskType":       "notification",
+			"title":          "Notification-created task",
+		}),
+		notification("aperio.send_message", map[string]any{
+			"organizationId": orgID,
+			"content":        map[string]any{"body": "notification message"},
+		}),
+		notification("aperio.propose_remediation", map[string]any{
+			"organizationId": orgID,
+			"action":         "manual.review",
+			"rationale":      "This notification must not create a proposal.",
+			"payload":        map[string]any{"source": "notification"},
+		}),
+		notification("aperio.enqueue_siem_payload", map[string]any{
+			"organizationId": orgID,
+			"record":         map[string]any{"id": "notification-finding", "sourceEventId": "evt-notification"},
+		}),
+		map[string]any{"jsonrpc": "2.0", "id": "after-notifications", "method": "ping"},
+	)
+	stdout := runServer(t, NewServer(service), strings.NewReader(input))
+	frames := decodeOutputFrames(t, stdout)
+	if len(frames) != 1 {
+		t.Fatalf("notification sequence emitted %d response frames, want only the final ping: %#v", len(frames), frames)
+	}
+	if frames[0]["id"] != "after-notifications" {
+		t.Fatalf("broker did not remain alive for ping after notifications: %#v", frames[0])
+	}
+	after := mcpSideEffectCount(t, db, orgID)
+	if after != before {
+		t.Fatalf("mutating notifications changed scoped side effects from %d to %d", before, after)
+	}
+}
+
 func TestDBBackedSIEMEnqueueFansOutTenantLocalSubscribedDestinations(t *testing.T) {
 	db := openMCPToolTestDB(t)
 	ctx := context.Background()

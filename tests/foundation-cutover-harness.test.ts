@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import test from "node:test";
 import {
   assertLocalOnlyEndpoint,
@@ -116,10 +117,11 @@ function loadHarnessFixture() {
 }
 
 function sectionForTool(source: string, toolName: string) {
-  const start = source.indexOf(`name: "${toolName}"`);
+  const escapedToolName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const start = source.search(new RegExp(`\\bName:\\s+"${escapedToolName}"`));
   assert.notEqual(start, -1, `missing MCP tool ${toolName}`);
   const remaining = source.slice(start + 1);
-  const nextTool = remaining.search(/\n\s+\{\n\s+name: "aperio\./);
+  const nextTool = remaining.search(/\n\s+\{\n\s+Name:\s+"aperio\./);
   if (nextTool === -1) {
     return source.slice(start, source.indexOf("];", start));
   }
@@ -129,7 +131,7 @@ function sectionForTool(source: string, toolName: string) {
 test("final ownership matrices expose non-enforcing cutover placeholders", () => {
   const finalPlan = loadFinalPlan();
   assert.equal(finalPlan.version, 1);
-  assert.equal(finalPlan.status, "partially-enforced");
+  assert.equal(finalPlan.status, "mcp-go-default-enforced");
   assert.equal(finalPlan.defaultsFlippedInThisFeature, true);
 
   const matrixFixtures = [
@@ -148,7 +150,7 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
       assert.equal(matrix.finalCutoverPlan.status, "siem-go-default-enforced");
     } else if (fixturePath.includes("migration-matrix")) {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
-      assert.equal(matrix.finalCutoverPlan.status, "siem-go-default-enforced");
+      assert.equal(matrix.finalCutoverPlan.status, "mcp-go-default-enforced");
     } else {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, false);
       assert.equal(matrix.finalCutoverPlan.status, "planned-not-enforced");
@@ -199,7 +201,7 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
   }
 });
 
-test("current command ownership records Go worker defaults and pending MCP default", () => {
+test("current command ownership records Go worker and MCP defaults", () => {
   const fixture = loadHarnessFixture();
   const scripts = packageScripts();
   const makefile = readRepoFile("Makefile");
@@ -224,7 +226,8 @@ test("current command ownership records Go worker defaults and pending MCP defau
     classifyRuntimeCommand(scripts["worker:siem"]),
     "go-siem"
   );
-  assert.equal(classifyRuntimeCommand(scripts["mcp:broker"]), "typescript-mcp-reference");
+  assert.equal(classifyRuntimeCommand(scripts["mcp:broker"]), "go-mcp");
+  assert.doesNotMatch(scripts["mcp:broker"], /\btsx\b|apps\/mcp\/src\/server\.ts/);
 
   for (const [script, expected] of Object.entries(
     fixture.commandOwnership.explicitGoTransitionContains
@@ -307,17 +310,23 @@ test("SIEM local adapter harness covers every Go-owned adapter without productio
   }
 });
 
-test("MCP tool catalog and current TypeScript broker behavior are characterized locally", () => {
+test("MCP tool catalog and Go broker default are characterized locally", () => {
   const fixture = loadHarnessFixture();
-  const source = readRepoFile("apps/mcp/src/server.ts");
+  const catalog = readRepoFile("internal/mcpbroker/catalog.go");
+  const server = readRepoFile("internal/mcpbroker/server.go");
+  const main = readRepoFile("cmd/mcp-broker/main.go");
   const scripts = packageScripts();
 
-  assert.equal(scripts["mcp:broker"], "tsx apps/mcp/src/server.ts");
-  assert.match(source, /Content-Length: \$\{Buffer\.byteLength\(body, "utf8"\)\}\\r\\n\\r\\n/);
-  assert.doesNotMatch(source, /console\.log/);
+  assert.equal(classifyRuntimeCommand(scripts["mcp:broker"]), "go-mcp");
+  assert.match(scripts["mcp:broker"], /go run \.\/cmd\/mcp-broker/);
+  assert.doesNotMatch(scripts["mcp:broker"], /\btsx\b|apps\/mcp\/src\/server\.ts/);
+  assert.equal(existsSync("apps/mcp/src/server.ts"), false);
+  assert.match(server, /fmt\.Sprintf\("Content-Length: %d\\r\\n\\r\\n"/);
+  assert.doesNotMatch(server, /console\.log/);
+  assert.match(main, /log\.SetOutput\(os\.Stderr\)/);
 
   for (const tool of fixture.mcp.approvedTools) {
-    const section = sectionForTool(source, tool.name);
+    const section = sectionForTool(catalog, tool.name);
     for (const requiredField of tool.required) {
       assert.match(
         section,
@@ -328,9 +337,12 @@ test("MCP tool catalog and current TypeScript broker behavior are characterized 
   }
 
   assert.match(
-    source,
-    /enqueueSiemDeliveries\(/,
-    "MCP broker should enqueue SIEM payloads without importing the deleted TypeScript SIEM dispatcher"
+    readRepoFile("internal/mcpbroker/tools.go"),
+    /INSERT INTO siem_deliveries/,
+    "Go MCP broker should enqueue SIEM payload rows without draining them"
   );
-  assert.doesNotMatch(source, /drainSiemDeliveries|workers\/siem-dispatcher/);
+  assert.doesNotMatch(
+    `${scripts["mcp:broker"]}\n${readRepoFile("Makefile")}`,
+    /apps\/mcp\/src\/server\.ts|workers\/siem-dispatcher/
+  );
 });

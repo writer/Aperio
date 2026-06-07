@@ -51,6 +51,16 @@ test("npm Go worker commands load .env and a pgx-safe database URL", () => {
   }
 });
 
+test("unsuffixed npm MCP command runs the Go stdio broker", () => {
+  const scripts = packageScripts();
+  const command = scripts["mcp:broker"];
+
+  assert.match(command, /go run \.\/cmd\/mcp-broker/);
+  assert.match(command, /DATABASE_URL="?\$\(node scripts\/dev-config\.mjs go-database-url\)"?/);
+  assert.match(command, /node scripts\/dev-env\.mjs go run \.\/cmd\/mcp-broker/);
+  assert.doesNotMatch(command, /\btsx\b|\bts-node\b|apps\/mcp\/src\/server\.ts/);
+});
+
 test("Make worker targets run Go defaults with strict aliases", () => {
   const makefile = readRepoFile("Makefile");
 
@@ -73,6 +83,16 @@ test("Make worker targets run Go defaults with strict aliases", () => {
   const goSiem = makeTarget(makefile, "worker-siem-go");
   assert.match(goSiem, /worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker/);
   assert.doesNotMatch(goSiem, /npx tsx|go run/);
+});
+
+test("Make MCP target runs the Go stdio broker", () => {
+  const makefile = readRepoFile("Makefile");
+  const mcp = makeTarget(makefile, "mcp");
+
+  assert.match(mcp, /## Run the Go stdio MCP broker/);
+  assert.match(mcp, /DATABASE_URL="\$+\(node \$\(DEV_CONFIG\) go-database-url\)"/);
+  assert.match(mcp, /go run \.\/cmd\/mcp-broker/);
+  assert.doesNotMatch(mcp, /\bnpx\s+tsx\b|\btsx\b|apps\/mcp\/src\/server\.ts/);
 });
 
 test("Go worker entrypoints expose one-shot smoke flags", () => {
@@ -119,5 +139,10 @@ test("TypeScript tests no longer import deleted worker runtimes as oracles", () 
     testFiles.some(({ imports }) => imports.includes("../workers/siem-dispatcher")),
     false,
     "deleted SIEM dispatcher must not remain a hidden TypeScript oracle"
+  );
+  assert.equal(
+    testFiles.some(({ imports }) => imports.includes("../apps/mcp/src/server")),
+    false,
+    "deleted MCP broker must not remain a hidden TypeScript oracle"
   );
 });

@@ -149,10 +149,10 @@
     "currentDefaults": {
       "package-script:worker:ingestion": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
       "package-script:worker:siem": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/siem-dispatcher",
-      "package-script:mcp:broker": "tsx apps/mcp/src/server.ts",
+      "package-script:mcp:broker": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/mcp-broker",
       "make-target:worker-ingestion": "go run ./cmd/ingestion-worker",
       "make-target:worker-siem": "go run ./cmd/siem-dispatcher",
-      "make-target:mcp": "npx tsx apps/mcp/src/server.ts"
+      "make-target:mcp": "go run ./cmd/mcp-broker"
     },
     "explicitGoTransitionContains": {
       "package-script:worker:siem:go": "npm run worker:siem --",

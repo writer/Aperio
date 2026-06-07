@@ -2,7 +2,7 @@
   "version": 1,
   "intent": "Final Go-default ownership and deletion evidence checklist updated as worker and MCP surfaces cut over.",
   "defaultsFlippedInThisFeature": true,
-  "status": "partially-enforced",
+  "status": "mcp-go-default-enforced",
   "requiredEvidenceKinds": [
     "package-script-dump",
     "make-dry-run",
@@ -46,13 +46,11 @@
     {
       "id": "npm-mcp-broker-default",
       "surface": "package-script:mcp:broker",
-      "currentState": "typescript-reference",
-      "currentCommand": "tsx apps/mcp/src/server.ts",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/mcp-broker",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/mcp-broker",
-      "blockedBy": [
-        "MCP default command flip waits for remaining DB-backed tool semantics and deletion feature"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "package-script-dump",
         "stdio-mcp-smoke",
@@ -91,13 +89,11 @@
     {
       "id": "make-mcp-default",
       "surface": "make-target:mcp",
-      "currentState": "typescript-reference",
-      "currentCommandContains": "npx tsx apps/mcp/src/server.ts",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/mcp-broker",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/mcp-broker",
-      "blockedBy": [
-        "npm mcp:broker remains TypeScript reference"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "make-dry-run",
         "stdio-mcp-smoke",
@@ -131,11 +127,9 @@
     {
       "id": "typescript-mcp-runtime-deletion",
       "surface": "repo-file:apps/mcp/src/server.ts",
-      "currentState": "typescript-reference",
+      "currentState": "removed",
       "targetState": "removed",
-      "blockedBy": [
-        "MCP default command flip and TypeScript runtime deletion are scheduled after remaining MCP tool semantics pass"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
         "stdio-mcp-smoke",
