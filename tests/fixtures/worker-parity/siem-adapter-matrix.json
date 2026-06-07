@@ -1,5 +1,17 @@
 {
   "version": 1,
+  "finalCutoverPlan": {
+    "status": "planned-not-enforced",
+    "defaultsFlippedInThisFeature": false,
+    "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
+    "localHarness": "tests/fixtures/worker-parity/foundation-local-harness.json#siem",
+    "goDefaultRequires": [
+      "every adapter row is go-default or removable",
+      "local request-capture, JSONL, or NATS fixtures cover each supported destination kind",
+      "credential envelopes pass positive, missing-key, malformed, wrong-AAD, and tampered-tag cases without plaintext logs",
+      "bounded unsuffixed SIEM worker smoke drains local fixtures through the Go default command"
+    ]
+  },
   "source": "Prisma SiemKind enum, packages/shared SIEM catalog, internal/bootstrap Go catalog, TypeScript dispatcher send paths, and Go dispatcher support/claim allowlist",
   "adapters": [
     {

@@ -1,5 +1,17 @@
 {
   "version": 1,
+  "finalCutoverPlan": {
+    "status": "planned-not-enforced",
+    "defaultsFlippedInThisFeature": false,
+    "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
+    "localHarness": "tests/fixtures/worker-parity/foundation-local-harness.json#ingestion",
+    "goDefaultRequires": [
+      "every rule row is go-default or removable",
+      "provider credential envelopes pass positive, missing-key, malformed, wrong-AAD, and tampered-tag cases",
+      "DB-backed side-effect tests prove no event/finding/SIEM writes on credential or config failure",
+      "bounded unsuffixed worker smokes exercise the Go default command"
+    ]
+  },
   "source": "workers/ingestion-worker.ts:evaluateSecurityRules",
   "rules": [
     {

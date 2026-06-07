@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "intent": "Final Go-default ownership and deletion evidence checklist used by later cutover workers; this fixture is not an active default flip.",
+  "defaultsFlippedInThisFeature": false,
+  "status": "planned-not-enforced",
+  "requiredEvidenceKinds": [
+    "package-script-dump",
+    "make-dry-run",
+    "bounded-default-worker-smoke",
+    "stdio-mcp-smoke",
+    "local-fixture-or-capture-harness",
+    "deleted-runtime-file-audit",
+    "typescript-fallback-negative-guardrail",
+    "credential-redaction-negative"
+  ],
+  "surfaces": [
+    {
+      "id": "npm-worker-ingestion-default",
+      "surface": "package-script:worker:ingestion",
+      "currentState": "typescript-reference",
+      "currentCommand": "tsx workers/ingestion-worker.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/ingestion-worker",
+      "blockedBy": [
+        "ingestion-rule-matrix rows still include typescript-reference and goDefaultBlocked=true",
+        "shared Go credential/config primitives are not yet complete"
+      ],
+      "requiredEvidence": [
+        "package-script-dump",
+        "bounded-default-worker-smoke",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "npm-worker-siem-default",
+      "surface": "package-script:worker:siem",
+      "currentState": "typescript-reference",
+      "currentCommand": "tsx workers/siem-dispatcher.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/siem-dispatcher",
+      "blockedBy": [
+        "siem-adapter-matrix rows still include typescript-reference adapters",
+        "all adapter local capture fixtures are not yet present"
+      ],
+      "requiredEvidence": [
+        "package-script-dump",
+        "bounded-default-worker-smoke",
+        "local-fixture-or-capture-harness",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "npm-mcp-broker-default",
+      "surface": "package-script:mcp:broker",
+      "currentState": "typescript-reference",
+      "currentCommand": "tsx apps/mcp/src/server.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/mcp-broker",
+      "blockedBy": [
+        "Go stdio MCP broker does not exist yet",
+        "MCP tools still execute the TypeScript broker and TypeScript SIEM dispatcher helper"
+      ],
+      "requiredEvidence": [
+        "package-script-dump",
+        "stdio-mcp-smoke",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-worker-ingestion-default",
+      "surface": "make-target:worker-ingestion",
+      "currentState": "typescript-reference",
+      "currentCommandContains": "npx tsx workers/ingestion-worker.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/ingestion-worker",
+      "blockedBy": [
+        "npm worker:ingestion remains TypeScript reference"
+      ],
+      "requiredEvidence": [
+        "make-dry-run",
+        "bounded-default-worker-smoke",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-worker-siem-default",
+      "surface": "make-target:worker-siem",
+      "currentState": "typescript-reference",
+      "currentCommandContains": "npx tsx workers/siem-dispatcher.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/siem-dispatcher",
+      "blockedBy": [
+        "npm worker:siem remains TypeScript reference"
+      ],
+      "requiredEvidence": [
+        "make-dry-run",
+        "bounded-default-worker-smoke",
+        "local-fixture-or-capture-harness",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "make-mcp-default",
+      "surface": "make-target:mcp",
+      "currentState": "typescript-reference",
+      "currentCommandContains": "npx tsx apps/mcp/src/server.ts",
+      "targetState": "go-default",
+      "targetCommandContains": "go run ./cmd/mcp-broker",
+      "blockedBy": [
+        "npm mcp:broker remains TypeScript reference"
+      ],
+      "requiredEvidence": [
+        "make-dry-run",
+        "stdio-mcp-smoke",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "typescript-ingestion-runtime-deletion",
+      "surface": "repo-file:workers/ingestion-worker.ts",
+      "currentState": "typescript-reference",
+      "targetState": "removed",
+      "blockedBy": [
+        "unsuffixed ingestion defaults are not Go-owned yet"
+      ],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "typescript-fallback-negative-guardrail",
+        "local-fixture-or-capture-harness"
+      ]
+    },
+    {
+      "id": "typescript-siem-runtime-deletion",
+      "surface": "repo-file:workers/siem-dispatcher.ts",
+      "currentState": "typescript-reference",
+      "targetState": "removed",
+      "blockedBy": [
+        "unsuffixed SIEM defaults are not Go-owned yet"
+      ],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "typescript-fallback-negative-guardrail",
+        "local-fixture-or-capture-harness"
+      ]
+    },
+    {
+      "id": "typescript-mcp-runtime-deletion",
+      "surface": "repo-file:apps/mcp/src/server.ts",
+      "currentState": "typescript-reference",
+      "targetState": "removed",
+      "blockedBy": [
+        "Go MCP broker is not implemented yet"
+      ],
+      "requiredEvidence": [
+        "deleted-runtime-file-audit",
+        "stdio-mcp-smoke",
+        "typescript-fallback-negative-guardrail"
+      ]
+    },
+    {
+      "id": "suffixed-go-worker-command-cleanup",
+      "surface": "package-script:worker:*:go and make-target:worker-*-go",
+      "currentState": "go-parity",
+      "targetState": "removed-or-strict-alias",
+      "blockedBy": [
+        "unsuffixed worker defaults are not Go-owned yet"
+      ],
+      "requiredEvidence": [
+        "package-script-dump",
+        "make-dry-run",
+        "typescript-fallback-negative-guardrail"
+      ]
+    }
+  ]
+}

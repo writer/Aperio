@@ -275,6 +275,61 @@ func TestSendGenericWebhookCapturesReferenceRequestShape(t *testing.T) {
 	}
 }
 
+func TestDecryptStringFailsClosedForCredentialEnvelopeErrors(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	aad := "org_1:siem:dst_1:token"
+	plaintext := "fixture-siem-token-not-secret"
+	validEnvelope := "eyJ2ZXJzaW9uIjoxLCJhbGdvcml0aG0iOiJhZXMtMjU2LWdjbSIsIml2IjoiTVRJek5EVTJOemc1TURFeSIsInRhZyI6Im1sUjJUS1QyMmdsMHBOOTRNa0NYX3ciLCJjaXBoZXJ0ZXh0IjoiN1Qta25Jc0lRakVsOW1XQWRNSjNfUDJQaDE5X3RVellFaDgifQ"
+
+	t.Run("missing key", func(t *testing.T) {
+		t.Setenv("APERIO_ENCRYPTION_KEY", "")
+		_, err := decryptString(validEnvelope, "org_demo:GITHUB:writer:access_token")
+		if err == nil || !strings.Contains(err.Error(), "APERIO_ENCRYPTION_KEY is required") {
+			t.Fatalf("expected missing key failure, got %v", err)
+		}
+		if strings.Contains(err.Error(), "demo-provider-token-GITHUB") {
+			t.Fatal("missing-key error leaked plaintext credential")
+		}
+	})
+
+	for _, testCase := range []struct {
+		name      string
+		encrypted func(t *testing.T) string
+		aad       string
+	}{
+		{
+			name:      "malformed envelope",
+			encrypted: func(*testing.T) string { return "not-a-valid-envelope" },
+			aad:       aad,
+		},
+		{
+			name: "wrong aad",
+			encrypted: func(t *testing.T) string {
+				return encryptForDispatcherTest(t, plaintext, aad)
+			},
+			aad: aad + ":wrong",
+		},
+		{
+			name: "tampered tag",
+			encrypted: func(t *testing.T) string {
+				return tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, plaintext, aad))
+			},
+			aad: aad,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+			_, err := decryptString(testCase.encrypted(t), testCase.aad)
+			if err == nil {
+				t.Fatal("expected decrypt failure")
+			}
+			if strings.Contains(err.Error(), plaintext) {
+				t.Fatalf("decrypt error leaked plaintext credential: %v", err)
+			}
+		})
+	}
+}
+
 func TestSendGenericWebhookEndpointSafetyBlocksHTTP(t *testing.T) {
 	transport := &captureTransport{}
 	dispatcher := &Dispatcher{httpClient: &http.Client{Transport: transport}}
@@ -437,6 +492,24 @@ func encryptForDispatcherTest(t *testing.T, plaintext string, aad string) string
 		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
 		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
 	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func tamperEncryptedTagForDispatcherTest(t *testing.T, encrypted string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope encryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope.Tag = base64.RawURLEncoding.EncodeToString(make([]byte, encryptionNonceBytes+4))
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)

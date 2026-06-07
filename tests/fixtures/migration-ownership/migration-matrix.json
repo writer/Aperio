@@ -1,5 +1,28 @@
 {
   "version": 1,
+  "finalCutoverPlan": {
+    "status": "planned-not-enforced",
+    "defaultsFlippedInThisFeature": false,
+    "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
+    "tracks": [
+      "package scripts",
+      "Make targets",
+      "backend worker runtime files",
+      "MCP runtime files",
+      "bounded worker smoke commands",
+      "MCP stdio smoke commands",
+      "fallback deletion evidence"
+    ],
+    "requiredEvidenceKinds": [
+      "package-script-dump",
+      "make-dry-run",
+      "bounded-default-worker-smoke",
+      "stdio-mcp-smoke",
+      "deleted-runtime-file-audit",
+      "typescript-fallback-negative-guardrail",
+      "local-fixture-or-capture-harness"
+    ]
+  },
   "entries": [
     {
       "id": "package-workers-typescript-reference",
