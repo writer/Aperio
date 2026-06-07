@@ -563,7 +563,9 @@ func TestDBSiemTestPingUsesSubscribedStreamAndRejectsUnsupportedWithoutQueue(t *
 		t.Fatalf("expected compat+typed events-only test pings to enqueue two deliveries, got %v", queuedIDs)
 	}
 
-	drainResult, err := siemdispatcher.New(app.db).Drain(ctx, 10)
+	dispatcher := siemdispatcher.New(app.db)
+	dispatcher.SetOrganizationForTesting(auth.OrganizationID)
+	drainResult, err := dispatcher.Drain(ctx, 10)
 	if err != nil {
 		t.Fatalf("drain events-only test pings: %v", err)
 	}
