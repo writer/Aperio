@@ -2,8 +2,6 @@ package siemdispatcher
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,15 +20,14 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/scrypt"
+	"github.com/writer/aperio/internal/runtimeutil"
 )
 
 const (
 	leaseDuration        = 5 * time.Minute
 	networkTimeout       = 4 * time.Second
-	encryptionAlgorithm  = "aes-256-gcm"
-	encryptionKeyBytes   = 32
-	encryptionNonceBytes = 12
+	encryptionAlgorithm  = runtimeutil.CredentialAlgorithm
+	encryptionNonceBytes = runtimeutil.CredentialNonceBytes
 )
 
 var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
@@ -88,13 +85,7 @@ type destination struct {
 	EncryptedToken sql.NullString
 }
 
-type encryptedEnvelope struct {
-	Version    int    `json:"version"`
-	Algorithm  string `json:"algorithm"`
-	IV         string `json:"iv"`
-	Tag        string `json:"tag"`
-	Ciphertext string `json:"ciphertext"`
-}
+type encryptedEnvelope = runtimeutil.EncryptedEnvelope
 
 type endpointResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
@@ -661,95 +652,15 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 func destinationTokenAAD(dest destination) string {
-	return dest.OrganizationID + ":siem:" + dest.ID + ":token"
+	return runtimeutil.SIEMDestinationTokenAAD(dest.OrganizationID, dest.ID)
 }
 
 func decryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
-	if err != nil {
-		return "", err
-	}
-	var envelope encryptedEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return "", err
-	}
-	if envelope.Version != 1 || envelope.Algorithm != encryptionAlgorithm {
-		return "", errors.New("unsupported encrypted value")
-	}
-	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
-	if err != nil {
-		return "", err
-	}
-	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		return "", err
-	}
-	key, err := resolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(iv) != gcm.NonceSize() {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	sealed := append(ciphertext, tag...)
-	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
+	return runtimeutil.DecryptString(encrypted, additionalAuthenticatedData)
 }
 
 func resolveEncryptionKey() ([]byte, error) {
-	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
-	if raw == "" {
-		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
-	}
-	switch {
-	case strings.HasPrefix(raw, "base64:"):
-		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "base64url:"):
-		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "hex:"):
-		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != encryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	default:
-		if os.Getenv("NODE_ENV") == "production" {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
-		}
-		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, encryptionKeyBytes)
-	}
+	return runtimeutil.ResolveEncryptionKeyFromEnv()
 }
 
 func boundedLimit(limit int) int {

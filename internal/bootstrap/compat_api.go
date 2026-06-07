@@ -2,8 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -12,7 +10,6 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,23 +24,17 @@ import (
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
+	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"golang.org/x/crypto/scrypt"
 )
 
 const (
-	compatEncryptionAlgorithm  = "aes-256-gcm"
-	compatEncryptionKeyBytes   = 32
-	compatEncryptionNonceBytes = 12
+	compatEncryptionAlgorithm  = runtimeutil.CredentialAlgorithm
+	compatEncryptionNonceBytes = runtimeutil.CredentialNonceBytes
 )
 
-type compatEncryptedEnvelope struct {
-	Version    int    `json:"version"`
-	Algorithm  string `json:"algorithm"`
-	IV         string `json:"iv"`
-	Tag        string `json:"tag"`
-	Ciphertext string `json:"ciphertext"`
-}
+type compatEncryptedEnvelope = runtimeutil.EncryptedEnvelope
 
 type compatAuth struct {
 	SessionID      string
@@ -2119,139 +2110,19 @@ func normalizeCompatSiemFilePath(raw *string) (*string, error) {
 }
 
 func compatResolveEncryptionKey() ([]byte, error) {
-	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
-	if raw == "" {
-		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
-	}
-	// Match the TypeScript vault format exactly: production requires explicit
-	// key encoding, while local development may derive a 32-byte key from a
-	// passphrase for convenience.
-	switch {
-	case strings.HasPrefix(raw, "base64:"):
-		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "base64url:"):
-		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	case strings.HasPrefix(raw, "hex:"):
-		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
-		if err != nil {
-			return nil, err
-		}
-		if len(key) != compatEncryptionKeyBytes {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
-		}
-		return key, nil
-	default:
-		if os.Getenv("NODE_ENV") == "production" {
-			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
-		}
-		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, compatEncryptionKeyBytes)
-	}
+	return runtimeutil.ResolveEncryptionKeyFromEnv()
 }
 
 func compatEncryptString(plaintext string, additionalAuthenticatedData string) (string, error) {
-	nonce := make([]byte, compatEncryptionNonceBytes)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return compatEncryptStringWithNonce(plaintext, additionalAuthenticatedData, nonce)
+	return runtimeutil.EncryptString(plaintext, additionalAuthenticatedData)
 }
 
 func compatEncryptStringWithNonce(plaintext string, additionalAuthenticatedData string, nonce []byte) (string, error) {
-	if plaintext == "" {
-		return "", errors.New("cannot encrypt an empty string")
-	}
-	if len(nonce) != compatEncryptionNonceBytes {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	key, err := compatResolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	// Additional authenticated data binds tokens to their organization/provider
-	// context without exposing that context in the encrypted envelope.
-	sealed := gcm.Seal(nil, nonce, []byte(plaintext), []byte(additionalAuthenticatedData))
-	tagStart := len(sealed) - gcm.Overhead()
-	envelope := compatEncryptedEnvelope{
-		Version:    1,
-		Algorithm:  compatEncryptionAlgorithm,
-		IV:         base64.RawURLEncoding.EncodeToString(nonce),
-		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
-		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
-	}
-	encoded, err := json.Marshal(envelope)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
+	return runtimeutil.EncryptStringWithNonce(plaintext, additionalAuthenticatedData, nonce)
 }
 
 func compatDecryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
-	if err != nil {
-		return "", err
-	}
-	var envelope compatEncryptedEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return "", err
-	}
-	if envelope.Version != 1 || envelope.Algorithm != compatEncryptionAlgorithm {
-		return "", errors.New("unsupported encrypted value")
-	}
-	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
-	if err != nil {
-		return "", err
-	}
-	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		return "", err
-	}
-	key, err := compatResolveEncryptionKey()
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(iv) != gcm.NonceSize() {
-		return "", errors.New("invalid encryption nonce length")
-	}
-	sealed := append(ciphertext, tag...)
-	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
+	return runtimeutil.DecryptString(encrypted, additionalAuthenticatedData)
 }
 
 func nestedString(body map[string]any, objectKey string, key string) string {
@@ -2281,41 +2152,19 @@ func asMap(value any) map[string]any {
 func compatIntegrationSecretAAD(organizationID string, provider string, externalAccountID string, suffix string) string {
 	// Keep AAD stable across reconnects: externalAccountID is the provider-owned
 	// tenant identity and therefore survives integration row replacement.
-	return organizationID + ":" + provider + ":" + externalAccountID + ":" + suffix
+	return runtimeutil.IntegrationSecretAAD(organizationID, provider, externalAccountID, suffix)
 }
 
 func compatLegacyIntegrationSecretAAD(organizationID string, integrationID string, suffix string) string {
-	return organizationID + ":" + integrationID + ":" + suffix
+	return runtimeutil.LegacyIntegrationSecretAAD(organizationID, integrationID, suffix)
 }
 
 func compatDecryptIntegrationSecret(encryptedValue string, organizationID string, integrationID string, provider string, externalAccountID string, suffix string) (string, error) {
-	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, provider, externalAccountID, suffix))
-	if err == nil {
-		return canonical, nil
-	}
-	if strings.TrimSpace(integrationID) == "" {
-		return "", err
-	}
-	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, suffix))
-	if legacyErr == nil {
-		return legacy, nil
-	}
-	return "", err
+	return runtimeutil.DecryptIntegrationSecret(encryptedValue, organizationID, integrationID, provider, externalAccountID, suffix)
 }
 
 func compatDecryptGoogleMailboxPrivateKey(encryptedValue string, organizationID string, integrationID string, externalAccountID string) (string, error) {
-	canonical, err := compatDecryptString(encryptedValue, compatIntegrationSecretAAD(organizationID, "GOOGLE_WORKSPACE", externalAccountID, "gmail_scan_private_key"))
-	if err == nil {
-		return canonical, nil
-	}
-	if strings.TrimSpace(integrationID) == "" {
-		return "", err
-	}
-	legacy, legacyErr := compatDecryptString(encryptedValue, compatLegacyIntegrationSecretAAD(organizationID, integrationID, "google_mailbox_private_key"))
-	if legacyErr == nil {
-		return legacy, nil
-	}
-	return "", err
+	return runtimeutil.DecryptGoogleMailboxPrivateKey(encryptedValue, organizationID, integrationID, externalAccountID)
 }
 
 func encryptedOptionalSecret(body map[string]any, key string, aad string) (*string, error) {
