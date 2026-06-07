@@ -315,6 +315,31 @@ func TestCompatClientIdentityUsesRightmostForwardedFor(t *testing.T) {
 	}
 }
 
+func TestTypedAuthSessionDropsCompatibilityToken(t *testing.T) {
+	session := authSessionFromMap(map[string]any{
+		"token": "session-token-that-must-stay-cookie-only",
+		"user": map[string]any{
+			"id":          "usr_1",
+			"email":       "user@example.com",
+			"displayName": "User Example",
+			"mfaEnabled":  true,
+			"role":        "OWNER",
+		},
+		"organization": map[string]any{
+			"id":   "org_1",
+			"name": "Example Org",
+			"slug": "example",
+		},
+	})
+
+	if session.Token != "" {
+		t.Fatalf("typed auth session exposed token %q", session.Token)
+	}
+	if session.User == nil || !session.User.MfaEnabled {
+		t.Fatal("expected user session fields to remain populated")
+	}
+}
+
 func TestCompatPasswordHashEmitsAndVerifiesS2(t *testing.T) {
 	hash := compatHashPassword("correct horse battery staple")
 	if !strings.HasPrefix(hash, "s2$16384$8$1$") {

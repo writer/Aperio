@@ -102,8 +102,8 @@ function schemaVersion(kind: SiemEnvelopeKind): string {
   return "aperio.audit_log.v1";
 }
 
-function buildEnvelope(
-  destination: SiemDestination,
+export function buildEnvelope(
+  destination: Pick<SiemDestination, "id" | "organizationId">,
   payload: SiemPayload
 ): SiemDispatchEnvelope {
   // Every destination receives the same canonical envelope so downstream parsers

@@ -19,6 +19,8 @@ jobs:
             command: npm run typecheck
           - name: api-tests
             command: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma && npm run test:api
+          - name: migration-guardrails
+            command: npm run guardrails:migration
           - name: prisma
             command: npm run db:validate
           - name: web-build
@@ -127,3 +129,6 @@ jobs:
           test -z "$(git status --porcelain -- gen packages/connect/src/gen)"
 
       - run: go test ./...
+
+      - name: Run bounded Go worker smokes
+        run: npm run smoke:workers:go

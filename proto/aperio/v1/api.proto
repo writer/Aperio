@@ -793,6 +793,7 @@ message SecurityIdentity {
   string last_observed_at = 13;
   int32 linked_asset_count = 14;
   int32 risk_score = 15;
+  optional bool mfa_enabled_state = 16;
 }
 
 message SecurityGraph {
