@@ -4,7 +4,7 @@ Documentation=file://%h/.factory/skills/aperio-sync/SKILL.md
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash __SCRIPT_PATH__
+ExecStart=/bin/bash "__SCRIPT_PATH__"
 StandardOutput=append:%h/.local/state/aperio-sync.log
 StandardError=append:%h/.local/state/aperio-sync.err.log
 
