@@ -787,12 +787,13 @@ message SecurityIdentity {
   FindingIntegration integration = 7;
   string role = 8;
   bool privileged = 9;
-  optional bool mfa_enabled = 10;
+  bool mfa_enabled = 10;
   string status = 11;
   bool is_external = 12;
   string last_observed_at = 13;
   int32 linked_asset_count = 14;
   int32 risk_score = 15;
+  optional bool mfa_enabled_state = 16;
 }
 
 message SecurityGraph {

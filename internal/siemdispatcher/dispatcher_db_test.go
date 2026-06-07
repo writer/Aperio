@@ -120,7 +120,7 @@ func seedDispatcherDelivery(t *testing.T, db *sql.DB, input struct {
 			$1, $2, $3, 'FINDINGS'::"SiemStreamType", $4, $5, $6::"SiemDeliveryStatus",
 			$7, $8, NOW() - INTERVAL '1 minute', $9::text,
 			CASE WHEN $9::text IS NULL THEN NULL ELSE NOW() - INTERVAL '1 minute' END,
-			NOW(), NOW()
+			NOW() - INTERVAL '30 minutes', NOW()
 		)
 	`, deliveryID, input.orgID, input.destinationID, dedupe, json.RawMessage(rawPayload), input.status, input.attempts, input.maxAttempts, input.leaseOwner); err != nil {
 		t.Fatalf("seed SIEM delivery: %v", err)

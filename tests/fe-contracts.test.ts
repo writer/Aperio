@@ -173,15 +173,17 @@ test("security identity MFA remains a nullable tri-state contract", () => {
     "apps/web/components/security/privileged-identities-page.tsx"
   );
 
-  assert.match(proto, /optional\s+bool\s+mfa_enabled\s*=\s*10;/);
-  assert.match(generated, /mfaEnabled\?:\s*boolean;/);
+  assert.match(proto, /bool\s+mfa_enabled\s*=\s*10;/);
+  assert.match(proto, /optional\s+bool\s+mfa_enabled_state\s*=\s*16;/);
+  assert.match(generated, /mfaEnabled:\s*boolean;/);
+  assert.match(generated, /mfaEnabledState\?:\s*boolean;/);
   assert.match(
     exportedTypeBlock(connectClient, "ConnectSecurityIdentity"),
     /mfaEnabled:\s*boolean\s*\|\s*null;/
   );
   assert.match(
     tsFunctionBlock(connectClient, "securityIdentityFromProto"),
-    /mfaEnabled:\s*identity\.mfaEnabled\s*\?\?\s*null/
+    /mfaEnabled:\s*identity\.mfaEnabledState\s*\?\?\s*\(identity\.mfaEnabled\s*\?\s*true\s*:\s*null\)/
   );
   assert.match(
     exportedTypeBlock(webApi, "SecurityIdentity"),

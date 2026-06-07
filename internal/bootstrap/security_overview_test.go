@@ -191,8 +191,8 @@ func TestSecurityOverviewPreservesUnknownMFAState(t *testing.T) {
 	if len(proto.Identities) != 1 {
 		t.Fatalf("proto identities length = %d, want 1", len(proto.Identities))
 	}
-	if proto.Identities[0].MfaEnabled != nil {
-		t.Fatalf("proto unknown MFA = %v, want nil", proto.Identities[0].MfaEnabled)
+	if proto.Identities[0].MfaEnabledState != nil {
+		t.Fatalf("proto unknown MFA = %v, want nil", proto.Identities[0].MfaEnabledState)
 	}
 }
 
@@ -226,7 +226,7 @@ func TestSecurityOverviewFromMapPreservesExplicitMFAFalse(t *testing.T) {
 	if len(proto.Identities) != 1 {
 		t.Fatalf("proto identities length = %d, want 1", len(proto.Identities))
 	}
-	if proto.Identities[0].MfaEnabled == nil || *proto.Identities[0].MfaEnabled {
-		t.Fatalf("proto explicit disabled MFA = %v, want false", proto.Identities[0].MfaEnabled)
+	if proto.Identities[0].MfaEnabledState == nil || *proto.Identities[0].MfaEnabledState {
+		t.Fatalf("proto explicit disabled MFA = %v, want false", proto.Identities[0].MfaEnabledState)
 	}
 }
