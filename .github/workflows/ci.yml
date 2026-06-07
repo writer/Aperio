@@ -169,5 +169,17 @@ jobs:
 
       - run: npm run db:generate
 
+      - name: Write local smoke env file
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL="${DATABASE_URL}"
+          APERIO_NATS_URL="${APERIO_NATS_URL}"
+          APERIO_ENCRYPTION_KEY="${APERIO_ENCRYPTION_KEY}"
+          APERIO_AUTH_SECRET="${APERIO_AUTH_SECRET}"
+          APERIO_WEB_ORIGIN="${APERIO_WEB_ORIGIN}"
+          NEXT_PUBLIC_CONNECT_API_BASE_URL="${NEXT_PUBLIC_CONNECT_API_BASE_URL}"
+          NEXT_TELEMETRY_DISABLED="${NEXT_TELEMETRY_DISABLED}"
+          EOF
+
       - name: Run Go API and web E2E smoke
         run: npm run smoke:e2e
