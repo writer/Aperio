@@ -1,18 +1,18 @@
 {
   "version": 1,
   "finalCutoverPlan": {
-    "status": "planned-not-enforced",
-    "defaultsFlippedInThisFeature": false,
+    "status": "siem-go-default-enforced",
+    "defaultsFlippedInThisFeature": true,
     "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
     "localHarness": "tests/fixtures/worker-parity/siem-local-adapter-harness.json",
     "goDefaultRequires": [
       "every adapter row is go-default in the matrix and Go dispatcher claim/send allowlist",
       "local request-capture or JSONL fixtures cover each supported destination kind without production endpoints",
       "canonical envelope fixtures cover finding, event, and audit_log schema versions plus stream mapping",
-      "bounded unsuffixed SIEM worker smoke drains local fixtures through the Go default command in the later default-cutover feature"
+      "bounded unsuffixed SIEM worker smoke drains local fixtures through the Go default command"
     ]
   },
-  "source": "Prisma SiemKind enum, packages/shared SIEM catalog, internal/bootstrap Go catalog, TypeScript dispatcher reference paths, and Go dispatcher send/claim allowlist",
+  "source": "Prisma SiemKind enum, packages/shared SIEM catalog, internal/bootstrap Go catalog, and Go dispatcher send/claim allowlist",
   "adapters": [
     {
       "kind": "SPLUNK_HEC",
@@ -21,11 +21,16 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
@@ -45,11 +50,17 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS", "EVENTS"],
-      "requiredFields": ["endpointUrl", "token"],
+      "defaultStreams": [
+        "FINDINGS",
+        "EVENTS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
@@ -69,11 +80,16 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS", "EVENTS"],
-      "requiredFields": ["endpointUrl"],
+      "defaultStreams": [
+        "FINDINGS",
+        "EVENTS"
+      ],
+      "requiredFields": [
+        "endpointUrl"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
@@ -93,11 +109,17 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token", "index"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token",
+        "index"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
@@ -117,11 +139,16 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
@@ -141,11 +168,15 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
@@ -168,11 +199,17 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["endpointUrl", "token", "index"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "endpointUrl",
+        "token",
+        "index"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-cerebro-claims.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
@@ -192,11 +229,15 @@
       "prismaKind": true,
       "sharedCatalog": true,
       "goCatalog": true,
-      "typescriptDispatcher": true,
+      "typescriptDispatcher": false,
       "goDispatcher": true,
       "goClaimed": true,
-      "defaultStreams": ["FINDINGS"],
-      "requiredFields": ["filePath"],
+      "defaultStreams": [
+        "FINDINGS"
+      ],
+      "requiredFields": [
+        "filePath"
+      ],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",

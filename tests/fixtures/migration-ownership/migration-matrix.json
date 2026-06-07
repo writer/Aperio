@@ -1,8 +1,8 @@
 {
   "version": 1,
   "finalCutoverPlan": {
-    "status": "planned-not-enforced",
-    "defaultsFlippedInThisFeature": false,
+    "status": "siem-go-default-enforced",
+    "defaultsFlippedInThisFeature": true,
     "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
     "tracks": [
       "package scripts",
@@ -25,17 +25,22 @@
   },
   "entries": [
     {
-      "id": "package-siem-worker-typescript-reference",
-      "state": "typescript-reference",
+      "id": "package-siem-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "package-script:worker:siem"
+        "package-script:worker:siem",
+        "package-script:worker:siem:go"
       ],
-      "owner": "TypeScript SIEM worker reference runtime",
-      "rationale": "The unsuffixed SIEM worker command remains the TypeScript reference/fallback runtime until SIEM adapter cutover criteria are proven.",
+      "owner": "Go SIEM dispatcher default runtime",
+      "rationale": "The unsuffixed SIEM worker command runs the Go dispatcher with shared local env and pgx-safe DATABASE_URL handling; the suffixed command is a strict alias to the same default.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "source:workers/siem-dispatcher.ts"
-      ]
+        "test:tests/siem-adapter-matrix.test.ts",
+        "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM reference command."
     },
     {
       "id": "package-ingestion-worker-go-default",
@@ -55,20 +60,22 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion reference command."
     },
     {
-      "id": "package-go-worker-transition-smokes",
-      "state": "go-parity",
+      "id": "package-go-worker-default-smokes",
+      "state": "go-default",
       "covers": [
-        "package-script:worker:siem:go",
-        "package-script:smoke:workers:go"
+        "package-script:smoke:workers:go",
+        "package-script:smoke:siem:adapters"
       ],
-      "owner": "Explicit Go SIEM transition command and bounded worker smokes",
-      "rationale": "The SIEM Go worker remains a suffixed transition command; the aggregate smoke uses the Go ingestion default plus the explicit Go SIEM transition smoke.",
+      "owner": "Bounded Go worker default smokes",
+      "rationale": "The aggregate worker smoke uses unsuffixed Go ingestion and SIEM defaults, then runs per-adapter SIEM safe-smokes through npm run worker:siem.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
-        "command:npm run smoke:workers:go"
+        "test:tests/e2e-smoke-contract.test.ts",
+        "script:scripts/smoke-siem-adapters.ts",
+        "command:npm run smoke:workers:go",
+        "command:npm run smoke:siem:adapters"
       ],
-      "rollback": "Use the unsuffixed TypeScript SIEM worker command while SIEM fallback remains available."
+      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
     },
     {
       "id": "package-go-api-runtime",
@@ -93,7 +100,7 @@
         "package-script:mcp:broker"
       ],
       "owner": "TypeScript MCP broker",
-      "rationale": "The MCP stdio backend process remains TypeScript-owned and is not part of this Go cutover slice.",
+      "rationale": "The MCP stdio backend process remains TypeScript-owned pending the MCP cutover, but its SIEM enqueue tool no longer imports or drains the deleted TypeScript SIEM dispatcher.",
       "evidence": [
         "source:apps/mcp/src/server.ts",
         "command:npm run mcp:broker"
@@ -157,17 +164,20 @@
       ]
     },
     {
-      "id": "make-siem-worker-typescript-reference",
-      "state": "typescript-reference",
+      "id": "make-siem-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "make-target:worker-siem"
+        "make-target:worker-siem",
+        "make-target:worker-siem-go"
       ],
-      "owner": "TypeScript SIEM worker reference runtime",
-      "rationale": "The unsuffixed Make SIEM worker target intentionally mirrors the TypeScript SIEM reference/fallback command until SIEM cutover.",
+      "owner": "Go SIEM dispatcher default Make target",
+      "rationale": "The unsuffixed Make SIEM target runs the Go dispatcher with GO_WORKER_ARGS support, and the suffixed target is a strict alias.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "source:Makefile"
-      ]
+        "command:make -n worker-siem GO_WORKER_ARGS=\"-once -limit 1\"",
+        "command:make worker-siem GO_WORKER_ARGS=\"-once -limit 1\""
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM Make target."
     },
     {
       "id": "make-ingestion-worker-go-default",
@@ -187,20 +197,19 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion Make target."
     },
     {
-      "id": "make-go-worker-transition-smokes",
-      "state": "go-parity",
+      "id": "make-go-worker-default-smokes",
+      "state": "go-default",
       "covers": [
-        "make-target:worker-siem-go",
         "make-target:smoke-workers-go"
       ],
-      "owner": "Explicit Go SIEM transition command and bounded worker smokes",
-      "rationale": "Make still exposes the SIEM Go worker as a suffixed transition target; smoke-workers-go runs Go ingestion default plus Go SIEM transition smoke.",
+      "owner": "Bounded Go worker default Make smokes",
+      "rationale": "smoke-workers-go runs bounded unsuffixed Go worker defaults and the per-adapter SIEM safe-smoke harness.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "script:scripts/smoke-siem-adapters.ts",
         "command:make smoke-workers-go"
       ],
-      "rollback": "Use make worker-siem while SIEM TypeScript fallback remains available."
+      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
     },
     {
       "id": "make-mcp-typescript-reference",
@@ -321,14 +330,16 @@
       "covers": [
         "repo-file:scripts/droid-*.mjs",
         "repo-file:scripts/leak-check.mjs",
-        "repo-file:scripts/check-backup-readiness.ts"
+        "repo-file:scripts/check-backup-readiness.ts",
+        "repo-file:scripts/smoke-siem-adapters.ts"
       ],
       "owner": "Review, secret hygiene, and readiness scripts",
-      "rationale": "Review context and leak/readiness scripts are validation/evidence helpers, not backend runtime ownership.",
+      "rationale": "Review context, leak/readiness scripts, and local validation smokes are validation/evidence helpers, not backend runtime ownership switches.",
       "evidence": [
         "source:scripts/leak-check.mjs",
         "workflow:.github/workflows/leak-check.yml",
-        "source:scripts/droid-review-preflight.mjs"
+        "source:scripts/droid-review-preflight.mjs",
+        "script:scripts/smoke-siem-adapters.ts"
       ]
     },
     {
@@ -362,19 +373,21 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime."
     },
     {
-      "id": "cmd-go-siem-worker-transition",
-      "state": "go-parity",
+      "id": "cmd-go-siem-worker-default",
+      "state": "go-default",
       "covers": [
         "repo-file:cmd/siem-dispatcher/*.go"
       ],
-      "owner": "Explicit Go SIEM worker transition entrypoint",
-      "rationale": "The Go SIEM dispatcher exposes one-shot smoke flags and remains explicit until SIEM adapter cutover criteria are proven.",
+      "owner": "Go SIEM dispatcher default entrypoint",
+      "rationale": "cmd/siem-dispatcher is the default SIEM dispatcher entrypoint, exposes bounded one-shot smoke flags, and supports the local capture smoke harness without contacting production endpoints.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
-        "command:npm run worker:siem:go -- -once -limit 1"
+        "test:internal/siemdispatcher/dispatcher_test.go",
+        "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
       ],
-      "rollback": "Use the TypeScript SIEM worker reference command and leave unsupported SIEM deliveries for fallback processing."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
     },
     {
       "id": "workers-ingestion-runtime-removed",
@@ -392,19 +405,31 @@
       "rollback": "Revert this cutover commit if the Go default ingestion worker must be rolled back."
     },
     {
-      "id": "workers-typescript-reference-runtime",
-      "state": "typescript-reference",
+      "id": "workers-siem-runtime-removed",
+      "state": "removable",
       "covers": [
-        "repo-file:workers/siem-dispatcher.ts",
+        "repo-file:workers/siem-dispatcher.ts"
+      ],
+      "owner": "Deleted TypeScript SIEM dispatcher runtime",
+      "rationale": "The TypeScript SIEM dispatcher runtime has been deleted after Go adapter/default cutover; tests use fixtures and Go coverage rather than importing it as a hidden oracle.",
+      "evidence": [
+        "test:tests/siem-adapter-matrix.test.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:test ! -e workers/siem-dispatcher.ts"
+      ],
+      "rollback": "Revert this cutover commit if the Go default SIEM dispatcher must be rolled back."
+    },
+    {
+      "id": "workers-typescript-validation-helpers",
+      "state": "out-of-scope-this-mission",
+      "covers": [
         "repo-file:workers/event-bus.ts",
         "repo-file:workers/telemetry.ts"
       ],
-      "owner": "TypeScript SIEM worker reference runtime and shared TypeScript worker tooling",
-      "rationale": "The remaining tracked workers/*.ts files are SIEM reference/runtime or TypeScript worker telemetry/event-bus helpers; the ingestion runtime file is removed.",
+      "owner": "TypeScript worker validation helpers",
+      "rationale": "The remaining workers/*.ts files are shared event-bus/telemetry helpers used by TypeScript validation surfaces, not executable backend worker entrypoints.",
       "evidence": [
-        "test:tests/siem-dispatcher.test.ts",
         "test:tests/worker-telemetry.test.ts",
-        "source:workers/siem-dispatcher.ts",
         "source:workers/event-bus.ts",
         "source:workers/telemetry.ts"
       ]
@@ -416,7 +441,7 @@
         "repo-file:apps/mcp/src/*.ts"
       ],
       "owner": "TypeScript MCP broker",
-      "rationale": "The MCP broker is a TypeScript backend process and is not a Go migration default in this mission.",
+      "rationale": "The MCP broker is a TypeScript backend process pending the MCP migration; it no longer imports the deleted TypeScript SIEM dispatcher runtime.",
       "evidence": [
         "source:apps/mcp/src/server.ts",
         "command:npm run mcp:broker"
@@ -460,13 +485,13 @@
       "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime and matrix state."
     },
     {
-      "id": "internal-siemdispatcher-go-parity",
-      "state": "go-parity",
+      "id": "internal-siemdispatcher-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:internal/siemdispatcher/*.go"
       ],
-      "owner": "Go SIEM dispatcher parity slice",
-      "rationale": "Go SIEM dispatcher now claims all SIEM adapter rows and has local parity fixtures for HTTP adapters, confined JSON_FILE JSONL sinks, and CEREBRO_CLAIMS runtime/claim fanout semantics while the unsuffixed TypeScript dispatcher remains the default until the later cutover feature.",
+      "owner": "Go SIEM dispatcher default runtime",
+      "rationale": "Go SIEM dispatcher owns all SIEM adapter rows, local parity fixtures, reliability behavior, and per-adapter default worker safe-smokes after the unsuffixed command cutover.",
       "evidence": [
         "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
         "fixture:tests/fixtures/worker-parity/siem-cerebro-claims.json",
@@ -478,9 +503,10 @@
         "test:tests/siem-adapter-matrix.test.ts",
         "test:internal/siemdispatcher/dispatcher_test.go",
         "test:internal/siemdispatcher/dispatcher_db_test.go",
-        "command:npm run worker:siem:go -- -once -limit 1"
+        "command:npm run worker:siem -- -once -limit 1",
+        "command:npm run smoke:siem:adapters"
       ],
-      "rollback": "Disable explicit Go SIEM dispatcher usage and run the TypeScript SIEM dispatcher fallback."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript SIEM dispatcher default."
     },
     {
       "id": "proto-contract-source",
@@ -518,11 +544,10 @@
         "repo-file:packages/shared/src/*.ts"
       ],
       "owner": "TypeScript shared reference semantics",
-      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain the reference for parity tests until Go slices prove equivalence.",
+      "rationale": "Shared TypeScript schemas, catalogs, protobuf encoding, SIEM safety, and risk scoring remain frontend/test/tooling contracts while backend worker runtimes are Go-owned.",
       "evidence": [
         "test:tests/protobuf-contracts.test.ts",
         "test:tests/risk-scoring.test.ts",
-        "test:tests/siem-dispatcher.test.ts",
         "source:packages/shared/src"
       ]
     },
@@ -640,17 +665,19 @@
     },
     {
       "id": "validator-worker-smoke",
-      "state": "out-of-scope-this-mission",
+      "state": "go-default",
       "covers": [
         "validator:worker-smoke"
       ],
       "owner": "Bounded Go worker smoke command",
-      "rationale": "The bounded smoke command verifies the Go ingestion default and explicit Go SIEM transition worker without changing SIEM ownership.",
+      "rationale": "The bounded smoke command verifies the Go ingestion and SIEM defaults, including per-adapter SIEM safe-smokes through npm run worker:siem.",
       "evidence": [
         "command:npm run smoke:workers:go",
         "command:make smoke-workers-go",
+        "command:npm run smoke:siem:adapters",
         "workflow:.github/workflows/ci.yml"
-      ]
+      ],
+      "rollback": "Revert this cutover commit to restore explicit transition smoke commands."
     },
     {
       "id": "validator-local-e2e-smoke-harness",

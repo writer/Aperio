@@ -191,23 +191,25 @@ test("migration ownership matrix covers every generated surface exactly once", (
   assert.deepEqual(duplicated, [], "every migration-relevant surface needs exactly one matrix state");
 });
 
-test("ingestion defaults are Go-owned while SIEM stays TypeScript reference", () => {
+test("ingestion and SIEM defaults are Go-owned", () => {
   const matrix = loadMatrix();
   const scripts = packageScripts();
   const makefile = readRepoFile("Makefile");
 
   assert.match(scripts["worker:ingestion"], /go run \.\/cmd\/ingestion-worker/);
-  assert.equal(scripts["worker:siem"], "tsx workers/siem-dispatcher.ts");
+  assert.match(scripts["worker:siem"], /go run \.\/cmd\/siem-dispatcher/);
   assert.doesNotMatch(scripts["worker:ingestion"], /\btsx\b|workers\/ingestion-worker\.ts/);
-  assert.doesNotMatch(scripts["worker:siem"], /go run|cmd\/siem-dispatcher/);
+  assert.doesNotMatch(scripts["worker:siem"], /\btsx\b|workers\/siem-dispatcher\.ts/);
 
   assert.match(makefile, /go run \.\/cmd\/ingestion-worker/);
+  assert.match(makefile, /go run \.\/cmd\/siem-dispatcher/);
   assert.doesNotMatch(makefile, /npx tsx workers\/ingestion-worker\.ts/);
-  assert.match(makefile, /npx tsx workers\/siem-dispatcher\.ts/);
+  assert.doesNotMatch(makefile, /npx tsx workers\/siem-dispatcher\.ts/);
   assert.equal(scripts["worker:ingestion:go"], "npm run worker:ingestion --");
-  assert.match(scripts["worker:siem:go"], /cmd\/siem-dispatcher/);
+  assert.equal(scripts["worker:siem:go"], "npm run worker:siem --");
   assert.match(scripts["smoke:workers:go"], /worker:ingestion -- -once -limit 1/);
-  assert.match(scripts["smoke:workers:go"], /worker:siem:go -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /worker:siem -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /smoke:siem:adapters/);
 
   for (const item of [
     "package-script:worker:ingestion",
@@ -232,22 +234,22 @@ test("ingestion defaults are Go-owned while SIEM stays TypeScript reference", ()
 
   for (const item of [
     "package-script:worker:siem",
-    "make-target:worker-siem",
-    "repo-file:workers/siem-dispatcher.ts"
-  ]) {
-    assert.equal(stateFor(matrix, item), "typescript-reference", `${item} must stay TypeScript reference`);
-  }
-
-  for (const item of [
     "package-script:worker:siem:go",
-    "package-script:smoke:workers:go",
+    "make-target:worker-siem",
     "make-target:worker-siem-go",
-    "make-target:smoke-workers-go",
     "repo-file:cmd/siem-dispatcher/main.go",
     "repo-file:internal/siemdispatcher/dispatcher.go"
   ]) {
-    assert.equal(stateFor(matrix, item), "go-parity", `${item} must stay explicit Go parity`);
+    assert.equal(stateFor(matrix, item), "go-default", `${item} must be Go default`);
   }
+
+  assert.equal(
+    stateFor(matrix, "repo-file:workers/siem-dispatcher.ts"),
+    "removable",
+    "deleted SIEM runtime must be represented as removed/removable"
+  );
+  assert.equal(stateFor(matrix, "package-script:smoke:workers:go"), "go-default");
+  assert.equal(stateFor(matrix, "make-target:smoke-workers-go"), "go-default");
 });
 
 test("frontend legacy API and browser auth guardrails are registered as merge gates", () => {
@@ -265,14 +267,14 @@ test("frontend legacy API and browser auth guardrails are registered as merge ga
   assert.match(source, /\\\/api\\\/v1\\\//);
 });
 
-test("shared parity fixtures gate every Go worker parity surface", () => {
+test("shared parity fixtures gate every Go worker runtime surface", () => {
   const matrix = loadMatrix();
   const goWorkerEntries = matrix.entries.filter(
     (entry) =>
-      entry.state === "go-parity" &&
-      entry.covers.some((item) => /ingestion|siem/.test(item))
+      ["go-parity", "go-default"].includes(entry.state) &&
+      entry.covers.some((item) => /internal\/(?:ingestionworker|siemdispatcher)/.test(item))
   );
-  assert.ok(goWorkerEntries.length > 0, "expected Go worker parity entries");
+  assert.ok(goWorkerEntries.length > 0, "expected Go worker runtime entries");
 
   for (const entry of goWorkerEntries) {
     assert.ok(
@@ -374,7 +376,8 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   assert.match(scripts["guardrails:migration"], /auth-client-cleanup\.test\.ts/);
   assert.match(scripts["guardrails:migration"], /worker-command-guardrails\.test\.ts/);
   assert.match(scripts["smoke:workers:go"], /worker:ingestion -- -once -limit 1/);
-  assert.match(scripts["smoke:workers:go"], /worker:siem:go -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /worker:siem -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /smoke:siem:adapters/);
 
   for (const item of [
     "validator:typecheck",

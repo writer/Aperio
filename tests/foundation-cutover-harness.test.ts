@@ -143,6 +143,12 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
     if (fixturePath.includes("ingestion-rule-matrix")) {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
       assert.equal(matrix.finalCutoverPlan.status, "ingestion-go-default-enforced");
+    } else if (fixturePath.includes("siem-adapter-matrix")) {
+      assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
+      assert.equal(matrix.finalCutoverPlan.status, "siem-go-default-enforced");
+    } else if (fixturePath.includes("migration-matrix")) {
+      assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
+      assert.equal(matrix.finalCutoverPlan.status, "siem-go-default-enforced");
     } else {
       assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, false);
       assert.equal(matrix.finalCutoverPlan.status, "planned-not-enforced");
@@ -193,7 +199,7 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
   }
 });
 
-test("current command ownership is characterized without flipping worker or MCP defaults", () => {
+test("current command ownership records Go worker defaults and pending MCP default", () => {
   const fixture = loadHarnessFixture();
   const scripts = packageScripts();
   const makefile = readRepoFile("Makefile");
@@ -216,7 +222,7 @@ test("current command ownership is characterized without flipping worker or MCP 
   );
   assert.equal(
     classifyRuntimeCommand(scripts["worker:siem"]),
-    "typescript-siem-reference"
+    "go-siem"
   );
   assert.equal(classifyRuntimeCommand(scripts["mcp:broker"]), "typescript-mcp-reference");
 
@@ -323,7 +329,8 @@ test("MCP tool catalog and current TypeScript broker behavior are characterized 
 
   assert.match(
     source,
-    /void drainSiemDeliveries\(\)\.catch\(\(\) => undefined\)/,
-    "foundation characterization records that the current TypeScript MCP broker still opportunistically drains the TypeScript SIEM helper"
+    /enqueueSiemDeliveries\(/,
+    "MCP broker should enqueue SIEM payloads without importing the deleted TypeScript SIEM dispatcher"
   );
+  assert.doesNotMatch(source, /drainSiemDeliveries|workers\/siem-dispatcher/);
 });

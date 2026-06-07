@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -939,6 +940,73 @@ func TestDecryptStringFailsClosedForCredentialEnvelopeErrors(t *testing.T) {
 				t.Fatalf("decrypt error leaked plaintext credential: %v", err)
 			}
 		})
+	}
+}
+
+func TestLocalCaptureSmokeTransportOnlyAllowsSyntheticEndpoints(t *testing.T) {
+	var captured struct {
+		Method     string              `json:"method"`
+		URL        string              `json:"url"`
+		Headers    map[string][]string `json:"headers"`
+		BodyBase64 string              `json:"bodyBase64"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capture" {
+			t.Fatalf("unexpected capture path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode capture body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	client, checkEndpoint, err := localCaptureFromURL(server.URL + "/capture")
+	if err != nil {
+		t.Fatalf("local capture setup: %v", err)
+	}
+	if err := checkEndpoint(context.Background(), "https://splunk.aperio.test/collector"); err != nil {
+		t.Fatalf("synthetic endpoint rejected: %v", err)
+	}
+	for _, unsafeEndpoint := range []string{
+		"http://splunk.aperio.test/collector",
+		"https://localhost/collector",
+		"https://example.com/collector",
+		"https://aperio.test/collector",
+		"https://splunk.aperio.test.evil/collector",
+		"https://user:pass@splunk.aperio.test/collector",
+	} {
+		if err := checkEndpoint(context.Background(), unsafeEndpoint); err == nil {
+			t.Fatalf("expected local capture endpoint %s to be rejected", unsafeEndpoint)
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://splunk.aperio.test/collector", strings.NewReader("fixture-body"))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Splunk fixture-token")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("capture request: %v", err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("capture status = %d", res.StatusCode)
+	}
+	if captured.Method != http.MethodPost || captured.URL != "https://splunk.aperio.test/collector" {
+		t.Fatalf("captured request = %#v", captured)
+	}
+	decodedBody, err := base64.StdEncoding.DecodeString(captured.BodyBase64)
+	if err != nil {
+		t.Fatalf("decode captured body: %v", err)
+	}
+	if string(decodedBody) != "fixture-body" {
+		t.Fatalf("captured body = %q", string(decodedBody))
+	}
+	if got := captured.Headers["Authorization"]; !reflect.DeepEqual(got, []string{"Splunk fixture-token"}) {
+		t.Fatalf("captured authorization header = %#v", got)
 	}
 }
 

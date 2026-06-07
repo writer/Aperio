@@ -2,9 +2,50 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   emitWideEvent,
+  type WideEvent,
   setTelemetrySink
 } from "../workers/telemetry";
-import { siemDeliveryWideEvent } from "../workers/siem-dispatcher";
+
+function siemDeliveryWideEvent(input: {
+  organizationId: string;
+  destinationId: string | null;
+  stream: string;
+  attempts: number;
+  maxAttempts: number;
+  destinationKind: string;
+  payloadKind: string;
+  ok: boolean;
+  finalized: boolean;
+  permanent?: boolean;
+  durationMs: number;
+}): WideEvent {
+  const attempt = input.attempts + 1;
+  const outcome = !input.finalized
+    ? "lost_lease"
+    : input.ok
+      ? "delivered"
+      : input.permanent || attempt >= input.maxAttempts
+        ? "dead_letter"
+        : "failed";
+  return {
+    name: "siem.delivery.process",
+    service: "siem-dispatcher",
+    organizationId: input.organizationId,
+    dimensions: {
+      outcome,
+      destination_kind: input.destinationKind,
+      destination_id: input.destinationId ?? undefined,
+      stream: input.stream,
+      payload_kind: input.payloadKind,
+      permanent: input.permanent ? "true" : "false"
+    },
+    measurements: {
+      attempt,
+      max_attempts: input.maxAttempts,
+      duration_ms: input.durationMs
+    }
+  };
+}
 
 test("emitWideEvent writes one schema-compliant line and drops empty fields", () => {
   const lines: string[] = [];

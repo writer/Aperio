@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@aperio/db";
 import {
@@ -10,12 +10,15 @@ import {
   registerAgentSchema,
   sendAgentMessageSchema
 } from "@aperio/shared/a2a";
-import {
-  drainSiemDeliveries,
-  enqueueSiemDeliveries
-} from "../../../workers/siem-dispatcher";
 
 type RpcId = string | number | null;
+type SiemEnvelopeKind = "finding" | "event" | "audit_log";
+type SiemPayload = {
+  kind: SiemEnvelopeKind;
+  organizationId: string;
+  occurredAt: string;
+  record: Record<string, unknown>;
+};
 type RpcMessage = {
   jsonrpc?: "2.0";
   id?: RpcId;
@@ -30,6 +33,81 @@ const organizationScopedSchema = z.object({
 
 function jsonSafe(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function streamForKind(kind: SiemEnvelopeKind): "FINDINGS" | "EVENTS" | "AUDIT_LOGS" {
+  if (kind === "finding") return "FINDINGS";
+  if (kind === "event") return "EVENTS";
+  return "AUDIT_LOGS";
+}
+
+function stringValue(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+function stableDeliveryKey(
+  payload: SiemPayload,
+  destinationId: string,
+  stream: "FINDINGS" | "EVENTS" | "AUDIT_LOGS"
+) {
+  const record = payload.record ?? {};
+  const stableRecordId =
+    stringValue(record.findingId) ??
+    stringValue(record.id) ??
+    stringValue(record.dedupeKey) ??
+    stringValue(record.sourceEventId) ??
+    JSON.stringify(record);
+  const findingOccurrence =
+    payload.kind === "finding"
+      ? (stringValue(record.sourceEventId) ??
+        stringValue(record.detectedAt) ??
+        payload.occurredAt)
+      : undefined;
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        organizationId: payload.organizationId,
+        destinationId,
+        stream,
+        kind: payload.kind,
+        stableRecordId,
+        ...(findingOccurrence
+          ? {
+              findingOccurrence,
+              findingStatus: stringValue(record.status)
+            }
+          : {})
+      })
+    )
+    .digest("hex");
+}
+
+async function enqueueSiemDeliveries(payload: SiemPayload): Promise<number> {
+  const targetStream = streamForKind(payload.kind);
+  const destinations = await prisma.siemDestination.findMany({
+    where: {
+      organizationId: payload.organizationId,
+      status: { in: ["ACTIVE", "ERROR"] },
+      streams: { has: targetStream }
+    },
+    select: { id: true }
+  });
+  if (destinations.length === 0) {
+    return 0;
+  }
+  const created = await prisma.siemDelivery.createMany({
+    data: destinations.map((destination) => ({
+      organizationId: payload.organizationId,
+      destinationId: destination.id,
+      stream: targetStream,
+      dedupeKey: stableDeliveryKey(payload, destination.id, targetStream),
+      payload: jsonSafe(payload)
+    })),
+    skipDuplicates: true
+  });
+  return created.count;
 }
 
 async function getAgentId(organizationId: string, key?: string) {
@@ -381,7 +459,6 @@ async function callTool(name: string, args: unknown) {
       occurredAt: parsed.occurredAt ?? new Date().toISOString(),
       record: parsed.record
     });
-    void drainSiemDeliveries().catch(() => undefined);
     return { enqueued: count };
   }
 

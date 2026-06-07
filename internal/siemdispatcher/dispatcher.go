@@ -131,9 +131,15 @@ func New(db *sql.DB) *Dispatcher {
 	}
 }
 
-// SetOrganizationForTesting scopes drain queries to one organization in DB-backed tests.
-func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
+// SetOrganizationScope scopes drain queries to one organization for bounded
+// local validation runs and DB-backed tests.
+func (d *Dispatcher) SetOrganizationScope(organizationID string) {
 	d.organizationID = organizationID
+}
+
+// SetOrganizationForTesting preserves the existing DB-backed test helper name.
+func (d *Dispatcher) SetOrganizationForTesting(organizationID string) {
+	d.SetOrganizationScope(organizationID)
 }
 
 // SetHTTPClientForTesting installs a deterministic local transport for DB-backed

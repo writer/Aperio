@@ -24,14 +24,15 @@ function packageScripts() {
   return parsed.scripts;
 }
 
-test("unsuffixed npm ingestion command runs Go while SIEM remains TypeScript parity", () => {
+test("unsuffixed npm worker commands run Go defaults", () => {
   const scripts = packageScripts();
 
   assert.match(scripts["worker:ingestion"], /go run \.\/cmd\/ingestion-worker/);
-  assert.equal(scripts["worker:siem"], "tsx workers/siem-dispatcher.ts");
+  assert.match(scripts["worker:siem"], /go run \.\/cmd\/siem-dispatcher/);
   assert.doesNotMatch(scripts["worker:ingestion"], /\btsx\b|workers\/ingestion-worker\.ts/);
-  assert.doesNotMatch(scripts["worker:siem"], /go run|cmd\/siem-dispatcher/);
+  assert.doesNotMatch(scripts["worker:siem"], /\btsx\b|workers\/siem-dispatcher\.ts/);
   assert.equal(scripts["worker:ingestion:go"], "npm run worker:ingestion --");
+  assert.equal(scripts["worker:siem:go"], "npm run worker:siem --");
 });
 
 test("npm Go worker commands load .env and a pgx-safe database URL", () => {
@@ -41,7 +42,7 @@ test("npm Go worker commands load .env and a pgx-safe database URL", () => {
     .map(([name]) => name)
     .sort();
 
-  assert.deepEqual(goWorkerScripts, ["worker:ingestion", "worker:siem:go"]);
+  assert.deepEqual(goWorkerScripts, ["worker:ingestion", "worker:siem"]);
   for (const name of goWorkerScripts) {
     const command = scripts[name];
     assert.match(command, /DATABASE_URL="?\$\(node scripts\/dev-config\.mjs go-database-url\)"?/);
@@ -50,7 +51,7 @@ test("npm Go worker commands load .env and a pgx-safe database URL", () => {
   }
 });
 
-test("Make ingestion target runs Go while SIEM keeps TypeScript default and explicit Go transition", () => {
+test("Make worker targets run Go defaults with strict aliases", () => {
   const makefile = readRepoFile("Makefile");
 
   const ingestion = makeTarget(makefile, "worker-ingestion");
@@ -60,18 +61,18 @@ test("Make ingestion target runs Go while SIEM keeps TypeScript default and expl
   assert.doesNotMatch(ingestion, /npx tsx workers\/ingestion-worker\.ts/);
 
   const siem = makeTarget(makefile, "worker-siem");
-  assert.match(siem, /## Run the TypeScript parity\/reference SIEM dispatcher worker/);
-  assert.match(siem, /npx tsx workers\/siem-dispatcher\.ts/);
-  assert.doesNotMatch(siem, /go run \.\/cmd\/siem-dispatcher/);
+  assert.match(siem, /## Run the Go SIEM dispatcher worker/);
+  assert.match(siem, /go run \.\/cmd\/siem-dispatcher/);
+  assert.match(siem, /\$\(GO_WORKER_ARGS\)/);
+  assert.doesNotMatch(siem, /npx tsx workers\/siem-dispatcher\.ts/);
 
   const goIngestion = makeTarget(makefile, "worker-ingestion-go");
   assert.match(goIngestion, /worker-ingestion-go: worker-ingestion ## Alias for the Go ingestion worker/);
   assert.doesNotMatch(goIngestion, /npx tsx|go run/);
 
   const goSiem = makeTarget(makefile, "worker-siem-go");
-  assert.match(goSiem, /## Run the explicit Go transition SIEM dispatcher worker/);
-  assert.match(goSiem, /\$\(LOAD_ENV\) DATABASE_URL="\$+\(node \$\(DEV_CONFIG\) go-database-url\)" go run \.\/cmd\/siem-dispatcher/);
-  assert.match(goSiem, /\$\(GO_WORKER_ARGS\)/);
+  assert.match(goSiem, /worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker/);
+  assert.doesNotMatch(goSiem, /npx tsx|go run/);
 });
 
 test("Go worker entrypoints expose one-shot smoke flags", () => {
@@ -82,18 +83,22 @@ test("Go worker entrypoints expose one-shot smoke flags", () => {
   const siemMain = readRepoFile("cmd/siem-dispatcher/main.go");
   assert.match(siemMain, /flag\.Bool\("once", false, "drain once and exit"\)/);
   assert.match(siemMain, /flag\.Int\("limit", 25, "maximum deliveries to claim per drain"\)/);
+  assert.match(siemMain, /flag\.String\("organization", "", "optional organization scope for local validation"\)/);
 });
 
-test("bounded worker smoke uses the Go ingestion default command", () => {
+test("bounded worker smoke uses unsuffixed Go default commands", () => {
   const scripts = packageScripts();
   const makefile = readRepoFile("Makefile");
 
   assert.match(scripts["smoke:workers:go"], /npm run worker:ingestion -- -once -limit 1/);
-  assert.match(scripts["smoke:workers:go"], /npm run worker:siem:go -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /npm run worker:siem -- -once -limit 1/);
+  assert.match(scripts["smoke:workers:go"], /npm run smoke:siem:adapters/);
   assert.match(makeTarget(makefile, "smoke-workers-go"), /npm run worker:ingestion -- -once -limit 1/);
+  assert.match(makeTarget(makefile, "smoke-workers-go"), /npm run worker:siem -- -once -limit 1/);
+  assert.match(makeTarget(makefile, "smoke-workers-go"), /npm run smoke:siem:adapters/);
 });
 
-test("TypeScript tests no longer import the deleted ingestion runtime as an oracle", () => {
+test("TypeScript tests no longer import deleted worker runtimes as oracles", () => {
   const testFiles = readdirSync(path.join(repoRoot, "tests"))
     .filter((file) => file.endsWith(".test.ts") && file !== "worker-command-guardrails.test.ts")
     .map((file) => ({
@@ -110,8 +115,9 @@ test("TypeScript tests no longer import the deleted ingestion runtime as an orac
     false,
     "deleted ingestion worker must not remain a hidden TypeScript oracle"
   );
-  assert.ok(
+  assert.equal(
     testFiles.some(({ imports }) => imports.includes("../workers/siem-dispatcher")),
-    "expected at least one TypeScript test to import the SIEM dispatcher"
+    false,
+    "deleted SIEM dispatcher must not remain a hidden TypeScript oracle"
   );
 });

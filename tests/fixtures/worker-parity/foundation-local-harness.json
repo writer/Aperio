@@ -100,42 +100,63 @@
     "approvedTools": [
       {
         "name": "aperio.register_agent",
-        "required": ["organizationId", "key", "name"]
+        "required": [
+          "organizationId",
+          "key",
+          "name"
+        ]
       },
       {
         "name": "aperio.create_task",
-        "required": ["organizationId", "taskType", "title"]
+        "required": [
+          "organizationId",
+          "taskType",
+          "title"
+        ]
       },
       {
         "name": "aperio.send_message",
-        "required": ["organizationId", "content"]
+        "required": [
+          "organizationId",
+          "content"
+        ]
       },
       {
         "name": "aperio.list_tasks",
-        "required": ["organizationId"]
+        "required": [
+          "organizationId"
+        ]
       },
       {
         "name": "aperio.propose_remediation",
-        "required": ["organizationId", "action", "rationale", "payload"]
+        "required": [
+          "organizationId",
+          "action",
+          "rationale",
+          "payload"
+        ]
       },
       {
         "name": "aperio.enqueue_siem_payload",
-        "required": ["organizationId", "record"]
+        "required": [
+          "organizationId",
+          "record"
+        ]
       }
     ]
   },
   "commandOwnership": {
     "currentDefaults": {
       "package-script:worker:ingestion": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
-      "package-script:worker:siem": "tsx workers/siem-dispatcher.ts",
+      "package-script:worker:siem": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/siem-dispatcher",
       "package-script:mcp:broker": "tsx apps/mcp/src/server.ts",
       "make-target:worker-ingestion": "go run ./cmd/ingestion-worker",
-      "make-target:worker-siem": "npx tsx workers/siem-dispatcher.ts",
+      "make-target:worker-siem": "go run ./cmd/siem-dispatcher",
       "make-target:mcp": "npx tsx apps/mcp/src/server.ts"
     },
     "explicitGoTransitionContains": {
-      "package-script:worker:siem:go": "go run ./cmd/siem-dispatcher",
-      "make-target:worker-siem-go": "go run ./cmd/siem-dispatcher"
+      "package-script:worker:siem:go": "npm run worker:siem --",
+      "make-target:worker-siem-go": "worker-siem-go: worker-siem"
     }
   }
 }

@@ -53,7 +53,13 @@ export function classifyRuntimeCommand(command: string): RuntimeClassification {
   if (/go run \.\/cmd\/ingestion-worker/.test(normalized)) {
     return "go-ingestion";
   }
+  if (/npm run worker:ingestion --/.test(normalized)) {
+    return "go-ingestion";
+  }
   if (/go run \.\/cmd\/siem-dispatcher/.test(normalized)) {
+    return "go-siem";
+  }
+  if (/npm run worker:siem --/.test(normalized)) {
     return "go-siem";
   }
   if (/go run \.\/cmd\/mcp-broker/.test(normalized)) {

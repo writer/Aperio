@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -81,14 +81,12 @@ test("SIEM adapter ownership matrix covers every declared destination kind", () 
   const matrixKinds = sorted(matrix.adapters.map((adapter) => adapter.kind));
   const sharedKinds = sorted(siemCatalog.map((definition) => definition.kind));
   const goCatalogKinds = uniqueMatches(readRepoFile("internal/bootstrap/catalog.go"), /Kind:\s*"([A-Z_]+)"/g);
-  const tsDispatcherKinds = uniqueMatches(readRepoFile("workers/siem-dispatcher.ts"), /case\s+"([A-Z_]+)":/g);
   const goDispatcherSource = readRepoFile("internal/siemdispatcher/dispatcher.go");
   const goDispatcherKinds = uniqueMatches(goDispatcherSource, /case\s+"([A-Z_]+)":/g);
 
   assert.deepEqual(matrixKinds, prismaSiemKinds(), "matrix must match Prisma SiemKind enum");
   assert.deepEqual(matrixKinds, sharedKinds, "matrix must match TypeScript shared SIEM catalog");
   assert.deepEqual(matrixKinds, goCatalogKinds, "matrix must match Go SIEM catalog");
-  assert.deepEqual(matrixKinds, tsDispatcherKinds, "matrix must match TypeScript dispatcher send paths");
   assert.deepEqual(
     sorted(matrix.adapters.filter((adapter) => adapter.goDispatcher).map((adapter) => adapter.kind)),
     goDispatcherKinds,
@@ -118,7 +116,7 @@ test("SIEM adapter matrix marks every declared adapter Go-owned", () => {
     assert.equal(adapter.prismaKind, true, `${adapter.kind} must be present in Prisma`);
     assert.equal(adapter.sharedCatalog, true, `${adapter.kind} must be present in TS shared catalog`);
     assert.equal(adapter.goCatalog, true, `${adapter.kind} must be present in Go catalog`);
-    assert.equal(adapter.typescriptDispatcher, true, `${adapter.kind} must have a TS reference path`);
+    assert.equal(adapter.typescriptDispatcher, false, `${adapter.kind} must not retain a TS dispatcher path`);
     assert.equal(adapter.state, "go-default", `${adapter.kind} must be marked Go-owned/default`);
     assert.equal(adapter.goDispatcher, true, `${adapter.kind} must have a Go send path`);
     assert.equal(adapter.goClaimed, true, `${adapter.kind} must be claimed by the Go dispatcher`);
@@ -160,12 +158,17 @@ test("SIEM adapter matrix mirrors shared catalog required fields and streams", (
   }
 });
 
-test("TypeScript SIEM dispatcher remains the unsuffixed reference runtime", () => {
+test("SIEM dispatcher defaults run Go and the TypeScript runtime is absent", () => {
   const packageJson = readJson<{ scripts: Record<string, string> }>("package.json");
   const makefile = readRepoFile("Makefile");
 
-  assert.equal(packageJson.scripts["worker:siem"], "tsx workers/siem-dispatcher.ts");
-  assert.match(packageJson.scripts["worker:siem:go"], /go run \.\/cmd\/siem-dispatcher/);
-  assert.match(makefile, /worker-siem: require-env[\s\S]*npx tsx workers\/siem-dispatcher\.ts/);
-  assert.match(makefile, /worker-siem-go: require-env[\s\S]*go run \.\/cmd\/siem-dispatcher/);
+  assert.match(packageJson.scripts["worker:siem"], /go run \.\/cmd\/siem-dispatcher/);
+  assert.equal(packageJson.scripts["worker:siem:go"], "npm run worker:siem --");
+  assert.match(makefile, /worker-siem: require-env[\s\S]*go run \.\/cmd\/siem-dispatcher/);
+  assert.match(makefile, /worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker/);
+  assert.equal(
+    existsSync(path.join(repoRoot, "workers/siem-dispatcher.ts")),
+    false,
+    "TypeScript SIEM dispatcher runtime must be deleted"
+  );
 });

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "intent": "Final Go-default ownership and deletion evidence checklist used by later cutover workers; this fixture is not an active default flip.",
+  "intent": "Final Go-default ownership and deletion evidence checklist updated as worker and MCP surfaces cut over.",
   "defaultsFlippedInThisFeature": true,
   "status": "partially-enforced",
   "requiredEvidenceKinds": [
@@ -31,14 +31,11 @@
     {
       "id": "npm-worker-siem-default",
       "surface": "package-script:worker:siem",
-      "currentState": "typescript-reference",
-      "currentCommand": "tsx workers/siem-dispatcher.ts",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/siem-dispatcher",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/siem-dispatcher",
-      "blockedBy": [
-        "siem-adapter-matrix rows still include typescript-reference adapters",
-        "all adapter local capture fixtures are not yet present"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "package-script-dump",
         "bounded-default-worker-smoke",
@@ -54,8 +51,7 @@
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/mcp-broker",
       "blockedBy": [
-        "Go stdio MCP broker does not exist yet",
-        "MCP tools still execute the TypeScript broker and TypeScript SIEM dispatcher helper"
+        "Go stdio MCP broker does not exist yet"
       ],
       "requiredEvidence": [
         "package-script-dump",
@@ -80,13 +76,11 @@
     {
       "id": "make-worker-siem-default",
       "surface": "make-target:worker-siem",
-      "currentState": "typescript-reference",
-      "currentCommandContains": "npx tsx workers/siem-dispatcher.ts",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/siem-dispatcher",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/siem-dispatcher",
-      "blockedBy": [
-        "npm worker:siem remains TypeScript reference"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "make-dry-run",
         "bounded-default-worker-smoke",
@@ -125,11 +119,9 @@
     {
       "id": "typescript-siem-runtime-deletion",
       "surface": "repo-file:workers/siem-dispatcher.ts",
-      "currentState": "typescript-reference",
+      "currentState": "removed",
       "targetState": "removed",
-      "blockedBy": [
-        "unsuffixed SIEM defaults are not Go-owned yet"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
         "typescript-fallback-negative-guardrail",
@@ -153,11 +145,9 @@
     {
       "id": "suffixed-go-worker-command-cleanup",
       "surface": "package-script:worker:*:go and make-target:worker-*-go",
-      "currentState": "go-parity",
+      "currentState": "removed-or-strict-alias",
       "targetState": "removed-or-strict-alias",
-      "blockedBy": [
-        "SIEM unsuffixed worker default is not Go-owned yet; ingestion :go is already a strict alias"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "package-script-dump",
         "make-dry-run",

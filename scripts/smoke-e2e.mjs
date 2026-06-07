@@ -112,7 +112,7 @@ export const WORKER_SMOKE_COMMANDS = Object.freeze([
   {
     label: "go-siem-worker",
     command: "npm",
-    args: ["run", "worker:siem:go", "--", "-once", "-limit", "1"],
+    args: ["run", "worker:siem", "--", "-once", "-limit", "1"],
     timeoutMs: 120_000
   }
 ]);
@@ -603,7 +603,7 @@ async function psWorkerSnapshot() {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) =>
-      /(?:cmd\/(?:ingestion-worker|siem-dispatcher)|worker:(?:ingestion|siem):go)/.test(
+      /(?:cmd\/(?:ingestion-worker|siem-dispatcher)|worker:(?:ingestion|siem)(?::go)?)/.test(
         line
       )
     )
@@ -1211,7 +1211,7 @@ async function runSiemConnectorCrudFlow(cdp, report, setPhase) {
       (destination) => destination.id === destinationId
     );
     setPhase("siem-connectors:go-dispatcher-drain");
-    const drain = await runCommand("npm", ["run", "worker:siem:go", "--", "-once", "-limit", "5"], {
+    const drain = await runCommand("npm", ["run", "worker:siem", "--", "-once", "-limit", "5"], {
       label: "siem connector test-ping drain",
       timeoutMs: 120_000,
       env: { DOCKER_HOST: undefined }
