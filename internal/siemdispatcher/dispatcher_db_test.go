@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,8 +180,10 @@ func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
 func TestProcessJSONFileDeliveryMarksDeliveredAndDestinationHealthy(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
-	outputPath := filepath.Join(t.TempDir(), "aperio-findings.jsonl")
-	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", outputPath)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	outputPath := filepath.Join(exportRoot, "aperio-findings.jsonl")
+	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "aperio-findings.jsonl")
 	payload := fixtureDeliveryPayload(t, orgID)
 	deliveryID := seedDispatcherDelivery(t, db, struct {
 		orgID         string
@@ -239,9 +242,72 @@ func TestProcessJSONFileDeliveryMarksDeliveredAndDestinationHealthy(t *testing.T
 	}
 }
 
+func TestProcessGenericWebhookDeliveryCapturesRequestAndMarksDelivered(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+	payload := fixtureDeliveryPayload(t, orgID)
+	deliveryID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
+
+	transport := &captureTransport{}
+	var checkedEndpoint string
+	dispatcher := &Dispatcher{
+		db:         db,
+		leaseOwner: "go-siem-test",
+		httpClient: &http.Client{Transport: transport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			checkedEndpoint = endpoint
+			return nil
+		},
+	}
+	result, err := dispatcher.Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected drain result: %#v", result)
+	}
+	if checkedEndpoint != "https://example.com/collector" {
+		t.Fatalf("endpoint safety checked %q", checkedEndpoint)
+	}
+	if transport.calls != 1 || transport.method != http.MethodPost || transport.url != "https://example.com/collector" {
+		t.Fatalf("captured request = calls=%d method=%s url=%s", transport.calls, transport.method, transport.url)
+	}
+	if transport.header.Get("content-type") != "application/json" {
+		t.Fatalf("content-type = %q", transport.header.Get("content-type"))
+	}
+	if signature := transport.header.Get("x-aperio-signature"); signature != "" {
+		t.Fatalf("unexpected webhook signature without configured token: %q", signature)
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(transport.body, &envelope); err != nil {
+		t.Fatalf("decode webhook body: %v", err)
+	}
+	if envelope.SchemaVersion != "aperio.finding.v1" || envelope.DestinationID != destinationID || envelope.OrganizationID != orgID {
+		t.Fatalf("unexpected webhook envelope routing/schema: %#v", envelope)
+	}
+	if envelope.Record["title"] != payload.Record["title"] {
+		t.Fatalf("webhook record title = %v, want %v", envelope.Record["title"], payload.Record["title"])
+	}
+
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, deliveryID)
+	if status != "DELIVERED" || attempts != 1 || leaseOwner.Valid || !deliveredAt.Valid || lastError.Valid {
+		t.Fatalf("delivered state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+}
+
 func TestJSONFileFailureRetriesDeadLettersAndMarksDestinationError(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", t.TempDir())
 	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "../unsafe.jsonl")
 	firstID := seedDispatcherDelivery(t, db, struct {
 		orgID         string

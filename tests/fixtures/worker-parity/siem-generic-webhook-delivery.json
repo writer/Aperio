@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "kind": "GENERIC_WEBHOOK",
+  "destination": {
+    "id": "dst_webhook_1",
+    "organizationId": "org_1",
+    "endpointUrl": "https://webhook.receiver.example/aperio",
+    "token": "webhook-test-secret"
+  },
+  "payload": {
+    "kind": "finding",
+    "organizationId": "org_1",
+    "occurredAt": "2026-06-06T00:00:00.000Z",
+    "record": {
+      "dedupeKey": "stable-finding",
+      "findingId": "fnd_1",
+      "provider": "GITHUB",
+      "severity": "CRITICAL",
+      "sourceEventId": "evt_1",
+      "status": "OPEN",
+      "title": "Public GitHub repository created"
+    }
+  },
+  "expectedRequest": {
+    "method": "POST",
+    "url": "https://webhook.receiver.example/aperio",
+    "contentType": "application/json",
+    "signatureHeader": "x-aperio-signature",
+    "signature": "311d2e72639654a55a27aaee0454ab7c651855f0ac0d529f183d9b40ab0d4dd4",
+    "body": {
+      "schema_version": "aperio.finding.v1",
+      "source": "aperio",
+      "producer": "aperio.sspm",
+      "destination_id": "dst_webhook_1",
+      "organization_id": "org_1",
+      "kind": "finding",
+      "occurred_at": "2026-06-06T00:00:00.000Z",
+      "record": {
+        "dedupeKey": "stable-finding",
+        "findingId": "fnd_1",
+        "provider": "GITHUB",
+        "severity": "CRITICAL",
+        "sourceEventId": "evt_1",
+        "status": "OPEN",
+        "title": "Public GitHub repository created"
+      }
+    }
+  }
+}

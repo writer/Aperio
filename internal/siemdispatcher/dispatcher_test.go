@@ -2,13 +2,20 @@ package siemdispatcher
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -25,17 +32,117 @@ type siemParityFixture struct {
 	RawPayload          json.RawMessage `json:"-"`
 }
 
+type siemDedupeCasesFixture struct {
+	Cases []struct {
+		Name                string  `json:"name"`
+		DestinationID       string  `json:"destinationId"`
+		Stream              string  `json:"stream"`
+		Payload             Payload `json:"payload"`
+		ExpectedDeliveryKey string  `json:"expectedDeliveryKey"`
+	} `json:"cases"`
+}
+
+type siemEnvelopeCasesFixture struct {
+	Cases []struct {
+		Name             string          `json:"name"`
+		DestinationID    string          `json:"destinationId"`
+		OrganizationID   string          `json:"organizationId"`
+		Payload          Payload         `json:"payload"`
+		ExpectedEnvelope json.RawMessage `json:"expectedEnvelope"`
+	} `json:"cases"`
+}
+
+type genericWebhookFixture struct {
+	Destination struct {
+		ID             string `json:"id"`
+		OrganizationID string `json:"organizationId"`
+		EndpointURL    string `json:"endpointUrl"`
+		Token          string `json:"token"`
+	} `json:"destination"`
+	Payload         Payload `json:"payload"`
+	ExpectedRequest struct {
+		Method          string          `json:"method"`
+		URL             string          `json:"url"`
+		ContentType     string          `json:"contentType"`
+		SignatureHeader string          `json:"signatureHeader"`
+		Signature       string          `json:"signature"`
+		Body            json.RawMessage `json:"body"`
+	} `json:"expectedRequest"`
+}
+
+type captureTransport struct {
+	calls  int
+	method string
+	url    string
+	header http.Header
+	body   []byte
+	status int
+}
+
+func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.calls++
+	c.method = req.Method
+	c.url = req.URL.String()
+	c.header = req.Header.Clone()
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	c.body = body
+	status := c.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("")),
+		Request:    req,
+	}, nil
+}
+
+type staticResolver struct {
+	addresses []net.IPAddr
+	err       error
+}
+
+func (r staticResolver) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	return r.addresses, r.err
+}
+
+func assertJSONEqual(t *testing.T, name string, got []byte, want []byte) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("%s decode actual JSON: %v", name, err)
+	}
+	var wantValue any
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("%s decode expected JSON: %v", name, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("%s JSON = %s, want %s", name, string(got), string(want))
+	}
+}
+
+func readJSONFixture[T any](t *testing.T, filename string) T {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", filename))
+	if err != nil {
+		t.Fatalf("read %s: %v", filename, err)
+	}
+	var fixture T
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode %s: %v", filename, err)
+	}
+	return fixture
+}
+
 func readSiemParityFixture(t *testing.T) siemParityFixture {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "siem-finding-delivery.json"))
-	if err != nil {
-		t.Fatalf("read SIEM parity fixture: %v", err)
-	}
-	var fixture siemParityFixture
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatalf("decode SIEM parity fixture: %v", err)
-	}
-	fixture.RawPayload = raw
+	fixture := readJSONFixture[siemParityFixture](t, "siem-finding-delivery.json")
+	fixture.RawPayload, _ = json.Marshal(fixture)
 	return fixture
 }
 
@@ -62,6 +169,21 @@ func TestStableDeliveryKeyIncludesFindingOccurrence(t *testing.T) {
 	}
 }
 
+func TestStableDeliveryKeySharedCases(t *testing.T) {
+	fixture := readJSONFixture[siemDedupeCasesFixture](t, "siem-dedupe-cases.json")
+	seen := map[string]struct{}{}
+	for _, testCase := range fixture.Cases {
+		got := StableDeliveryKey(testCase.Payload, testCase.DestinationID, testCase.Stream)
+		if got != testCase.ExpectedDeliveryKey {
+			t.Fatalf("%s delivery key = %s, want %s", testCase.Name, got, testCase.ExpectedDeliveryKey)
+		}
+		if _, ok := seen[got]; ok {
+			t.Fatalf("%s produced duplicate delivery key %s", testCase.Name, got)
+		}
+		seen[got] = struct{}{}
+	}
+}
+
 func TestBuildEnvelopeUsesCanonicalSIEMShape(t *testing.T) {
 	payload := Payload{
 		Kind:           "event",
@@ -81,6 +203,134 @@ func TestBuildEnvelopeUsesCanonicalSIEMShape(t *testing.T) {
 	}
 }
 
+func TestBuildEnvelopeSharedCases(t *testing.T) {
+	fixture := readJSONFixture[siemEnvelopeCasesFixture](t, "siem-envelope-cases.json")
+	for _, testCase := range fixture.Cases {
+		envelope := BuildEnvelope(testCase.DestinationID, testCase.OrganizationID, testCase.Payload)
+		encoded, err := json.Marshal(envelope)
+		if err != nil {
+			t.Fatalf("%s marshal envelope: %v", testCase.Name, err)
+		}
+		assertJSONEqual(t, testCase.Name, encoded, testCase.ExpectedEnvelope)
+	}
+}
+
+func TestSendGenericWebhookCapturesReferenceRequestShape(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[genericWebhookFixture](t, "siem-generic-webhook-delivery.json")
+	destination := destination{
+		ID:             fixture.Destination.ID,
+		OrganizationID: fixture.Destination.OrganizationID,
+		Kind:           "GENERIC_WEBHOOK",
+		EndpointURL:    sql.NullString{String: fixture.Destination.EndpointURL, Valid: true},
+	}
+	destination.EncryptedToken = sql.NullString{
+		String: encryptForDispatcherTest(t, fixture.Destination.Token, destinationTokenAAD(destination)),
+		Valid:  true,
+	}
+	transport := &captureTransport{}
+	safetyChecked := false
+	dispatcher := &Dispatcher{
+		httpClient: &http.Client{Transport: transport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			safetyChecked = true
+			if endpoint != fixture.ExpectedRequest.URL {
+				t.Fatalf("endpoint safety checked %q, want %q", endpoint, fixture.ExpectedRequest.URL)
+			}
+			return nil
+		},
+	}
+
+	if err := dispatcher.sendGenericWebhook(context.Background(), destination, fixture.Payload); err != nil {
+		t.Fatalf("send generic webhook: %v", err)
+	}
+	if !safetyChecked {
+		t.Fatal("expected send-time endpoint safety check")
+	}
+	if transport.calls != 1 {
+		t.Fatalf("expected one request, got %d", transport.calls)
+	}
+	if transport.method != fixture.ExpectedRequest.Method || transport.url != fixture.ExpectedRequest.URL {
+		t.Fatalf("request = %s %s", transport.method, transport.url)
+	}
+	if transport.header.Get("content-type") != fixture.ExpectedRequest.ContentType {
+		t.Fatalf("content-type = %q", transport.header.Get("content-type"))
+	}
+	if got := transport.header.Get(fixture.ExpectedRequest.SignatureHeader); got != fixture.ExpectedRequest.Signature {
+		t.Fatalf("signature = %s, want %s", got, fixture.ExpectedRequest.Signature)
+	}
+	assertJSONEqual(t, "generic webhook body", transport.body, fixture.ExpectedRequest.Body)
+	if strings.Contains(string(transport.body), fixture.Destination.Token) {
+		t.Fatal("webhook request body must not contain the signing secret")
+	}
+}
+
+func TestSendGenericWebhookEndpointSafetyBlocksHTTP(t *testing.T) {
+	transport := &captureTransport{}
+	dispatcher := &Dispatcher{httpClient: &http.Client{Transport: transport}}
+	err := dispatcher.sendGenericWebhook(context.Background(), destination{
+		ID:             "dst_webhook_unsafe",
+		OrganizationID: "org_1",
+		Kind:           "GENERIC_WEBHOOK",
+		EndpointURL:    sql.NullString{String: "https://127.0.0.1:9000/aperio", Valid: true},
+	}, Payload{
+		Kind:           "finding",
+		OrganizationID: "org_1",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"id": "fnd_1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("expected loopback endpoint safety error, got %v", err)
+	}
+	if transport.calls != 0 {
+		t.Fatalf("unsafe endpoint should be blocked before HTTP, got %d calls", transport.calls)
+	}
+}
+
+func TestEndpointSafetyRejectsDNSRebindingToPrivateAddress(t *testing.T) {
+	err := assertSafeEndpointURLWithResolver(
+		context.Background(),
+		"https://webhook.receiver.example/aperio",
+		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("10.0.0.7")}}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "private addresses") {
+		t.Fatalf("expected DNS private-address rejection, got %v", err)
+	}
+	if err := assertSafeEndpointURLWithResolver(
+		context.Background(),
+		"https://8.8.8.8/aperio",
+		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("10.0.0.7")}}},
+	); err != nil {
+		t.Fatalf("public literal IP should not require DNS resolver, got %v", err)
+	}
+}
+
+func TestNormalizeFilePathConfinesRawDatabasePathsToExportRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", root)
+	relativePath, err := normalizeFilePath("tenant-a/findings.jsonl")
+	if err != nil {
+		t.Fatalf("relative path: %v", err)
+	}
+	if relativePath != filepath.Join(root, "tenant-a", "findings.jsonl") {
+		t.Fatalf("relative path normalized to %s", relativePath)
+	}
+	insideAbsolute := filepath.Join(root, "absolute", "findings.jsonl")
+	if got, err := normalizeFilePath(insideAbsolute); err != nil || got != insideAbsolute {
+		t.Fatalf("inside absolute path = %s err=%v", got, err)
+	}
+	for _, unsafe := range []string{
+		"../escape.jsonl",
+		filepath.Join(root+"-sibling", "findings.jsonl"),
+		root,
+	} {
+		if got, err := normalizeFilePath(unsafe); err == nil {
+			t.Fatalf("expected %q to be rejected, got %s", unsafe, got)
+		}
+	}
+}
+
 func TestDestinationLoadFailureOnlyPermanentForMissingRows(t *testing.T) {
 	permanent, message := destinationLoadFailure(sql.ErrNoRows)
 	if !permanent || message != "destination not active" {
@@ -94,6 +344,37 @@ func TestDestinationLoadFailureOnlyPermanentForMissingRows(t *testing.T) {
 	if message != "statement timeout" {
 		t.Fatalf("unexpected transient message %q", message)
 	}
+}
+
+func encryptForDispatcherTest(t *testing.T, plaintext string, aad string) string {
+	t.Helper()
+	key, err := resolveEncryptionKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := []byte("123456789012")
+	sealed := gcm.Seal(nil, nonce, []byte(plaintext), []byte(aad))
+	tagStart := len(sealed) - gcm.Overhead()
+	envelope := encryptedEnvelope{
+		Version:    1,
+		Algorithm:  encryptionAlgorithm,
+		IV:         base64.RawURLEncoding.EncodeToString(nonce),
+		Tag:        base64.RawURLEncoding.EncodeToString(sealed[tagStart:]),
+		Ciphertext: base64.RawURLEncoding.EncodeToString(sealed[:tagStart]),
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func TestProcessReturnsErrorForRecordedFailure(t *testing.T) {

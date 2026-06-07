@@ -388,9 +388,14 @@
         "repo-file:internal/siemdispatcher/*.go"
       ],
       "owner": "Go SIEM dispatcher parity slice",
-      "rationale": "Go SIEM dispatcher currently claims only locally testable JSON_FILE deliveries while TypeScript remains fallback for unsupported adapters.",
+      "rationale": "Go SIEM dispatcher currently claims locally testable JSON_FILE and GENERIC_WEBHOOK deliveries while TypeScript remains fallback/default for unsupported adapters.",
       "evidence": [
+        "fixture:tests/fixtures/worker-parity/siem-adapter-matrix.json",
+        "fixture:tests/fixtures/worker-parity/siem-dedupe-cases.json",
+        "fixture:tests/fixtures/worker-parity/siem-envelope-cases.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "fixture:tests/fixtures/worker-parity/siem-generic-webhook-delivery.json",
+        "test:tests/siem-adapter-matrix.test.ts",
         "test:internal/siemdispatcher/dispatcher_test.go",
         "test:internal/siemdispatcher/dispatcher_db_test.go",
         "command:npm run worker:siem:go -- -once -limit 1"

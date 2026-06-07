@@ -2,6 +2,9 @@ package siemdispatcher
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -10,13 +13,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/scrypt"
 )
 
-const leaseDuration = 5 * time.Minute
+const (
+	leaseDuration        = 5 * time.Minute
+	networkTimeout       = 4 * time.Second
+	encryptionAlgorithm  = "aes-256-gcm"
+	encryptionKeyBytes   = 32
+	encryptionNonceBytes = 12
+)
 
 var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
 
@@ -45,8 +60,10 @@ type Result struct {
 }
 
 type Dispatcher struct {
-	db         *sql.DB
-	leaseOwner string
+	db                  *sql.DB
+	leaseOwner          string
+	httpClient          *http.Client
+	endpointSafetyCheck func(context.Context, string) error
 }
 
 type delivery struct {
@@ -67,6 +84,19 @@ type destination struct {
 	EndpointURL    sql.NullString
 	FilePath       sql.NullString
 	Index          sql.NullString
+	EncryptedToken sql.NullString
+}
+
+type encryptedEnvelope struct {
+	Version    int    `json:"version"`
+	Algorithm  string `json:"algorithm"`
+	IV         string `json:"iv"`
+	Tag        string `json:"tag"`
+	Ciphertext string `json:"ciphertext"`
+}
+
+type endpointResolver interface {
+	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
 
 func New(db *sql.DB) *Dispatcher {
@@ -146,7 +176,7 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 			FROM siem_destinations dst
 			WHERE dst.id = siem_deliveries.destination_id
 			  AND dst.organization_id = siem_deliveries.organization_id
-			  AND dst.kind = 'JSON_FILE'
+			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
 		  )
 	`)
 	return err
@@ -165,7 +195,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 			WHERE sd.attempts < sd.max_attempts
 			  AND sd.next_attempt_at <= NOW()
 			  AND dst.status IN ('ACTIVE', 'ERROR')
-			  AND dst.kind = 'JSON_FILE'
+			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
 			  AND (
 					(sd.status IN ('PENDING', 'FAILED') AND (sd.lease_expires_at IS NULL OR sd.lease_expires_at <= NOW()))
 				 OR (sd.status = 'PROCESSING' AND sd.lease_expires_at <= NOW())
@@ -207,6 +237,8 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) error {
 	switch dest.Kind {
 	case "JSON_FILE":
 		err = writeJSONFile(dest, payload)
+	case "GENERIC_WEBHOOK":
+		err = d.sendGenericWebhook(ctx, dest, payload)
 	default:
 		err = fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
 	}
@@ -234,10 +266,10 @@ func (d *Dispatcher) fail(ctx context.Context, item delivery, permanent bool, me
 func (d *Dispatcher) loadDestination(ctx context.Context, organizationID string, id string) (destination, error) {
 	var dest destination
 	err := d.db.QueryRowContext(ctx, `
-		SELECT id, organization_id, kind::text, name, endpoint_url, file_path, index
+		SELECT id, organization_id, kind::text, name, endpoint_url, file_path, index, encrypted_token
 		FROM siem_destinations
 		WHERE id = $1 AND organization_id = $2 AND status IN ('ACTIVE', 'ERROR')
-	`, id, organizationID).Scan(&dest.ID, &dest.OrganizationID, &dest.Kind, &dest.Name, &dest.EndpointURL, &dest.FilePath, &dest.Index)
+	`, id, organizationID).Scan(&dest.ID, &dest.OrganizationID, &dest.Kind, &dest.Name, &dest.EndpointURL, &dest.FilePath, &dest.Index, &dest.EncryptedToken)
 	return dest, err
 }
 
@@ -341,19 +373,285 @@ func writeJSONFile(dest destination, payload Payload) error {
 	return err
 }
 
+func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		return err
+	}
+	headers := map[string]string{}
+	if dest.EncryptedToken.Valid && strings.TrimSpace(dest.EncryptedToken.String) != "" {
+		token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
+		if err != nil {
+			return errors.New("SIEM token decrypt failed")
+		}
+		signature := hmac.New(sha256.New, []byte(token))
+		_, _ = signature.Write(bodyBytes)
+		headers["x-aperio-signature"] = hex.EncodeToString(signature.Sum(nil))
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
+}
+
+func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[string]string, body []byte) error {
+	if err := d.checkEndpoint(ctx, endpoint); err != nil {
+		return err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, networkTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("content-type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	res, err := d.httpDoer().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, res.Body)
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		statusText := strings.TrimSpace(http.StatusText(res.StatusCode))
+		if statusText == "" {
+			statusText = "HTTP error"
+		}
+		return fmt.Errorf("%d %s", res.StatusCode, statusText)
+	}
+	return nil
+}
+
+func (d *Dispatcher) httpDoer() *http.Client {
+	if d.httpClient != nil {
+		return d.httpClient
+	}
+	return &http.Client{Timeout: networkTimeout}
+}
+
+func (d *Dispatcher) checkEndpoint(ctx context.Context, endpoint string) error {
+	if d.endpointSafetyCheck != nil {
+		return d.endpointSafetyCheck(ctx, endpoint)
+	}
+	return assertSafeEndpointURL(ctx, endpoint)
+}
+
 func normalizeFilePath(raw string) (string, error) {
-	cleaned := filepath.Clean(strings.TrimSpace(raw))
-	if cleaned == "." || strings.HasPrefix(cleaned, "~") || strings.Contains(cleaned, "..") {
-		return "", errors.New("invalid SIEM export path")
+	root := strings.TrimSpace(os.Getenv("APERIO_SIEM_EXPORT_DIR"))
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(cwd, "var", "siem-exports")
 	}
-	if filepath.IsAbs(cleaned) {
-		return cleaned, nil
-	}
-	cwd, err := os.Getwd()
+	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cwd, "var", "siem-exports", cleaned), nil
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", errors.New("invalid SIEM export path")
+	}
+	candidate := trimmed
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("invalid SIEM export path: file path must stay within %s", root)
+	}
+	return candidate, nil
+}
+
+func assertSafeEndpointURL(ctx context.Context, raw string) error {
+	return assertSafeEndpointURLWithResolver(ctx, raw, net.DefaultResolver)
+}
+
+func assertSafeEndpointURLWithResolver(ctx context.Context, raw string, resolver endpointResolver) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return errors.New("endpoint URL must be a valid absolute URL")
+	}
+	if parsed.Scheme != "https" {
+		return errors.New("endpoint URL must use HTTPS")
+	}
+	host := normalizeHostname(parsed.Hostname())
+	if host == "" {
+		return errors.New("endpoint URL hostname is required")
+	}
+	if isBlockedHostname(host) {
+		return errors.New("endpoint URL must not target loopback, local, or private hosts")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			return errors.New("endpoint URL must not target loopback, local, or private hosts")
+		}
+		return nil
+	}
+	lookupCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		lookupCtx, cancel = context.WithTimeout(ctx, 3*time.Second)
+	}
+	defer cancel()
+	addresses, err := resolver.LookupIPAddr(lookupCtx, host)
+	if err != nil || len(addresses) == 0 {
+		return errors.New("endpoint URL hostname could not be resolved")
+	}
+	for _, address := range addresses {
+		if isPrivateIP(address.IP) {
+			return errors.New("endpoint URL must not resolve to loopback or private addresses")
+		}
+	}
+	return nil
+}
+
+func normalizeHostname(hostname string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hostname)), ".")
+}
+
+func isBlockedHostname(host string) bool {
+	if host == "localhost" || host == "0.0.0.0" {
+		return true
+	}
+	if !strings.Contains(host, ".") && net.ParseIP(host) == nil {
+		return true
+	}
+	for _, suffix := range []string{".internal", ".local", ".localhost", ".localdomain", ".home.arpa"} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		first, second, third := int(v4[0]), int(v4[1]), int(v4[2])
+		return first == 0 ||
+			first == 10 ||
+			first == 127 ||
+			(first == 100 && second >= 64 && second <= 127) ||
+			(first == 169 && second == 254) ||
+			(first == 172 && second >= 16 && second <= 31) ||
+			(first == 192 && second == 0 && third == 0) ||
+			(first == 192 && second == 0 && third == 2) ||
+			(first == 192 && second == 168) ||
+			(first == 198 && (second == 18 || second == 19)) ||
+			(first == 198 && second == 51 && third == 100) ||
+			(first == 203 && second == 0 && third == 113) ||
+			first >= 224
+	}
+	lower := strings.ToLower(ip.String())
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast() ||
+		strings.HasPrefix(lower, "2001:db8")
+}
+
+func destinationTokenAAD(dest destination) string {
+	return dest.OrganizationID + ":siem:" + dest.ID + ":token"
+}
+
+func decryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", err
+	}
+	var envelope encryptedEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return "", err
+	}
+	if envelope.Version != 1 || envelope.Algorithm != encryptionAlgorithm {
+		return "", errors.New("unsupported encrypted value")
+	}
+	iv, err := base64.RawURLEncoding.DecodeString(envelope.IV)
+	if err != nil {
+		return "", err
+	}
+	tag, err := base64.RawURLEncoding.DecodeString(envelope.Tag)
+	if err != nil {
+		return "", err
+	}
+	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
+	if err != nil {
+		return "", err
+	}
+	key, err := resolveEncryptionKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(iv) != gcm.NonceSize() {
+		return "", errors.New("invalid encryption nonce length")
+	}
+	sealed := append(ciphertext, tag...)
+	plaintext, err := gcm.Open(nil, iv, sealed, []byte(additionalAuthenticatedData))
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func resolveEncryptionKey() ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("APERIO_ENCRYPTION_KEY"))
+	if raw == "" {
+		return nil, errors.New("APERIO_ENCRYPTION_KEY is required")
+	}
+	switch {
+	case strings.HasPrefix(raw, "base64:"):
+		key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != encryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	case strings.HasPrefix(raw, "base64url:"):
+		key, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "base64url:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != encryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	case strings.HasPrefix(raw, "hex:"):
+		key, err := hex.DecodeString(strings.TrimPrefix(raw, "hex:"))
+		if err != nil {
+			return nil, err
+		}
+		if len(key) != encryptionKeyBytes {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must resolve to exactly 32 bytes")
+		}
+		return key, nil
+	default:
+		if os.Getenv("NODE_ENV") == "production" {
+			return nil, errors.New("APERIO_ENCRYPTION_KEY must use base64:, base64url:, or hex: encoding in production")
+		}
+		return scrypt.Key([]byte(raw), []byte("aperio-token-vault"), 16384, 8, 1, encryptionKeyBytes)
+	}
 }
 
 func boundedLimit(limit int) int {
