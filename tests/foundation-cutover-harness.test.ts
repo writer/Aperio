@@ -82,6 +82,27 @@ type FoundationHarnessFixture = {
   };
 };
 
+type SiemAdapterMatrixFixture = {
+  adapters: Array<{
+    kind: string;
+    goClaimed: boolean;
+  }>;
+};
+
+type SiemLocalAdapterHarnessFixture = {
+  designNote: string;
+  noProductionDestinations: string[];
+  networkHarness: {
+    endpointSafetyNegativeTests: string[];
+  };
+  adapters: Array<{
+    kind: string;
+    harness: string;
+    endpointUrl?: string;
+    filePath?: string;
+  }>;
+};
+
 function loadFinalPlan() {
   return readJsonFixture<FinalCutoverPlan>(
     "tests/fixtures/migration-ownership/final-cutover-plan.json"
@@ -246,6 +267,37 @@ test("local ingestion, SIEM, and MCP harness helpers are deterministic and secre
     const decoded = decodeMcpFrames(frame);
     assert.deepEqual(decoded.messages, [request.message], request.name);
     assert.equal(decoded.remaining, "");
+  }
+});
+
+test("SIEM local adapter harness covers every Go-owned adapter without production endpoints", () => {
+  const matrix = readJsonFixture<SiemAdapterMatrixFixture>(
+    "tests/fixtures/worker-parity/siem-adapter-matrix.json"
+  );
+  const harness = readJsonFixture<SiemLocalAdapterHarnessFixture>(
+    "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
+  );
+
+  assert.match(harness.designNote, /endpoint-safety/i);
+  assert.ok(
+    harness.networkHarness.endpointSafetyNegativeTests.length >= 3,
+    "harness must cite endpoint-safety negative coverage"
+  );
+  assert.deepEqual(
+    harness.adapters.map((adapter) => adapter.kind).sort(),
+    matrix.adapters.filter((adapter) => adapter.goClaimed).map((adapter) => adapter.kind).sort()
+  );
+
+  for (const adapter of harness.adapters) {
+    if (adapter.endpointUrl) {
+      assertLocalOnlyEndpoint(adapter.endpointUrl);
+    } else {
+      assert.equal(adapter.harness, "temp-export-root-jsonl");
+      assert.ok(adapter.filePath?.endsWith(".jsonl"));
+    }
+    for (const productionHost of harness.noProductionDestinations) {
+      assert.doesNotMatch(JSON.stringify(adapter), new RegExp(productionHost, "i"));
+    }
   }
 });
 

@@ -190,7 +190,7 @@ func siemDestinationHealth(t *testing.T, db *sql.DB, destinationID string) (stat
 	return status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError
 }
 
-func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
+func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
 	destinationID := seedDispatcherDestination(t, db, orgID, "SPLUNK_HEC", "ACTIVE", "")
@@ -229,24 +229,28 @@ func TestDrainLeavesUnsupportedDestinationDeliveriesUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 0 || result.Delivered != 0 || result.Failed != 0 {
-		t.Fatalf("expected unsupported destination deliveries to remain unprocessed, got %#v", result)
+	if result.Processed != 2 || result.Delivered != 0 || result.Failed != 2 {
+		t.Fatalf("expected Go-owned misconfigured deliveries to be claimed and failed, got %#v", result)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ := siemDeliveryState(t, db, pendingID)
-	if status != "PENDING" || attempts != 0 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("unsupported pending delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, pendingID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
+		t.Fatalf("Splunk misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ = siemDeliveryState(t, db, exhaustedID)
-	if status != "FAILED" || attempts != 5 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("unsupported exhausted delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, exhaustedID)
+	if status != "DEAD_LETTER" || attempts != 5 || leaseOwner.Valid || deliveredAt.Valid {
+		t.Fatalf("exhausted Go-owned delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
-	status, attempts, leaseOwner, deliveredAt, _, _ = siemDeliveryState(t, db, cerebroID)
-	if status != "PENDING" || attempts != 0 || leaseOwner.Valid || deliveredAt.Valid {
-		t.Fatalf("CEREBRO_CLAIMS fallback delivery changed: status=%s attempts=%d lease=%v delivered=%v", status, attempts, leaseOwner, deliveredAt)
+	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, cerebroID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
+		t.Fatalf("CEREBRO_CLAIMS misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
 	healthStatus, deliveriesOK, deliveriesFail, _, lastError := siemDestinationHealth(t, db, cerebroDestinationID)
-	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastError.Valid {
-		t.Fatalf("unsupported Cerebro destination health changed: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || !lastError.Valid || !strings.Contains(lastError.String, "Cerebro source runtime ID") {
+		t.Fatalf("Cerebro destination health: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, _, lastError = siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
+		t.Fatalf("Splunk destination health: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
 	}
 }
 

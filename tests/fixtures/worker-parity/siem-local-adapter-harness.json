@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "designNote": "Go SIEM adapter validation uses local-only transport injection plus an explicit endpointSafetyCheck hook for network adapters, a temp export root for JSON_FILE, and separate endpoint-safety negative tests. The harness never disables production endpoint safety in runtime code and never requires production SIEM or Cerebro credentials.",
+  "networkHarness": {
+    "host": "capture.aperio.test",
+    "scheme": "https",
+    "mechanism": "http.RoundTripper capture with endpointSafetyCheck assertion",
+    "endpointSafetyNegativeTests": [
+      "TestSendGenericWebhookEndpointSafetyBlocksHTTP",
+      "TestNetworkAdapterHarnessPreservesEndpointSafetyGate",
+      "TestEndpointSafetyRejectsDNSRebindingToPrivateAddress",
+      "TestSendGenericWebhookDoesNotFollowRedirects"
+    ]
+  },
+  "noProductionDestinations": [
+    "http-inputs.splunkcloud.com",
+    "logs.runpanther.io",
+    "panther.com",
+    "panopticon.writer.com",
+    "datadoghq.com",
+    "elastic-cloud.com",
+    "cerebro.writer.com"
+  ],
+  "adapters": [
+    {
+      "kind": "SPLUNK_HEC",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/splunk",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the Splunk HEC request"
+    },
+    {
+      "kind": "PANTHER",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/panther",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the Panther HTTP-source request"
+    },
+    {
+      "kind": "PANOPTICON",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/panopticon",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the Panopticon request"
+    },
+    {
+      "kind": "ELASTIC",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/elastic/_bulk",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the Elasticsearch bulk request"
+    },
+    {
+      "kind": "DATADOG",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/datadog/api/v2/logs",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the Datadog logs request"
+    },
+    {
+      "kind": "GENERIC_WEBHOOK",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/webhook",
+      "expectedSafety": "endpoint safety is checked before the injected transport captures the generic webhook request"
+    },
+    {
+      "kind": "CEREBRO_CLAIMS",
+      "harness": "local-capture-transport",
+      "endpointUrl": "https://capture.aperio.test/cerebro",
+      "expectedSafety": "endpoint safety is checked before both the local Cerebro runtime check and claim write captures"
+    },
+    {
+      "kind": "JSON_FILE",
+      "harness": "temp-export-root-jsonl",
+      "filePath": "tenant-a/findings.jsonl",
+      "expectedSafety": "file writes are confined to APERIO_SIEM_EXPORT_DIR and traversal negatives remain covered"
+    }
+  ]
+}

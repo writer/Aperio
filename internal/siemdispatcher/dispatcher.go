@@ -1,6 +1,7 @@
 package siemdispatcher
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -176,7 +177,7 @@ func (d *Dispatcher) retireExhausted(ctx context.Context) error {
 			FROM siem_destinations dst
 			WHERE dst.id = siem_deliveries.destination_id
 			  AND dst.organization_id = siem_deliveries.organization_id
-			  AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+			  AND dst.kind IN ('SPLUNK_HEC', 'PANTHER', 'PANOPTICON', 'ELASTIC', 'DATADOG', 'GENERIC_WEBHOOK', 'CEREBRO_CLAIMS', 'JSON_FILE')
 			  AND siem_deliveries.stream = ANY(dst.streams)
 		    )
 		  )
@@ -202,7 +203,7 @@ func (d *Dispatcher) claim(ctx context.Context, limit int) ([]delivery, error) {
 						WHERE dst.id = sd.destination_id
 						AND dst.organization_id = sd.organization_id
 						AND dst.status IN ('ACTIVE', 'ERROR')
-						AND dst.kind IN ('JSON_FILE', 'GENERIC_WEBHOOK')
+						AND dst.kind IN ('SPLUNK_HEC', 'PANTHER', 'PANOPTICON', 'ELASTIC', 'DATADOG', 'GENERIC_WEBHOOK', 'CEREBRO_CLAIMS', 'JSON_FILE')
 						AND sd.stream = ANY(dst.streams)
 					)
 			  )
@@ -251,14 +252,7 @@ func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload 
 		permanent, message := destinationLoadFailure(err)
 		return d.failDelivery(ctx, item, permanent, message)
 	}
-	switch dest.Kind {
-	case "JSON_FILE":
-		err = writeJSONFile(dest, payload)
-	case "GENERIC_WEBHOOK":
-		err = d.sendGenericWebhook(ctx, dest, payload)
-	default:
-		err = fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
-	}
+	err = d.sendForKind(ctx, dest, payload)
 	if err != nil {
 		return d.fail(ctx, item, false, err.Error())
 	}
@@ -378,6 +372,19 @@ func BuildEnvelope(destID string, orgID string, payload Payload) Envelope {
 	}
 }
 
+func StreamForKind(kind string) (string, error) {
+	switch kind {
+	case "finding":
+		return "FINDINGS", nil
+	case "event":
+		return "EVENTS", nil
+	case "audit_log":
+		return "AUDIT_LOGS", nil
+	default:
+		return "", errors.New("invalid delivery kind")
+	}
+}
+
 func writeJSONFile(dest destination, payload Payload) error {
 	if !dest.FilePath.Valid || strings.TrimSpace(dest.FilePath.String) == "" {
 		return errors.New("file_path is not configured")
@@ -402,6 +409,136 @@ func writeJSONFile(dest destination, payload Payload) error {
 	return err
 }
 
+func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload Payload) error {
+	switch dest.Kind {
+	case "SPLUNK_HEC":
+		return d.sendSplunk(ctx, dest, payload)
+	case "PANTHER":
+		return d.sendPanther(ctx, dest, payload)
+	case "PANOPTICON":
+		return d.sendPanopticon(ctx, dest, payload)
+	case "ELASTIC":
+		return d.sendElastic(ctx, dest, payload)
+	case "DATADOG":
+		return d.sendDatadog(ctx, dest, payload)
+	case "GENERIC_WEBHOOK":
+		return d.sendGenericWebhook(ctx, dest, payload)
+	case "CEREBRO_CLAIMS":
+		return d.sendCerebroClaims(ctx, dest, payload)
+	case "JSON_FILE":
+		return writeJSONFile(dest, payload)
+	default:
+		return fmt.Errorf("unsupported Go SIEM destination kind %s", dest.Kind)
+	}
+}
+
+func (d *Dispatcher) sendSplunk(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing HEC token")
+	if err != nil {
+		return err
+	}
+	body := map[string]any{
+		"event":      BuildEnvelope(dest.ID, dest.OrganizationID, payload),
+		"sourcetype": "aperio:" + payload.Kind,
+		"source":     "aperio",
+	}
+	if dest.Index.Valid && strings.TrimSpace(dest.Index.String) != "" {
+		body["index"] = strings.TrimSpace(dest.Index.String)
+	}
+	if occurredAt, err := time.Parse(time.RFC3339Nano, payload.OccurredAt); err == nil {
+		body["time"] = occurredAt.Unix()
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"authorization": "Splunk " + token,
+	}, encoded)
+}
+
+func (d *Dispatcher) sendPanther(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing Panther API token")
+	if err != nil {
+		return err
+	}
+	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"x-api-key": token,
+	}, bodyBytes)
+}
+
+func (d *Dispatcher) sendPanopticon(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	headers := map[string]string{}
+	token, err := optionalDestinationToken(dest)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(token) != "" {
+		headers["authorization"] = "Bearer " + token
+	}
+	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
+}
+
+func (d *Dispatcher) sendElastic(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return errors.New("Elasticsearch index missing")
+	}
+	token, err := requireDestinationToken(dest, "missing Elasticsearch API key")
+	if err != nil {
+		return err
+	}
+	body := strings.Join([]string{
+		mustMarshalString(map[string]any{"index": map[string]any{"_index": strings.TrimSpace(dest.Index.String)}}),
+		mustMarshalString(BuildEnvelope(dest.ID, dest.OrganizationID, payload)),
+		"",
+	}, "\n")
+	return d.postWithContentType(ctx, dest.EndpointURL.String, "application/x-ndjson", map[string]string{
+		"authorization": "ApiKey " + token,
+	}, []byte(body))
+}
+
+func (d *Dispatcher) sendDatadog(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("endpoint not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing DD-API-KEY")
+	if err != nil {
+		return err
+	}
+	bodyBytes, err := json.Marshal([]map[string]any{{
+		"ddsource": "aperio",
+		"service":  "aperio-" + payload.Kind,
+		"ddtags":   "org:" + dest.OrganizationID,
+		"message":  BuildEnvelope(dest.ID, dest.OrganizationID, payload),
+	}})
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, dest.EndpointURL.String, map[string]string{
+		"DD-API-KEY": token,
+	}, bodyBytes)
+}
+
 func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
 		return errors.New("endpoint not configured")
@@ -423,17 +560,62 @@ func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, p
 	return d.postJSON(ctx, dest.EndpointURL.String, headers, bodyBytes)
 }
 
+func (d *Dispatcher) sendCerebroClaims(ctx context.Context, dest destination, payload Payload) error {
+	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
+		return errors.New("Cerebro API URL missing")
+	}
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return errors.New("Cerebro source runtime ID is not configured")
+	}
+	token, err := requireDestinationToken(dest, "missing Cerebro API token")
+	if err != nil {
+		return err
+	}
+	runtimeID := strings.TrimSpace(dest.Index.String)
+	runtimePath := "/source-runtimes/" + url.PathEscape(runtimeID)
+	headers := map[string]string{"authorization": "Bearer " + token}
+	if err := d.getJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath), headers); err != nil {
+		return fmt.Errorf("Cerebro runtime check failed: %w", err)
+	}
+	claims, err := buildCerebroClaims(dest, payload)
+	if err != nil {
+		return err
+	}
+	bodyBytes, err := json.Marshal(map[string]any{
+		"runtime_id": runtimeID,
+		"claims":     claims,
+	})
+	if err != nil {
+		return err
+	}
+	return d.postJSON(ctx, joinEndpointPath(dest.EndpointURL.String, runtimePath+"/claims"), headers, bodyBytes)
+}
+
 func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[string]string, body []byte) error {
+	return d.postWithContentType(ctx, endpoint, "application/json", headers, body)
+}
+
+func (d *Dispatcher) postWithContentType(ctx context.Context, endpoint string, contentType string, headers map[string]string, body []byte) error {
+	return d.doHTTPRequest(ctx, http.MethodPost, endpoint, contentType, headers, body)
+}
+
+func (d *Dispatcher) getJSON(ctx context.Context, endpoint string, headers map[string]string) error {
+	return d.doHTTPRequest(ctx, http.MethodGet, endpoint, "", headers, nil)
+}
+
+func (d *Dispatcher) doHTTPRequest(ctx context.Context, method string, endpoint string, contentType string, headers map[string]string, body []byte) error {
 	if err := d.checkEndpoint(ctx, endpoint); err != nil {
 		return err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, networkTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(requestCtx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("content-type", "application/json")
+	if contentType != "" {
+		req.Header.Set("content-type", contentType)
+	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -468,6 +650,135 @@ func (d *Dispatcher) webhookHTTPClient() *http.Client {
 
 func blockWebhookRedirect(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
+}
+
+type cerebroEntityRef struct {
+	URN        string `json:"urn"`
+	EntityType string `json:"entity_type"`
+	Label      string `json:"label"`
+}
+
+type cerebroClaim struct {
+	ID          string            `json:"id,omitempty"`
+	SubjectURN  string            `json:"subject_urn"`
+	SubjectRef  cerebroEntityRef  `json:"subject_ref"`
+	Predicate   string            `json:"predicate"`
+	ObjectURN   string            `json:"object_urn,omitempty"`
+	ObjectRef   *cerebroEntityRef `json:"object_ref,omitempty"`
+	ObjectValue string            `json:"object_value,omitempty"`
+	ClaimType   string            `json:"claim_type"`
+	Status      string            `json:"status"`
+	SourceEvent string            `json:"source_event_id,omitempty"`
+	ObservedAt  string            `json:"observed_at"`
+	Attributes  map[string]string `json:"attributes,omitempty"`
+}
+
+func buildCerebroClaims(dest destination, payload Payload) ([]cerebroClaim, error) {
+	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
+		return nil, errors.New("Cerebro source runtime ID is not configured")
+	}
+	runtimeID := strings.TrimSpace(dest.Index.String)
+	provider := firstString(payload.Record["provider"])
+	if provider == "" {
+		provider = "APERIO"
+	}
+	title := firstString(payload.Record["title"])
+	if title == "" {
+		title = payload.Kind + " from Aperio"
+	}
+	findingID := firstString(payload.Record["dedupeKey"], payload.Record["sourceEventId"])
+	if findingID == "" {
+		sum := hmac.New(sha256.New, []byte(dest.OrganizationID))
+		encoded, _ := json.Marshal(payload.Record)
+		_, _ = sum.Write(encoded)
+		findingID = hex.EncodeToString(sum.Sum(nil))
+	}
+	targetLabel := firstString(payload.Record["target"])
+	if targetLabel == "" {
+		targetLabel = title
+	}
+	integrationID := firstString(payload.Record["integrationId"])
+	if integrationID == "" {
+		integrationID = "aperio"
+	}
+	finding := cerebroRef(dest.OrganizationID, runtimeID, "finding", findingID, title)
+	target := cerebroRef(dest.OrganizationID, runtimeID, "asset", provider+":"+targetLabel, targetLabel)
+	integration := cerebroRef(dest.OrganizationID, runtimeID, "integration", integrationID, provider)
+	attributes := map[string]string{
+		"aperio_schema": schemaVersion(payload.Kind),
+		"aperio_kind":   payload.Kind,
+	}
+	for _, key := range []string{"ruleId", "dedupeKey", "sourceEventId", "source", "eventType"} {
+		if value := firstString(payload.Record[key]); value != "" {
+			attributes[key] = value
+		}
+	}
+	claims := []cerebroClaim{
+		existsClaim(finding, payload, attributes),
+		existsClaim(target, payload, map[string]string{"provider": provider}),
+		existsClaim(integration, payload, map[string]string{"provider": provider}),
+		relationClaim(finding, "affects", target, payload),
+		relationClaim(finding, "observed_by", integration, payload),
+		attributeClaim(finding, "title", title, payload),
+		attributeClaim(finding, "provider", provider, payload),
+	}
+	for _, key := range []string{"severity", "riskScore", "status", "ruleId"} {
+		if value := firstString(payload.Record[key]); value != "" {
+			claims = append(claims, attributeClaim(finding, key, value, payload))
+		}
+	}
+	if description := firstString(payload.Record["description"]); description != "" {
+		claims = append(claims, attributeClaim(finding, "description", description, payload))
+	}
+	return claims, nil
+}
+
+func cerebroRef(organizationID, runtimeID, entityType, externalID, label string) cerebroEntityRef {
+	encodedExternalID := strings.ReplaceAll(url.PathEscape(externalID), "%20", "-")
+	return cerebroEntityRef{
+		URN:        strings.Join([]string{"urn", "cerebro", organizationID, "runtime", runtimeID, entityType, encodedExternalID}, ":"),
+		EntityType: entityType,
+		Label:      label,
+	}
+}
+
+func claimBase(payload Payload, attributes map[string]string) cerebroClaim {
+	return cerebroClaim{
+		Status:      "asserted",
+		SourceEvent: firstString(payload.Record["sourceEventId"]),
+		ObservedAt:  payload.OccurredAt,
+		Attributes:  attributes,
+	}
+}
+
+func existsClaim(subject cerebroEntityRef, payload Payload, attributes map[string]string) cerebroClaim {
+	claim := claimBase(payload, attributes)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = "exists"
+	claim.ClaimType = "existence"
+	return claim
+}
+
+func attributeClaim(subject cerebroEntityRef, predicate string, value string, payload Payload) cerebroClaim {
+	claim := claimBase(payload, nil)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = predicate
+	claim.ObjectValue = value
+	claim.ClaimType = "attribute"
+	return claim
+}
+
+func relationClaim(subject cerebroEntityRef, predicate string, object cerebroEntityRef, payload Payload) cerebroClaim {
+	claim := claimBase(payload, nil)
+	claim.SubjectURN = subject.URN
+	claim.SubjectRef = subject
+	claim.Predicate = predicate
+	claim.ObjectURN = object.URN
+	claim.ObjectRef = &object
+	claim.ClaimType = "relation"
+	return claim
 }
 
 func safeWebhookTransport() http.RoundTripper {
@@ -655,6 +966,28 @@ func destinationTokenAAD(dest destination) string {
 	return runtimeutil.SIEMDestinationTokenAAD(dest.OrganizationID, dest.ID)
 }
 
+func optionalDestinationToken(dest destination) (string, error) {
+	if !dest.EncryptedToken.Valid || strings.TrimSpace(dest.EncryptedToken.String) == "" {
+		return "", nil
+	}
+	token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
+	if err != nil {
+		return "", errors.New("SIEM token decrypt failed")
+	}
+	return token, nil
+}
+
+func requireDestinationToken(dest destination, missingMessage string) (string, error) {
+	token, err := optionalDestinationToken(dest)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", errors.New(missingMessage)
+	}
+	return token, nil
+}
+
 func decryptString(encrypted string, additionalAuthenticatedData string) (string, error) {
 	return runtimeutil.DecryptString(encrypted, additionalAuthenticatedData)
 }
@@ -698,6 +1031,15 @@ func firstString(values ...any) string {
 		}
 	}
 	return ""
+}
+
+func mustMarshalString(value any) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
+}
+
+func joinEndpointPath(baseURL string, path string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
 func nextRetryDelay(attempt int) time.Duration {

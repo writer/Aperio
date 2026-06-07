@@ -101,7 +101,7 @@ test("SIEM adapter ownership matrix covers every declared destination kind", () 
   );
 });
 
-test("SIEM adapter matrix preserves TypeScript fallback and blocks premature cutover", () => {
+test("SIEM adapter matrix marks every declared adapter Go-owned", () => {
   const matrix = readJson<SiemAdapterMatrix>(
     "tests/fixtures/worker-parity/siem-adapter-matrix.json"
   );
@@ -111,27 +111,20 @@ test("SIEM adapter matrix preserves TypeScript fallback and blocks premature cut
     assert.equal(adapter.sharedCatalog, true, `${adapter.kind} must be present in TS shared catalog`);
     assert.equal(adapter.goCatalog, true, `${adapter.kind} must be present in Go catalog`);
     assert.equal(adapter.typescriptDispatcher, true, `${adapter.kind} must have a TS reference path`);
-    assert.notEqual(adapter.state, "go-default", `${adapter.kind} cannot be Go-default in this slice`);
-    assert.notEqual(adapter.state, "removable", `${adapter.kind} cannot be removable in this slice`);
-    assert.ok(adapter.cutoverBlockers.length > 0, `${adapter.kind} needs explicit cutover blockers`);
-
-    if (adapter.goClaimed) {
-      assert.equal(adapter.state, "go-parity", `${adapter.kind} Go claims must remain go-parity`);
-      assert.equal(adapter.goDispatcher, true, `${adapter.kind} claims require a Go send path`);
-      assert.ok(
-        adapter.fixtures.every((fixture) => fixture.startsWith("tests/fixtures/worker-parity/")),
-        `${adapter.kind} Go parity must cite shared fixtures`
-      );
-      assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_test.go"));
-      assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_db_test.go"));
-    } else {
-      assert.equal(
-        adapter.state,
-        "typescript-reference",
-        `${adapter.kind} unclaimed adapters must remain TypeScript fallback`
-      );
-      assert.equal(adapter.goDispatcher, false, `${adapter.kind} must not advertise unclaimed Go support`);
-    }
+    assert.equal(adapter.state, "go-default", `${adapter.kind} must be marked Go-owned/default`);
+    assert.equal(adapter.goDispatcher, true, `${adapter.kind} must have a Go send path`);
+    assert.equal(adapter.goClaimed, true, `${adapter.kind} must be claimed by the Go dispatcher`);
+    assert.deepEqual(adapter.cutoverBlockers, [], `${adapter.kind} must not retain adapter ownership blockers`);
+    assert.ok(
+      adapter.fixtures.includes("tests/fixtures/worker-parity/siem-envelope-cases.json"),
+      `${adapter.kind} must cite canonical envelope/stream fixtures`
+    );
+    assert.ok(
+      adapter.fixtures.includes("tests/fixtures/worker-parity/siem-local-adapter-harness.json"),
+      `${adapter.kind} must cite local adapter harness fixtures`
+    );
+    assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_test.go"));
+    assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_db_test.go"));
   }
 });
 
