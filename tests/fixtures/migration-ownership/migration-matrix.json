@@ -29,6 +29,7 @@
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
+        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "command:npm run smoke:workers:go"
       ],
@@ -147,6 +148,7 @@
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
+        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "command:make smoke-workers-go"
       ],
@@ -308,6 +310,7 @@
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
+        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "command:npm run smoke:workers:go"
       ],
@@ -365,10 +368,13 @@
         "repo-file:internal/ingestionworker/*.go"
       ],
       "owner": "Go ingestion worker parity slice",
-      "rationale": "Go ingestion currently claims only the locally proven GitHub public repository slice and must leave unsupported provider/event jobs untouched for TypeScript fallback.",
+      "rationale": "Go ingestion currently claims only the locally proven GitHub public repository and Slack MFA-disabled slices and must leave unsupported provider/event jobs untouched for TypeScript fallback.",
       "evidence": [
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
+        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
+        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "test:tests/ingestion-parity-matrix.test.ts",
         "test:internal/ingestionworker/worker_test.go",
         "test:internal/ingestionworker/worker_db_test.go",
         "command:npm run worker:ingestion:go -- -once -limit 1"

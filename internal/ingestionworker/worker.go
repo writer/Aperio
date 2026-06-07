@@ -86,24 +86,36 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 	for _, check := range disabledChecks {
 		disabled[check] = struct{}{}
 	}
-	if _, ok := disabled["github.public_repository_created"]; ok {
-		return nil
+	findings := []Finding{}
+	if _, ok := disabled["github.public_repository_created"]; !ok {
+		if finding, ok := evaluateGitHubPublicRepository(payload); ok {
+			findings = append(findings, finding)
+		}
 	}
+	if _, ok := disabled["slack.mfa_disabled"]; !ok {
+		if finding, ok := evaluateSlackMFADisabled(payload); ok {
+			findings = append(findings, finding)
+		}
+	}
+	return findings
+}
+
+func evaluateGitHubPublicRepository(payload JobPayload) (Finding, bool) {
 	if payload.Provider != "GITHUB" {
-		return nil
+		return Finding{}, false
 	}
 	normalized := normalizeEventType(payload.EventType)
 	private, hasPrivate := nestedBool(payload.Payload, "repository", "private")
 	visibility := nestedString(payload.Payload, "repository", "visibility")
 	if normalized != "PUBLIC_REPOSITORY_CREATED" && (!hasPrivate || private) && visibility != "public" {
-		return nil
+		return Finding{}, false
 	}
 	repository := firstNonEmpty(
 		nestedString(payload.Payload, "repository", "full_name"),
 		nestedString(payload.Payload, "repository", "name"),
 		"unknown repository",
 	)
-	return []Finding{{
+	return Finding{
 		RuleID:      "github.public_repository_created",
 		Title:       "Public GitHub repository created",
 		Description: "A repository was created or changed to public visibility, which can expose source code, secrets, or customer data.",
@@ -120,7 +132,40 @@ func Evaluate(payload JobPayload, disabledChecks []string) []Finding {
 			"subject":    repository,
 			"visibility": firstNonEmpty(visibility, "public"),
 		},
-	}}
+	}, true
+}
+
+func evaluateSlackMFADisabled(payload JobPayload) (Finding, bool) {
+	if payload.Provider != "SLACK" {
+		return Finding{}, false
+	}
+	normalized := normalizeEventType(payload.EventType)
+	if normalized != "MFA_DISABLED" && normalized != "TWO_FACTOR_AUTH_DISABLED" {
+		return Finding{}, false
+	}
+	user := firstNonEmpty(
+		nestedString(payload.Payload, "user", "email"),
+		nestedString(payload.Payload, "user", "id"),
+		payload.Actor,
+		"unknown user",
+	)
+	return Finding{
+		RuleID:      "slack.mfa_disabled",
+		Title:       "Slack multi-factor authentication disabled",
+		Description: "A Slack user disabled MFA, increasing the likelihood of account takeover and lateral movement.",
+		Severity:    "CRITICAL",
+		RiskScore:   90,
+		RemediationSteps: []string{
+			"Re-enable MFA for the affected Slack user immediately.",
+			"Force a session reset for the affected account.",
+			"Review recent login history and connected Slack apps for suspicious activity.",
+		},
+		Target: user,
+		Evidence: map[string]any{
+			"user":    user,
+			"subject": user,
+		},
+	}, true
 }
 
 func DedupeKey(payload JobPayload, finding Finding) string {
@@ -161,8 +206,10 @@ func (w *Worker) retireExhausted(ctx context.Context) error {
 		UPDATE ingestion_jobs
 		SET status = 'DEAD_LETTER', lease_owner = NULL, lease_expires_at = NULL, updated_at = NOW()
 		WHERE attempts >= max_attempts
-		  AND provider = 'GITHUB'
-		  AND event_type = 'PUBLIC_REPOSITORY_CREATED'
+		  AND (
+				(provider = 'GITHUB' AND event_type = 'PUBLIC_REPOSITORY_CREATED')
+			 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED'))
+		  )
 		  AND status IN ('QUEUED', 'FAILED', 'RUNNING')
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())
 	`)
@@ -178,8 +225,10 @@ func (w *Worker) claim(ctx context.Context, limit int) ([]job, error) {
 			FROM ingestion_jobs
 			WHERE attempts < max_attempts
 			  AND next_attempt_at <= NOW()
-			  AND provider = 'GITHUB'
-			  AND event_type = 'PUBLIC_REPOSITORY_CREATED'
+			  AND (
+					(provider = 'GITHUB' AND event_type = 'PUBLIC_REPOSITORY_CREATED')
+				 OR (provider = 'SLACK' AND event_type IN ('MFA_DISABLED', 'TWO_FACTOR_AUTH_DISABLED'))
+			  )
 			  AND (
 					(status IN ('QUEUED', 'FAILED') AND (lease_expires_at IS NULL OR lease_expires_at <= NOW()))
 				 OR (status = 'RUNNING' AND lease_expires_at <= NOW())
@@ -483,7 +532,20 @@ func (j job) toPayload() (JobPayload, error) {
 }
 
 func normalizeEventType(value string) string {
-	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(value), ".", "_"))
+	var builder strings.Builder
+	lastWasSeparator := false
+	for _, char := range strings.ToUpper(value) {
+		if (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+			lastWasSeparator = false
+			continue
+		}
+		if !lastWasSeparator {
+			builder.WriteByte('_')
+			lastWasSeparator = true
+		}
+	}
+	return builder.String()
 }
 
 func nestedString(value map[string]any, path ...string) string {

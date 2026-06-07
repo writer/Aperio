@@ -274,6 +274,12 @@ test("shared parity fixtures gate every Go worker parity surface", () => {
       requiredKeys: ["positive", "negative", "disabledCheck"]
     },
     {
+      path: "tests/fixtures/worker-parity/slack-mfa-disabled.json",
+      tsTest: "tests/slack-rules.test.ts",
+      goTest: "internal/ingestionworker/worker_test.go",
+      requiredKeys: ["positive", "alias", "negative", "disabledCheck"]
+    },
+    {
       path: "tests/fixtures/worker-parity/siem-finding-delivery.json",
       tsTest: "tests/siem-dispatcher.test.ts",
       goTest: "internal/siemdispatcher/dispatcher_test.go",

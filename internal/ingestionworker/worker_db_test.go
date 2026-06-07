@@ -133,9 +133,160 @@ func ingestionJobState(t *testing.T, db *sql.DB, jobID string) (status string, a
 func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 	db := openDBBackedIngestionWorkerDB(t)
 	orgID := seedIngestionWorkerOrg(t, db)
+	integrations := map[string]string{
+		"GITHUB":           seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED"),
+		"SLACK":            seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED"),
+		"OKTA":             seedIngestionWorkerIntegration(t, db, orgID, "OKTA", "CONNECTED"),
+		"GOOGLE_WORKSPACE": seedIngestionWorkerIntegration(t, db, orgID, "GOOGLE_WORKSPACE", "CONNECTED"),
+	}
+
+	type unsupportedCase struct {
+		name        string
+		provider    string
+		eventType   string
+		status      string
+		attempts    int
+		maxAttempts int
+		payload     json.RawMessage
+	}
+	cases := []unsupportedCase{
+		{name: "slack unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
+		{name: "slack exhausted unsupported event", provider: "SLACK", eventType: "WORKSPACE_INVITE_LINK_ENABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)},
+		{name: "okta fallback rule", provider: "OKTA", eventType: "ADMIN_ROLE_ASSIGNED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"actor":{"displayName":"admin@example.com"},"target":[{"type":"User","displayName":"user@example.com"},{"type":"Role","displayName":"Super Admin"}]}`)},
+		{name: "google fallback rule", provider: "GOOGLE_WORKSPACE", eventType: "EXTERNAL_SHARING_ENABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"resource":{"name":"Board Deck"},"parameters":{"visibility":"public_on_the_web"}}`)},
+		{name: "unknown github event", provider: "GITHUB", eventType: "UNKNOWN_EVENT", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"repository":{"full_name":"writer/private","visibility":"private"}}`)},
+	}
+
+	jobIDs := map[string]string{}
+	for _, input := range cases {
+		jobIDs[input.name] = seedIngestionWorkerJob(t, db, struct {
+			orgID         string
+			integrationID string
+			provider      string
+			eventType     string
+			status        string
+			attempts      int
+			maxAttempts   int
+			leaseOwner    *string
+			payload       json.RawMessage
+		}{orgID: orgID, integrationID: integrations[input.provider], provider: input.provider, eventType: input.eventType, status: input.status, attempts: input.attempts, maxAttempts: input.maxAttempts, payload: input.payload})
+	}
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
+		t.Fatalf("expected unsupported jobs to remain unprocessed, got %#v", result)
+	}
+
+	for _, input := range cases {
+		status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobIDs[input.name])
+		if status != input.status || attempts != input.attempts || leaseOwner.Valid || processedAt.Valid || lastError.Valid {
+			t.Fatalf("%s changed: status=%s attempts=%d lease=%v processed=%v error=%v", input.name, status, attempts, leaseOwner, processedAt, lastError)
+		}
+	}
+}
+
+func TestDrainPersistsSupportedSlackMFAJob(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
 	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
 
-	queuedID := seedIngestionWorkerJob(t, db, struct {
+	payloadMap := map[string]any{
+		"user": map[string]any{
+			"id":    "U123",
+			"email": "user@example.com",
+		},
+	}
+	payloadJSON, _ := json.Marshal(payloadMap)
+	jobPayload := JobPayload{
+		OrganizationID: orgID,
+		IntegrationID:  integrationID,
+		Provider:       "SLACK",
+		EventType:      "TWO_FACTOR_AUTH_DISABLED",
+		Source:         "slack-audit-log",
+		Actor:          "admin@example.com",
+		OccurredAt:     time.Now().UTC().Add(-time.Minute),
+		Payload:        payloadMap,
+	}
+	finding := Evaluate(jobPayload, nil)[0]
+	dedupe := DedupeKey(jobPayload, finding)
+
+	jobID := seedIngestionWorkerJob(t, db, struct {
+		orgID         string
+		integrationID string
+		provider      string
+		eventType     string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+		payload       json.RawMessage
+	}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "TWO_FACTOR_AUTH_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: payloadJSON})
+
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		_, _, _, _, jobError := ingestionJobState(t, db, jobID)
+		t.Fatalf("unexpected drain result: %#v lastError=%v", result, jobError)
+	}
+
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("supported Slack job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+
+	var eventID string
+	var eventProvider, eventType string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, provider::text, event_type
+		FROM ingested_events
+		WHERE ingestion_job_id = $1 AND organization_id = $2
+	`, jobID, orgID).Scan(&eventID, &eventProvider, &eventType); err != nil {
+		t.Fatalf("query Slack ingested event: %v", err)
+	}
+	if eventProvider != "SLACK" || eventType != "TWO_FACTOR_AUTH_DISABLED" {
+		t.Fatalf("Slack event persisted as provider=%s event=%s", eventProvider, eventType)
+	}
+
+	var persistedFindingID, title, severity string
+	var riskScore int
+	var evidence map[string]any
+	var rawEvidence json.RawMessage
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT id, title, severity::text, risk_score, evidence
+		FROM security_findings
+		WHERE organization_id = $1 AND dedupe_key = $2
+	`, orgID, dedupe).Scan(&persistedFindingID, &title, &severity, &riskScore, &rawEvidence); err != nil {
+		t.Fatalf("query Slack security finding: %v", err)
+	}
+	if err := json.Unmarshal(rawEvidence, &evidence); err != nil {
+		t.Fatalf("decode Slack finding evidence: %v", err)
+	}
+	if persistedFindingID == "" || title != finding.Title || severity != finding.Severity || riskScore != finding.RiskScore {
+		t.Fatalf("Slack finding fields = id=%s title=%s severity=%s risk=%d", persistedFindingID, title, severity, riskScore)
+	}
+	if evidence["ruleId"] != "slack.mfa_disabled" || evidence["user"] != "user@example.com" || evidence["sourceEventId"] != eventID {
+		t.Fatalf("Slack finding evidence = %#v", evidence)
+	}
+}
+
+func TestDrainProcessesSupportedSlackDisabledCheckWithoutFinding(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	integrationID := seedIngestionWorkerIntegration(t, db, orgID, "SLACK", "CONNECTED")
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE integration_connections
+		SET disabled_checks = ARRAY['slack.mfa_disabled']::text[]
+		WHERE id = $1
+	`, integrationID); err != nil {
+		t.Fatalf("disable Slack check: %v", err)
+	}
+
+	jobID := seedIngestionWorkerJob(t, db, struct {
 		orgID         string
 		integrationID string
 		provider      string
@@ -147,7 +298,35 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		payload       json.RawMessage
 	}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
 
-	exhaustedID := seedIngestionWorkerJob(t, db, struct {
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if result.Processed != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected disabled-check drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "SUCCEEDED" || attempts != 1 || leaseOwner.Valid || !processedAt.Valid || lastError.Valid {
+		t.Fatalf("disabled-check job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
+	}
+
+	var eventCount, findingCount int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ingested_events WHERE organization_id = $1 AND ingestion_job_id = $2`, orgID, jobID).Scan(&eventCount); err != nil {
+		t.Fatalf("count disabled-check events: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM security_findings WHERE organization_id = $1`, orgID).Scan(&findingCount); err != nil {
+		t.Fatalf("count disabled-check findings: %v", err)
+	}
+	if eventCount != 1 || findingCount != 0 {
+		t.Fatalf("disabled check should persist event only, got events=%d findings=%d", eventCount, findingCount)
+	}
+}
+
+func TestSupportedSlackJobRequiresMatchingConnectedIntegration(t *testing.T) {
+	db := openDBBackedIngestionWorkerDB(t)
+	orgID := seedIngestionWorkerOrg(t, db)
+	githubIntegrationID := seedIngestionWorkerIntegration(t, db, orgID, "GITHUB", "CONNECTED")
+	jobID := seedIngestionWorkerJob(t, db, struct {
 		orgID         string
 		integrationID string
 		provider      string
@@ -157,24 +336,28 @@ func TestDrainLeavesUnsupportedIngestionJobsUntouched(t *testing.T) {
 		maxAttempts   int
 		leaseOwner    *string
 		payload       json.RawMessage
-	}{orgID: orgID, integrationID: integrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "FAILED", attempts: 3, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
+	}{orgID: orgID, integrationID: githubIntegrationID, provider: "SLACK", eventType: "MFA_DISABLED", status: "QUEUED", attempts: 0, maxAttempts: 3, payload: json.RawMessage(`{"user":{"email":"user@example.com"}}`)})
 
-	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 10)
+	result, err := (&Worker{db: db, leaseOwner: "go-test-worker"}).Drain(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 0 || result.Succeeded != 0 || result.Failed != 0 {
-		t.Fatalf("expected unsupported jobs to remain unprocessed, got %#v", result)
+	if result.Processed != 1 || result.Succeeded != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected wrong-provider drain result: %#v", result)
 	}
-
-	status, attempts, leaseOwner, processedAt, _ := ingestionJobState(t, db, queuedID)
-	if status != "QUEUED" || attempts != 0 || leaseOwner.Valid || processedAt.Valid {
-		t.Fatalf("unsupported queued job changed: status=%s attempts=%d lease=%v processed=%v", status, attempts, leaseOwner, processedAt)
+	status, attempts, leaseOwner, processedAt, lastError := ingestionJobState(t, db, jobID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || processedAt.Valid || !lastError.Valid {
+		t.Fatalf("wrong-provider job state = status=%s attempts=%d lease=%v processed=%v error=%v", status, attempts, leaseOwner, processedAt, lastError)
 	}
-
-	status, attempts, leaseOwner, processedAt, _ = ingestionJobState(t, db, exhaustedID)
-	if status != "FAILED" || attempts != 3 || leaseOwner.Valid || processedAt.Valid {
-		t.Fatalf("unsupported exhausted job changed: status=%s attempts=%d lease=%v processed=%v", status, attempts, leaseOwner, processedAt)
+	var eventCount, findingCount int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ingested_events WHERE organization_id = $1`, orgID).Scan(&eventCount); err != nil {
+		t.Fatalf("count wrong-provider events: %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM security_findings WHERE organization_id = $1`, orgID).Scan(&findingCount); err != nil {
+		t.Fatalf("count wrong-provider findings: %v", err)
+	}
+	if eventCount != 0 || findingCount != 0 {
+		t.Fatalf("wrong-provider integration should not persist side effects, got events=%d findings=%d", eventCount, findingCount)
 	}
 }
 
