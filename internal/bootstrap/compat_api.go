@@ -1144,34 +1144,97 @@ func (a *App) compatTestSiem(ctx context.Context, id string, auth compatAuth) (a
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	var exists bool
-	if err := a.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM siem_destinations WHERE id = $1 AND organization_id = $2)`, id, auth.OrganizationID).Scan(&exists); err != nil {
+	var kind string
+	var status string
+	var streamsJSON string
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT kind::text, status::text, array_to_json(streams)::text
+		FROM siem_destinations
+		WHERE id = $1 AND organization_id = $2
+	`, id, auth.OrganizationID).Scan(&kind, &status, &streamsJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("SIEM destination not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if !exists {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("SIEM destination not found"))
+	if !compatSiemTestPingKindSupported(kind) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("SIEM test pings are only available for dispatcher-backed destinations"))
+	}
+	if status != "ACTIVE" && status != "ERROR" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("SIEM destination is not eligible for test delivery"))
+	}
+	streams := []string{}
+	if err := json.Unmarshal([]byte(streamsJSON), &streams); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("SIEM destination streams are unavailable"))
+	}
+	stream, payloadKind, ok := compatSiemTestPingStream(streams)
+	if !ok {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("SIEM destination is not subscribed to a supported test stream"))
 	}
 	deliveryID := compatID("sdel")
 	payload := siemdispatcher.Payload{
-		Kind:           "finding",
+		Kind:           payloadKind,
 		OrganizationID: auth.OrganizationID,
 		OccurredAt:     time.Now().UTC().Format(time.RFC3339Nano),
-		Record: map[string]any{
-			"test":     true,
-			"id":       deliveryID,
-			"title":    "Aperio SIEM connectivity test",
-			"severity": "INFO",
-			"provider": "APERIO",
-		},
+		Record:         compatSiemTestPingRecord(stream, deliveryID),
 	}
 	payloadJSON, _ := json.Marshal(payload)
 	// Connectivity tests enqueue an ordinary SIEM delivery row so the user tests
 	// the same dispatcher, lease, serialization, and retry path as real findings.
-	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,'FINDINGS',$4,$5,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, siemdispatcher.StableDeliveryKey(payload, id, "FINDINGS"), json.RawMessage(payloadJSON))
+	_, err := a.db.ExecContext(ctx, `INSERT INTO siem_deliveries (id, organization_id, destination_id, stream, dedupe_key, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4::"SiemStreamType",$5,$6,'PENDING',0,5,NOW(),NOW(),NOW())`, deliveryID, auth.OrganizationID, id, stream, siemdispatcher.StableDeliveryKey(payload, id, stream), json.RawMessage(payloadJSON))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return map[string]any{"data": map[string]any{"destinationId": id, "ok": true, "message": "SIEM test payload queued for dispatcher", "deliveryId": deliveryID}}, nil
+	return map[string]any{"data": map[string]any{"destinationId": id, "ok": true, "message": "SIEM test payload queued for dispatcher", "deliveryId": deliveryID, "stream": stream}}, nil
+}
+
+func compatSiemTestPingKindSupported(kind string) bool {
+	switch kind {
+	case "JSON_FILE", "GENERIC_WEBHOOK":
+		return true
+	default:
+		return false
+	}
+}
+
+func compatSiemTestPingStream(streams []string) (stream string, payloadKind string, ok bool) {
+	subscribed := map[string]struct{}{}
+	for _, candidate := range streams {
+		subscribed[strings.TrimSpace(candidate)] = struct{}{}
+	}
+	for _, candidate := range []struct {
+		stream string
+		kind   string
+	}{
+		{stream: "FINDINGS", kind: "finding"},
+		{stream: "EVENTS", kind: "event"},
+		{stream: "AUDIT_LOGS", kind: "audit_log"},
+	} {
+		if _, exists := subscribed[candidate.stream]; exists {
+			return candidate.stream, candidate.kind, true
+		}
+	}
+	return "", "", false
+}
+
+func compatSiemTestPingRecord(stream string, deliveryID string) map[string]any {
+	record := map[string]any{
+		"test":     true,
+		"id":       deliveryID,
+		"title":    "Aperio SIEM connectivity test",
+		"provider": "APERIO",
+	}
+	switch stream {
+	case "FINDINGS":
+		record["severity"] = "INFO"
+	case "EVENTS":
+		record["eventType"] = "aperio.siem.test"
+		record["severity"] = "INFO"
+	case "AUDIT_LOGS":
+		record["action"] = "siem.destination.test"
+		record["outcome"] = "QUEUED"
+	}
+	return record
 }
 
 func (a *App) compatRemediateFinding(ctx context.Context, id string, body map[string]any, auth compatAuth) (any, error) {

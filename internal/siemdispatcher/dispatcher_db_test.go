@@ -554,6 +554,85 @@ func TestProcessGenericWebhookDeliveryCapturesRequestAndMarksDelivered(t *testin
 	}
 }
 
+func TestGenericWebhookFailureRetriesDeadLettersAndMarksDestinationError(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+
+	firstID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 2})
+	_, _, _, _, previousNextAttemptAt, _ := siemDeliveryState(t, db, firstID)
+	timeoutTransport := &captureTransport{err: context.DeadlineExceeded}
+	var timeoutEndpoint string
+	result, err := (&Dispatcher{
+		db:         db,
+		leaseOwner: "go-siem-test-timeout",
+		httpClient: &http.Client{Transport: timeoutTransport},
+		endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+			timeoutEndpoint = endpoint
+			return nil
+		},
+	}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("timeout drain: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected timeout drain result: %#v", result)
+	}
+	if timeoutEndpoint != "https://example.com/collector" || timeoutTransport.calls != 1 {
+		t.Fatalf("timeout request/safety = endpoint=%q calls=%d", timeoutEndpoint, timeoutTransport.calls)
+	}
+	status, attempts, leaseOwner, deliveredAt, nextAttemptAt, lastError := siemDeliveryState(t, db, firstID)
+	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "deadline exceeded") {
+		t.Fatalf("timeout retry state = status=%s attempts=%d lease=%v delivered=%v next=%v error=%v", status, attempts, leaseOwner, deliveredAt, nextAttemptAt, lastError)
+	}
+	if !nextAttemptAt.After(previousNextAttemptAt) {
+		t.Fatalf("timeout next_attempt_at = %v, want after previous %v", nextAttemptAt, previousNextAttemptAt)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || lastDeliveryAt.Valid || !destinationError.Valid || !strings.Contains(destinationError.String, "deadline exceeded") {
+		t.Fatalf("timeout destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+
+	secondID := seedDispatcherDelivery(t, db, struct {
+		orgID         string
+		destinationID string
+		payload       Payload
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 1, maxAttempts: 2})
+	statusTransport := &captureTransport{status: http.StatusServiceUnavailable}
+	result, err = (&Dispatcher{
+		db:                  db,
+		leaseOwner:          "go-siem-test-http-failure",
+		httpClient:          &http.Client{Transport: statusTransport},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}).Drain(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("HTTP failure drain: %v", err)
+	}
+	if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected HTTP failure drain result: %#v", result)
+	}
+	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, secondID)
+	if status != "DEAD_LETTER" || attempts != 2 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "503 Service Unavailable") {
+		t.Fatalf("HTTP dead-letter state = status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError = siemDestinationHealth(t, db, destinationID)
+	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 2 || lastDeliveryAt.Valid || !destinationError.Valid || !strings.Contains(destinationError.String, "503 Service Unavailable") {
+		t.Fatalf("HTTP failure destination health = status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+}
+
 func TestJSONFileFailureRetriesDeadLettersAndMarksDestinationError(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)

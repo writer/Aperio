@@ -77,6 +77,7 @@ type captureTransport struct {
 	header http.Header
 	body   []byte
 	status int
+	err    error
 }
 
 func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -89,6 +90,9 @@ func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return nil, err
 	}
 	c.body = body
+	if c.err != nil {
+		return nil, c.err
+	}
 	status := c.status
 	if status == 0 {
 		status = http.StatusOK
