@@ -111,6 +111,20 @@ func readSlackParityFixture(t *testing.T) slackParityFixture {
 	return fixture
 }
 
+func TestNormalizeEventTypeMatchesTypeScriptReference(t *testing.T) {
+	cases := map[string]string{
+		"repository.publicized":        "REPOSITORY_PUBLICIZED",
+		" two-factor auth disabled ":   "TWO_FACTOR_AUTH_DISABLED",
+		"//public-repository-created/": "PUBLIC_REPOSITORY_CREATED",
+		"mfa.disabled":                 "MFA_DISABLED",
+	}
+	for input, want := range cases {
+		if got := normalizeEventType(input); got != want {
+			t.Fatalf("normalizeEventType(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func (p githubFixturePayload) jobPayload(t *testing.T) JobPayload {
 	t.Helper()
 	occurredAt, err := time.Parse(time.RFC3339Nano, p.OccurredAt)

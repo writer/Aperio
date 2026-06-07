@@ -104,6 +104,13 @@ test("worker smoke commands are bounded Go transition smokes", async () => {
   );
 });
 
+test("browser launch startup failures clean up Chrome and temp profile", () => {
+  const harness = readRepoFile("scripts/smoke-e2e.mjs");
+  assert.match(harness, /async function launchBrowser\(report\)[\s\S]*try \{/);
+  assert.match(harness, /catch \(error\)[\s\S]*await stopChildProcess\(browser, report\)/);
+  assert.match(harness, /catch \(error\)[\s\S]*await fsp\.rm\(userDataDir, \{ recursive: true, force: true \}\)/);
+});
+
 test("smoke evidence redaction masks cookies, bearer tokens, passwords, and DSNs", async () => {
   const smoke = await loadSmokeHarness();
   const raw = [

@@ -670,7 +670,7 @@ func normalizeEventType(value string) string {
 			lastWasSeparator = true
 		}
 	}
-	return builder.String()
+	return strings.Trim(builder.String(), "_")
 }
 
 func nestedString(value map[string]any, path ...string) string {

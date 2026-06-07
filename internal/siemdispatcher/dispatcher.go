@@ -438,7 +438,7 @@ func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	res, err := d.httpDoer().Do(req)
+	res, err := d.webhookHTTPClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -454,11 +454,71 @@ func (d *Dispatcher) postJSON(ctx context.Context, endpoint string, headers map[
 	return nil
 }
 
-func (d *Dispatcher) httpDoer() *http.Client {
+func (d *Dispatcher) webhookHTTPClient() *http.Client {
 	if d.httpClient != nil {
-		return d.httpClient
+		client := *d.httpClient
+		client.CheckRedirect = blockWebhookRedirect
+		return &client
 	}
-	return &http.Client{Timeout: networkTimeout}
+	return &http.Client{
+		Timeout:       networkTimeout,
+		Transport:     safeWebhookTransport(),
+		CheckRedirect: blockWebhookRedirect,
+	}
+}
+
+func blockWebhookRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+func safeWebhookTransport() http.RoundTripper {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.Proxy = nil
+	dialer := &net.Dialer{Timeout: networkTimeout, KeepAlive: 30 * time.Second}
+	base.DialContext = func(ctx context.Context, network string, address string) (net.Conn, error) {
+		target, err := safeDialAddress(ctx, address, net.DefaultResolver)
+		if err != nil {
+			return nil, err
+		}
+		return dialer.DialContext(ctx, network, target)
+	}
+	return base
+}
+
+func safeDialAddress(ctx context.Context, address string, resolver endpointResolver) (string, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", errors.New("endpoint dial target is invalid")
+	}
+	host = normalizeHostname(host)
+	if host == "" {
+		return "", errors.New("endpoint URL hostname is required")
+	}
+	if isBlockedHostname(host) {
+		return "", errors.New("endpoint URL must not target loopback, local, or private hosts")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			return "", errors.New("endpoint URL must not target loopback, local, or private hosts")
+		}
+		return net.JoinHostPort(ip.String(), port), nil
+	}
+	lookupCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		lookupCtx, cancel = context.WithTimeout(ctx, 3*time.Second)
+	}
+	defer cancel()
+	addresses, err := resolver.LookupIPAddr(lookupCtx, host)
+	if err != nil || len(addresses) == 0 {
+		return "", errors.New("endpoint URL hostname could not be resolved")
+	}
+	for _, address := range addresses {
+		if isPrivateIP(address.IP) {
+			return "", errors.New("endpoint URL must not resolve to loopback or private addresses")
+		}
+	}
+	return net.JoinHostPort(addresses[0].IP.String(), port), nil
 }
 
 func (d *Dispatcher) checkEndpoint(ctx context.Context, endpoint string) error {

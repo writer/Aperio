@@ -71,13 +71,14 @@ type genericWebhookFixture struct {
 }
 
 type captureTransport struct {
-	calls  int
-	method string
-	url    string
-	header http.Header
-	body   []byte
-	status int
-	err    error
+	calls    int
+	method   string
+	url      string
+	header   http.Header
+	body     []byte
+	status   int
+	location string
+	err      error
 }
 
 func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -97,10 +98,14 @@ func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if status == 0 {
 		status = http.StatusOK
 	}
+	header := make(http.Header)
+	if c.location != "" {
+		header.Set("location", c.location)
+	}
 	return &http.Response{
 		StatusCode: status,
 		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
-		Header:     make(http.Header),
+		Header:     header,
 		Body:       io.NopCloser(strings.NewReader("")),
 		Request:    req,
 	}, nil
@@ -292,6 +297,34 @@ func TestSendGenericWebhookEndpointSafetyBlocksHTTP(t *testing.T) {
 	}
 }
 
+func TestSendGenericWebhookDoesNotFollowRedirects(t *testing.T) {
+	transport := &captureTransport{
+		status:   http.StatusFound,
+		location: "https://169.254.169.254/latest/meta-data",
+	}
+	dispatcher := &Dispatcher{
+		httpClient:          &http.Client{Transport: transport},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}
+	err := dispatcher.sendGenericWebhook(context.Background(), destination{
+		ID:             "dst_webhook_redirect",
+		OrganizationID: "org_1",
+		Kind:           "GENERIC_WEBHOOK",
+		EndpointURL:    sql.NullString{String: "https://webhook.receiver.example/aperio", Valid: true},
+	}, Payload{
+		Kind:           "finding",
+		OrganizationID: "org_1",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"id": "fnd_1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "302 Found") {
+		t.Fatalf("expected redirect response to fail without following, got %v", err)
+	}
+	if transport.calls != 1 {
+		t.Fatalf("redirect should not be followed, got %d calls", transport.calls)
+	}
+}
+
 func TestEndpointSafetyRejectsDNSRebindingToPrivateAddress(t *testing.T) {
 	err := assertSafeEndpointURLWithResolver(
 		context.Background(),
@@ -307,6 +340,36 @@ func TestEndpointSafetyRejectsDNSRebindingToPrivateAddress(t *testing.T) {
 		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("10.0.0.7")}}},
 	); err != nil {
 		t.Fatalf("public literal IP should not require DNS resolver, got %v", err)
+	}
+}
+
+func TestSafeDialAddressUsesValidatedResolvedIP(t *testing.T) {
+	if _, err := safeDialAddress(
+		context.Background(),
+		"webhook.receiver.example:443",
+		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("10.0.0.7")}}},
+	); err == nil || !strings.Contains(err.Error(), "private addresses") {
+		t.Fatalf("expected private resolved address rejection, got %v", err)
+	}
+
+	target, err := safeDialAddress(
+		context.Background(),
+		"webhook.receiver.example:443",
+		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}},
+	)
+	if err != nil {
+		t.Fatalf("public resolved address rejected: %v", err)
+	}
+	if target != "8.8.8.8:443" {
+		t.Fatalf("dial target = %q, want resolved IP target", target)
+	}
+
+	if _, err := safeDialAddress(
+		context.Background(),
+		"127.0.0.1:443",
+		staticResolver{addresses: []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}},
+	); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("expected private literal rejection, got %v", err)
 	}
 }
 

@@ -936,27 +936,39 @@ async function launchBrowser(report) {
   const browser = startProcess("chrome", executable, args, {
     env: { DOCKER_HOST: undefined }
   });
-  report.serviceStatus.startedProcesses.push({
-    label: "chrome",
-    pid: browser.child.pid,
-    command: "Chrome/Chromium --headless --remote-debugging-port=0"
-  });
-  const port = await readDevToolsPort(userDataDir);
-  const targetResponse = await fetch(
-    `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
-    { method: "PUT" }
-  );
-  if (!targetResponse.ok) {
-    throw new Error(`Unable to create Chrome DevTools target: ${targetResponse.status}`);
+  let cdp = null;
+  try {
+    report.serviceStatus.startedProcesses.push({
+      label: "chrome",
+      pid: browser.child.pid,
+      command: "Chrome/Chromium --headless --remote-debugging-port=0"
+    });
+    const port = await readDevToolsPort(userDataDir);
+    const targetResponse = await fetch(
+      `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
+      { method: "PUT" }
+    );
+    if (!targetResponse.ok) {
+      throw new Error(`Unable to create Chrome DevTools target: ${targetResponse.status}`);
+    }
+    const target = await targetResponse.json();
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    return {
+      process: browser,
+      cdp,
+      userDataDir,
+      remoteDebuggingPort: port
+    };
+  } catch (error) {
+    try {
+      cdp?.close();
+    } catch {
+      // Ignore CDP close races during startup cleanup.
+    }
+    await stopChildProcess(browser, report);
+    await fsp.rm(userDataDir, { recursive: true, force: true });
+    throw error;
   }
-  const target = await targetResponse.json();
-  const cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
-  return {
-    process: browser,
-    cdp,
-    userDataDir,
-    remoteDebuggingPort: port
-  };
 }
 
 function cdpArgText(args = []) {
