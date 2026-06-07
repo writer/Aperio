@@ -3,6 +3,7 @@ package siemdispatcher
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -71,6 +72,41 @@ func seedDispatcherDestinationForStream(t *testing.T, db *sql.DB, orgID, kind, s
 		t.Fatalf("seed %s destination: %v", kind, err)
 	}
 	return destinationID
+}
+
+func updateDispatcherDestinationToken(t *testing.T, db *sql.DB, orgID, destinationID, token string) {
+	t.Helper()
+	dest := destination{ID: destinationID, OrganizationID: orgID}
+	encrypted := encryptForDispatcherTest(t, token, destinationTokenAAD(dest))
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET encrypted_token = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, encrypted, destinationID, orgID); err != nil {
+		t.Fatalf("update encrypted SIEM token: %v", err)
+	}
+}
+
+func updateDispatcherDestinationEncryptedToken(t *testing.T, db *sql.DB, orgID, destinationID, encrypted string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET encrypted_token = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, encrypted, destinationID, orgID); err != nil {
+		t.Fatalf("update encrypted SIEM token: %v", err)
+	}
+}
+
+func updateDispatcherDestinationIndex(t *testing.T, db *sql.DB, orgID, destinationID, index string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET index = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, index, destinationID, orgID); err != nil {
+		t.Fatalf("update SIEM destination index: %v", err)
+	}
 }
 
 func nullableFilePath(value string) sql.NullString {
@@ -233,7 +269,7 @@ func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t 
 		t.Fatalf("expected Go-owned misconfigured deliveries to be claimed and failed, got %#v", result)
 	}
 	status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, pendingID)
-	if status != "FAILED" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
+	if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
 		t.Fatalf("Splunk misconfigured delivery state: status=%s attempts=%d lease=%v delivered=%v error=%v", status, attempts, leaseOwner, deliveredAt, lastError)
 	}
 	status, attempts, leaseOwner, deliveredAt, _, lastError = siemDeliveryState(t, db, exhaustedID)
@@ -251,6 +287,85 @@ func TestDrainClaimsAllGoOwnedDestinationKindsAndFailsMisconfiguredRowsSafely(t 
 	healthStatus, deliveriesOK, deliveriesFail, _, lastError = siemDestinationHealth(t, db, destinationID)
 	if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || !lastError.Valid || !strings.Contains(lastError.String, "missing HEC token") {
 		t.Fatalf("Splunk destination health: status=%s ok=%d fail=%d err=%v", healthStatus, deliveriesOK, deliveriesFail, lastError)
+	}
+}
+
+func TestHTTPAdapterMisconfigurationDeadLettersWithoutHTTP(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	orgID := seedDispatcherOrg(t, db)
+	payload := fixtureDeliveryPayload(t, orgID)
+
+	type misconfigurationCase struct {
+		name       string
+		kind       string
+		token      string
+		index      string
+		tamper     bool
+		wantError  string
+		deliveryID string
+		destID     string
+	}
+	cases := []misconfigurationCase{
+		{name: "splunk missing token", kind: "SPLUNK_HEC", wantError: "missing HEC token"},
+		{name: "panther missing token", kind: "PANTHER", wantError: "missing Panther API token"},
+		{name: "elastic missing index", kind: "ELASTIC", token: "fixture-elastic-token", wantError: "Elasticsearch index missing"},
+		{name: "elastic missing token", kind: "ELASTIC", index: "aperio-http", wantError: "missing Elasticsearch API key"},
+		{name: "datadog missing token", kind: "DATADOG", wantError: "missing DD-API-KEY"},
+		{name: "webhook tampered token", kind: "GENERIC_WEBHOOK", token: "fixture-webhook-token", tamper: true, wantError: "SIEM token decrypt failed"},
+	}
+	for index := range cases {
+		destID := seedDispatcherDestination(t, db, orgID, cases[index].kind, "ACTIVE", "")
+		cases[index].destID = destID
+		if cases[index].token != "" {
+			if cases[index].tamper {
+				dest := destination{ID: destID, OrganizationID: orgID}
+				updateDispatcherDestinationEncryptedToken(t, db, orgID, destID, tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, cases[index].token, destinationTokenAAD(dest))))
+			} else {
+				updateDispatcherDestinationToken(t, db, orgID, destID, cases[index].token)
+			}
+		}
+		if cases[index].index != "" {
+			updateDispatcherDestinationIndex(t, db, orgID, destID, cases[index].index)
+		}
+		cases[index].deliveryID = seedDispatcherDelivery(t, db, struct {
+			orgID         string
+			destinationID string
+			payload       Payload
+			status        string
+			attempts      int
+			maxAttempts   int
+			leaseOwner    *string
+		}{orgID: orgID, destinationID: destID, payload: payload, status: "PENDING", attempts: 0, maxAttempts: 5})
+	}
+
+	transport := &captureTransport{}
+	result, err := (&Dispatcher{
+		db:                  db,
+		leaseOwner:          "go-siem-test-http-misconfig",
+		organizationID:      orgID,
+		httpClient:          &http.Client{Transport: transport},
+		endpointSafetyCheck: func(context.Context, string) error { return nil },
+	}).Drain(context.Background(), len(cases))
+	if err != nil {
+		t.Fatalf("drain HTTP misconfigurations: %v", err)
+	}
+	if result.Processed != len(cases) || result.Delivered != 0 || result.Failed != len(cases) {
+		t.Fatalf("unexpected misconfiguration drain result: %#v", result)
+	}
+	if transport.calls != 0 {
+		t.Fatalf("misconfigured HTTP adapters must fail before network transport, got %d calls", transport.calls)
+	}
+	for _, testCase := range cases {
+		status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, testCase.deliveryID)
+		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, testCase.wantError) {
+			t.Fatalf("%s delivery state = status=%s attempts=%d lease=%v delivered=%v error=%v", testCase.name, status, attempts, leaseOwner, deliveredAt, lastError)
+		}
+		healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, testCase.destID)
+		if healthStatus != "ERROR" || deliveriesOK != 0 || deliveriesFail != 1 || lastDeliveryAt.Valid || !destinationError.Valid || !strings.Contains(destinationError.String, testCase.wantError) {
+			t.Fatalf("%s destination health = status=%s ok=%d fail=%d delivered=%v error=%v", testCase.name, healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+		}
 	}
 }
 

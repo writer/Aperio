@@ -28,6 +28,7 @@
       "requiredFields": ["endpointUrl", "token"],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
@@ -51,6 +52,7 @@
       "requiredFields": ["endpointUrl", "token"],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
@@ -74,6 +76,7 @@
       "requiredFields": ["endpointUrl"],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
@@ -97,6 +100,7 @@
       "requiredFields": ["endpointUrl", "token", "index"],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
@@ -120,6 +124,7 @@
       "requiredFields": ["endpointUrl", "token"],
       "fixtures": [
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [
@@ -145,6 +150,7 @@
         "tests/fixtures/worker-parity/siem-dedupe-cases.json",
         "tests/fixtures/worker-parity/siem-envelope-cases.json",
         "tests/fixtures/worker-parity/siem-generic-webhook-delivery.json",
+        "tests/fixtures/worker-parity/siem-http-adapter-requests.json",
         "tests/fixtures/worker-parity/siem-local-adapter-harness.json"
       ],
       "tests": [

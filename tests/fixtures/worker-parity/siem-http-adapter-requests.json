@@ -1,0 +1,332 @@
+{
+  "version": 1,
+  "description": "Deterministic local capture fixtures for Go SIEM HTTP adapter request/auth/body parity. Endpoints are capture.aperio.test only and must be reached through injected transports in tests.",
+  "payload": {
+    "kind": "finding",
+    "organizationId": "org_http_adapter",
+    "occurredAt": "2026-06-06T12:34:56.000Z",
+    "record": {
+      "findingId": "fnd_http_adapter",
+      "dedupeKey": "dedupe_http_adapter",
+      "sourceEventId": "evt_http_adapter",
+      "provider": "GITHUB",
+      "title": "HTTP adapter parity finding",
+      "severity": "HIGH",
+      "status": "OPEN"
+    }
+  },
+  "cases": [
+    {
+      "name": "splunk_hec_finding",
+      "kind": "SPLUNK_HEC",
+      "destination": {
+        "id": "dst_http_splunk",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/services/collector",
+        "token": "fixture-splunk-token",
+        "index": "aperio-http"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/services/collector",
+        "contentType": "application/json",
+        "headers": {
+          "Authorization": "Splunk fixture-splunk-token"
+        },
+        "body": {
+          "event": {
+            "schema_version": "aperio.finding.v1",
+            "source": "aperio",
+            "producer": "aperio.sspm",
+            "destination_id": "dst_http_splunk",
+            "organization_id": "org_http_adapter",
+            "kind": "finding",
+            "occurred_at": "2026-06-06T12:34:56.000Z",
+            "record": {
+              "dedupeKey": "dedupe_http_adapter",
+              "findingId": "fnd_http_adapter",
+              "provider": "GITHUB",
+              "severity": "HIGH",
+              "sourceEventId": "evt_http_adapter",
+              "status": "OPEN",
+              "title": "HTTP adapter parity finding"
+            }
+          },
+          "index": "aperio-http",
+          "source": "aperio",
+          "sourcetype": "aperio:finding",
+          "time": 1780749296
+        }
+      }
+    },
+    {
+      "name": "panther_finding",
+      "kind": "PANTHER",
+      "destination": {
+        "id": "dst_http_panther",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/panther/http-source",
+        "token": "fixture-panther-token"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/panther/http-source",
+        "contentType": "application/json",
+        "headers": {
+          "x-api-key": "fixture-panther-token"
+        },
+        "body": {
+          "schema_version": "aperio.finding.v1",
+          "source": "aperio",
+          "producer": "aperio.sspm",
+          "destination_id": "dst_http_panther",
+          "organization_id": "org_http_adapter",
+          "kind": "finding",
+          "occurred_at": "2026-06-06T12:34:56.000Z",
+          "record": {
+            "dedupeKey": "dedupe_http_adapter",
+            "findingId": "fnd_http_adapter",
+            "provider": "GITHUB",
+            "severity": "HIGH",
+            "sourceEventId": "evt_http_adapter",
+            "status": "OPEN",
+            "title": "HTTP adapter parity finding"
+          }
+        }
+      }
+    },
+    {
+      "name": "panopticon_bearer",
+      "kind": "PANOPTICON",
+      "destination": {
+        "id": "dst_http_panopticon_token",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/panopticon/ingest",
+        "token": "fixture-panopticon-token"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/panopticon/ingest",
+        "contentType": "application/json",
+        "headers": {
+          "Authorization": "Bearer fixture-panopticon-token"
+        },
+        "body": {
+          "schema_version": "aperio.finding.v1",
+          "source": "aperio",
+          "producer": "aperio.sspm",
+          "destination_id": "dst_http_panopticon_token",
+          "organization_id": "org_http_adapter",
+          "kind": "finding",
+          "occurred_at": "2026-06-06T12:34:56.000Z",
+          "record": {
+            "dedupeKey": "dedupe_http_adapter",
+            "findingId": "fnd_http_adapter",
+            "provider": "GITHUB",
+            "severity": "HIGH",
+            "sourceEventId": "evt_http_adapter",
+            "status": "OPEN",
+            "title": "HTTP adapter parity finding"
+          }
+        }
+      }
+    },
+    {
+      "name": "panopticon_tokenless",
+      "kind": "PANOPTICON",
+      "destination": {
+        "id": "dst_http_panopticon_unsigned",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/panopticon/ingest-tokenless"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/panopticon/ingest-tokenless",
+        "contentType": "application/json",
+        "absentHeaders": ["Authorization"],
+        "body": {
+          "schema_version": "aperio.finding.v1",
+          "source": "aperio",
+          "producer": "aperio.sspm",
+          "destination_id": "dst_http_panopticon_unsigned",
+          "organization_id": "org_http_adapter",
+          "kind": "finding",
+          "occurred_at": "2026-06-06T12:34:56.000Z",
+          "record": {
+            "dedupeKey": "dedupe_http_adapter",
+            "findingId": "fnd_http_adapter",
+            "provider": "GITHUB",
+            "severity": "HIGH",
+            "sourceEventId": "evt_http_adapter",
+            "status": "OPEN",
+            "title": "HTTP adapter parity finding"
+          }
+        }
+      }
+    },
+    {
+      "name": "elastic_bulk_finding",
+      "kind": "ELASTIC",
+      "destination": {
+        "id": "dst_http_elastic",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/elastic/_bulk",
+        "token": "fixture-elastic-api-key",
+        "index": "aperio-http-findings"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/elastic/_bulk",
+        "contentType": "application/x-ndjson",
+        "headers": {
+          "Authorization": "ApiKey fixture-elastic-api-key"
+        },
+        "rawBody": "{\"index\":{\"_index\":\"aperio-http-findings\"}}\n{\"schema_version\":\"aperio.finding.v1\",\"source\":\"aperio\",\"producer\":\"aperio.sspm\",\"destination_id\":\"dst_http_elastic\",\"organization_id\":\"org_http_adapter\",\"kind\":\"finding\",\"occurred_at\":\"2026-06-06T12:34:56.000Z\",\"record\":{\"dedupeKey\":\"dedupe_http_adapter\",\"findingId\":\"fnd_http_adapter\",\"provider\":\"GITHUB\",\"severity\":\"HIGH\",\"sourceEventId\":\"evt_http_adapter\",\"status\":\"OPEN\",\"title\":\"HTTP adapter parity finding\"}}\n"
+      }
+    },
+    {
+      "name": "datadog_log_finding",
+      "kind": "DATADOG",
+      "destination": {
+        "id": "dst_http_datadog",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/datadog/api/v2/logs",
+        "token": "fixture-datadog-api-key"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/datadog/api/v2/logs",
+        "contentType": "application/json",
+        "headers": {
+          "DD-API-KEY": "fixture-datadog-api-key"
+        },
+        "body": [
+          {
+            "ddsource": "aperio",
+            "service": "aperio-finding",
+            "ddtags": "org:org_http_adapter",
+            "message": {
+              "schema_version": "aperio.finding.v1",
+              "source": "aperio",
+              "producer": "aperio.sspm",
+              "destination_id": "dst_http_datadog",
+              "organization_id": "org_http_adapter",
+              "kind": "finding",
+              "occurred_at": "2026-06-06T12:34:56.000Z",
+              "record": {
+                "dedupeKey": "dedupe_http_adapter",
+                "findingId": "fnd_http_adapter",
+                "provider": "GITHUB",
+                "severity": "HIGH",
+                "sourceEventId": "evt_http_adapter",
+                "status": "OPEN",
+                "title": "HTTP adapter parity finding"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "generic_webhook_signed",
+      "kind": "GENERIC_WEBHOOK",
+      "destination": {
+        "id": "dst_http_webhook_signed",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/webhook/signed",
+        "token": "fixture-generic-secret"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/webhook/signed",
+        "contentType": "application/json",
+        "headers": {
+          "x-aperio-signature": "077c63f352fe2c6de0f3e1b7830845c13952d00caa75e15d9e3f44490805d2c8"
+        },
+        "body": {
+          "schema_version": "aperio.finding.v1",
+          "source": "aperio",
+          "producer": "aperio.sspm",
+          "destination_id": "dst_http_webhook_signed",
+          "organization_id": "org_http_adapter",
+          "kind": "finding",
+          "occurred_at": "2026-06-06T12:34:56.000Z",
+          "record": {
+            "dedupeKey": "dedupe_http_adapter",
+            "findingId": "fnd_http_adapter",
+            "provider": "GITHUB",
+            "severity": "HIGH",
+            "sourceEventId": "evt_http_adapter",
+            "status": "OPEN",
+            "title": "HTTP adapter parity finding"
+          }
+        }
+      }
+    },
+    {
+      "name": "generic_webhook_unsigned",
+      "kind": "GENERIC_WEBHOOK",
+      "destination": {
+        "id": "dst_http_webhook_unsigned",
+        "organizationId": "org_http_adapter",
+        "endpointUrl": "https://capture.aperio.test/webhook/unsigned"
+      },
+      "expectedRequest": {
+        "method": "POST",
+        "url": "https://capture.aperio.test/webhook/unsigned",
+        "contentType": "application/json",
+        "absentHeaders": ["x-aperio-signature", "Authorization", "DD-API-KEY", "x-api-key"],
+        "body": {
+          "schema_version": "aperio.finding.v1",
+          "source": "aperio",
+          "producer": "aperio.sspm",
+          "destination_id": "dst_http_webhook_unsigned",
+          "organization_id": "org_http_adapter",
+          "kind": "finding",
+          "occurred_at": "2026-06-06T12:34:56.000Z",
+          "record": {
+            "dedupeKey": "dedupe_http_adapter",
+            "findingId": "fnd_http_adapter",
+            "provider": "GITHUB",
+            "severity": "HIGH",
+            "sourceEventId": "evt_http_adapter",
+            "status": "OPEN",
+            "title": "HTTP adapter parity finding"
+          }
+        }
+      }
+    }
+  ],
+  "negativeCases": [
+    {
+      "name": "splunk_missing_token",
+      "kind": "SPLUNK_HEC",
+      "message": "missing HEC token"
+    },
+    {
+      "name": "panther_missing_token",
+      "kind": "PANTHER",
+      "message": "missing Panther API token"
+    },
+    {
+      "name": "elastic_missing_index",
+      "kind": "ELASTIC",
+      "message": "Elasticsearch index missing"
+    },
+    {
+      "name": "elastic_missing_token",
+      "kind": "ELASTIC",
+      "message": "missing Elasticsearch API key"
+    },
+    {
+      "name": "datadog_missing_token",
+      "kind": "DATADOG",
+      "message": "missing DD-API-KEY"
+    },
+    {
+      "name": "generic_webhook_tampered_secret",
+      "kind": "GENERIC_WEBHOOK",
+      "message": "SIEM token decrypt failed"
+    }
+  ]
+}

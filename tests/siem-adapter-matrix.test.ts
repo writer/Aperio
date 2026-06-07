@@ -105,6 +105,14 @@ test("SIEM adapter matrix marks every declared adapter Go-owned", () => {
   const matrix = readJson<SiemAdapterMatrix>(
     "tests/fixtures/worker-parity/siem-adapter-matrix.json"
   );
+  const httpAdapterKinds = new Set<SiemKindKey>([
+    "SPLUNK_HEC",
+    "PANTHER",
+    "PANOPTICON",
+    "ELASTIC",
+    "DATADOG",
+    "GENERIC_WEBHOOK"
+  ]);
 
   for (const adapter of matrix.adapters) {
     assert.equal(adapter.prismaKind, true, `${adapter.kind} must be present in Prisma`);
@@ -123,6 +131,12 @@ test("SIEM adapter matrix marks every declared adapter Go-owned", () => {
       adapter.fixtures.includes("tests/fixtures/worker-parity/siem-local-adapter-harness.json"),
       `${adapter.kind} must cite local adapter harness fixtures`
     );
+    if (httpAdapterKinds.has(adapter.kind)) {
+      assert.ok(
+        adapter.fixtures.includes("tests/fixtures/worker-parity/siem-http-adapter-requests.json"),
+        `${adapter.kind} must cite deterministic HTTP request capture fixtures`
+      );
+    }
     assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_test.go"));
     assert.ok(adapter.tests.includes("internal/siemdispatcher/dispatcher_db_test.go"));
   }

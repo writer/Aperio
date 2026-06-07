@@ -83,6 +83,36 @@ type genericWebhookFixture struct {
 	} `json:"expectedRequest"`
 }
 
+type siemHTTPAdapterRequestsFixture struct {
+	Description string  `json:"description"`
+	Payload     Payload `json:"payload"`
+	Cases       []struct {
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		Destination struct {
+			ID             string `json:"id"`
+			OrganizationID string `json:"organizationId"`
+			EndpointURL    string `json:"endpointUrl"`
+			Token          string `json:"token"`
+			Index          string `json:"index"`
+		} `json:"destination"`
+		ExpectedRequest struct {
+			Method        string            `json:"method"`
+			URL           string            `json:"url"`
+			ContentType   string            `json:"contentType"`
+			Headers       map[string]string `json:"headers"`
+			AbsentHeaders []string          `json:"absentHeaders"`
+			Body          json.RawMessage   `json:"body"`
+			RawBody       string            `json:"rawBody"`
+		} `json:"expectedRequest"`
+	} `json:"cases"`
+	NegativeCases []struct {
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+	} `json:"negativeCases"`
+}
+
 type capturedHTTPCall struct {
 	method string
 	url    string
@@ -385,6 +415,128 @@ func TestGoOwnedAdaptersUseLocalHarnessWithoutProductionEndpoints(t *testing.T) 
 		if !seen[kind] {
 			t.Fatalf("local adapter harness missing %s", kind)
 		}
+	}
+}
+
+func TestHTTPAdapterRequestContractsMatchLocalCaptureFixtures(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemHTTPAdapterRequestsFixture](t, "siem-http-adapter-requests.json")
+	if fixture.Description == "" {
+		t.Fatal("HTTP adapter request fixture must document local-only capture constraints")
+	}
+	for _, testCase := range fixture.Cases {
+		testCase := testCase
+		t.Run(testCase.Name, func(t *testing.T) {
+			dest := destination{
+				ID:             testCase.Destination.ID,
+				OrganizationID: testCase.Destination.OrganizationID,
+				Kind:           testCase.Kind,
+				Name:           testCase.Name,
+				EndpointURL:    sql.NullString{String: testCase.Destination.EndpointURL, Valid: testCase.Destination.EndpointURL != ""},
+				Index:          sql.NullString{String: testCase.Destination.Index, Valid: testCase.Destination.Index != ""},
+			}
+			if testCase.Destination.Token != "" {
+				dest.EncryptedToken = sql.NullString{
+					String: encryptForDispatcherTest(t, testCase.Destination.Token, destinationTokenAAD(dest)),
+					Valid:  true,
+				}
+			}
+			transport := &captureTransport{}
+			checkedEndpoints := []string{}
+			dispatcher := &Dispatcher{
+				httpClient: &http.Client{Transport: transport},
+				endpointSafetyCheck: func(_ context.Context, endpoint string) error {
+					if endpoint != testCase.ExpectedRequest.URL {
+						t.Fatalf("endpoint safety checked %q, want %q", endpoint, testCase.ExpectedRequest.URL)
+					}
+					if !strings.HasPrefix(endpoint, "https://capture.aperio.test/") {
+						t.Fatalf("fixture endpoint must stay local-only, got %s", endpoint)
+					}
+					checkedEndpoints = append(checkedEndpoints, endpoint)
+					return nil
+				},
+			}
+			if err := dispatcher.sendForKind(context.Background(), dest, fixture.Payload); err != nil {
+				t.Fatalf("send %s: %v", testCase.Kind, err)
+			}
+			if len(checkedEndpoints) != 1 {
+				t.Fatalf("expected one endpoint-safety check, got %d", len(checkedEndpoints))
+			}
+			if transport.calls != 1 {
+				t.Fatalf("expected one captured request, got %d", transport.calls)
+			}
+			if transport.method != testCase.ExpectedRequest.Method || transport.url != testCase.ExpectedRequest.URL {
+				t.Fatalf("request = %s %s, want %s %s", transport.method, transport.url, testCase.ExpectedRequest.Method, testCase.ExpectedRequest.URL)
+			}
+			if got := transport.header.Get("content-type"); got != testCase.ExpectedRequest.ContentType {
+				t.Fatalf("content-type = %q, want %q", got, testCase.ExpectedRequest.ContentType)
+			}
+			for header, want := range testCase.ExpectedRequest.Headers {
+				if got := transport.header.Get(header); got != want {
+					t.Fatalf("%s header %s = %q, want %q", testCase.Kind, header, got, want)
+				}
+			}
+			for _, header := range testCase.ExpectedRequest.AbsentHeaders {
+				if got := transport.header.Get(header); got != "" {
+					t.Fatalf("%s header %s unexpectedly set to %q", testCase.Kind, header, got)
+				}
+			}
+			if testCase.ExpectedRequest.RawBody != "" {
+				if got := string(transport.body); got != testCase.ExpectedRequest.RawBody {
+					t.Fatalf("%s raw body = %q, want %q", testCase.Kind, got, testCase.ExpectedRequest.RawBody)
+				}
+			} else {
+				assertJSONEqual(t, testCase.Name+" body", transport.body, testCase.ExpectedRequest.Body)
+			}
+			if testCase.Destination.Token != "" && strings.Contains(string(transport.body), testCase.Destination.Token) {
+				t.Fatalf("%s request body leaked plaintext token", testCase.Kind)
+			}
+		})
+	}
+}
+
+func TestHTTPAdapterRequiredFieldsAndCredentialsDoNotSendRequests(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	fixture := readJSONFixture[siemHTTPAdapterRequestsFixture](t, "siem-http-adapter-requests.json")
+	for _, testCase := range fixture.NegativeCases {
+		testCase := testCase
+		t.Run(testCase.Name, func(t *testing.T) {
+			dest := destination{
+				ID:             "dst_negative_" + testCase.Name,
+				OrganizationID: fixture.Payload.OrganizationID,
+				Kind:           testCase.Kind,
+				Name:           testCase.Name,
+				EndpointURL:    sql.NullString{String: "https://capture.aperio.test/" + testCase.Name, Valid: true},
+			}
+			switch testCase.Name {
+			case "elastic_missing_index":
+				dest.EncryptedToken = sql.NullString{
+					String: encryptForDispatcherTest(t, "fixture-elastic-token", destinationTokenAAD(dest)),
+					Valid:  true,
+				}
+			case "elastic_missing_token":
+				dest.Index = sql.NullString{String: "aperio-negative", Valid: true}
+			case "generic_webhook_tampered_secret":
+				dest.EncryptedToken = sql.NullString{
+					String: tamperEncryptedTagForDispatcherTest(t, encryptForDispatcherTest(t, "fixture-generic-secret", destinationTokenAAD(dest))),
+					Valid:  true,
+				}
+			}
+			transport := &captureTransport{}
+			dispatcher := &Dispatcher{
+				httpClient:          &http.Client{Transport: transport},
+				endpointSafetyCheck: func(context.Context, string) error { return nil },
+			}
+			err := dispatcher.sendForKind(context.Background(), dest, fixture.Payload)
+			if err == nil || !strings.Contains(err.Error(), testCase.Message) {
+				t.Fatalf("expected %q failure, got %v", testCase.Message, err)
+			}
+			if transport.calls != 0 {
+				t.Fatalf("%s should fail closed before HTTP transport, got %d calls", testCase.Name, transport.calls)
+			}
+		})
 	}
 }
 

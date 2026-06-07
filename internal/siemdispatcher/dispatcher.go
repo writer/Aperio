@@ -33,6 +33,23 @@ const (
 
 var errDeliveryLeaseLost = errors.New("siem delivery lease lost")
 
+type permanentSendError struct {
+	message string
+}
+
+func (e permanentSendError) Error() string {
+	return e.message
+}
+
+type httpStatusError struct {
+	statusCode int
+	statusText string
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("%d %s", e.statusCode, e.statusText)
+}
+
 type Payload struct {
 	Kind           string         `json:"kind"`
 	OrganizationID string         `json:"organizationId"`
@@ -254,7 +271,7 @@ func (d *Dispatcher) processPayload(ctx context.Context, item delivery, payload 
 	}
 	err = d.sendForKind(ctx, dest, payload)
 	if err != nil {
-		return d.fail(ctx, item, false, err.Error())
+		return d.fail(ctx, item, isPermanentSendFailure(err), err.Error())
 	}
 	if err := d.finish(ctx, item, true, false, ""); err != nil {
 		return err
@@ -297,6 +314,22 @@ func destinationLoadFailure(err error) (bool, string) {
 		return true, "destination not active"
 	}
 	return false, err.Error()
+}
+
+func permanentAdapterError(message string) error {
+	return permanentSendError{message: message}
+}
+
+func isPermanentSendFailure(err error) bool {
+	var permanent permanentSendError
+	if errors.As(err, &permanent) {
+		return true
+	}
+	var statusErr httpStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.statusCode >= http.StatusMultipleChoices && statusErr.statusCode < http.StatusInternalServerError
+	}
+	return false
 }
 
 func (d *Dispatcher) finish(ctx context.Context, item delivery, ok bool, permanent bool, message string, updateDestinationHealth ...bool) error {
@@ -434,7 +467,7 @@ func (d *Dispatcher) sendForKind(ctx context.Context, dest destination, payload 
 
 func (d *Dispatcher) sendSplunk(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	token, err := requireDestinationToken(dest, "missing HEC token")
 	if err != nil {
@@ -462,7 +495,7 @@ func (d *Dispatcher) sendSplunk(ctx context.Context, dest destination, payload P
 
 func (d *Dispatcher) sendPanther(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	token, err := requireDestinationToken(dest, "missing Panther API token")
 	if err != nil {
@@ -479,7 +512,7 @@ func (d *Dispatcher) sendPanther(ctx context.Context, dest destination, payload 
 
 func (d *Dispatcher) sendPanopticon(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	headers := map[string]string{}
 	token, err := optionalDestinationToken(dest)
@@ -498,10 +531,10 @@ func (d *Dispatcher) sendPanopticon(ctx context.Context, dest destination, paylo
 
 func (d *Dispatcher) sendElastic(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	if !dest.Index.Valid || strings.TrimSpace(dest.Index.String) == "" {
-		return errors.New("Elasticsearch index missing")
+		return permanentAdapterError("Elasticsearch index missing")
 	}
 	token, err := requireDestinationToken(dest, "missing Elasticsearch API key")
 	if err != nil {
@@ -519,7 +552,7 @@ func (d *Dispatcher) sendElastic(ctx context.Context, dest destination, payload 
 
 func (d *Dispatcher) sendDatadog(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	token, err := requireDestinationToken(dest, "missing DD-API-KEY")
 	if err != nil {
@@ -541,7 +574,7 @@ func (d *Dispatcher) sendDatadog(ctx context.Context, dest destination, payload 
 
 func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, payload Payload) error {
 	if !dest.EndpointURL.Valid || strings.TrimSpace(dest.EndpointURL.String) == "" {
-		return errors.New("endpoint not configured")
+		return permanentAdapterError("endpoint not configured")
 	}
 	bodyBytes, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
 	if err != nil {
@@ -551,7 +584,7 @@ func (d *Dispatcher) sendGenericWebhook(ctx context.Context, dest destination, p
 	if dest.EncryptedToken.Valid && strings.TrimSpace(dest.EncryptedToken.String) != "" {
 		token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
 		if err != nil {
-			return errors.New("SIEM token decrypt failed")
+			return permanentAdapterError("SIEM token decrypt failed")
 		}
 		signature := hmac.New(sha256.New, []byte(token))
 		_, _ = signature.Write(bodyBytes)
@@ -605,7 +638,7 @@ func (d *Dispatcher) getJSON(ctx context.Context, endpoint string, headers map[s
 
 func (d *Dispatcher) doHTTPRequest(ctx context.Context, method string, endpoint string, contentType string, headers map[string]string, body []byte) error {
 	if err := d.checkEndpoint(ctx, endpoint); err != nil {
-		return err
+		return permanentAdapterError(err.Error())
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, networkTimeout)
 	defer cancel()
@@ -630,7 +663,7 @@ func (d *Dispatcher) doHTTPRequest(ctx context.Context, method string, endpoint 
 		if statusText == "" {
 			statusText = "HTTP error"
 		}
-		return fmt.Errorf("%d %s", res.StatusCode, statusText)
+		return httpStatusError{statusCode: res.StatusCode, statusText: statusText}
 	}
 	return nil
 }
@@ -972,7 +1005,7 @@ func optionalDestinationToken(dest destination) (string, error) {
 	}
 	token, err := decryptString(dest.EncryptedToken.String, destinationTokenAAD(dest))
 	if err != nil {
-		return "", errors.New("SIEM token decrypt failed")
+		return "", permanentAdapterError("SIEM token decrypt failed")
 	}
 	return token, nil
 }
@@ -983,7 +1016,7 @@ func requireDestinationToken(dest destination, missingMessage string) (string, e
 		return "", err
 	}
 	if strings.TrimSpace(token) == "" {
-		return "", errors.New(missingMessage)
+		return "", permanentAdapterError(missingMessage)
 	}
 	return token, nil
 }
