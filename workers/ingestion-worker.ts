@@ -1357,7 +1357,7 @@ export function evaluateSecurityRules(
   return findings;
 }
 
-function dedupeKey(payload: IngestionPayload, finding: RuleFinding): string {
+export function dedupeKey(payload: IngestionPayload, finding: RuleFinding): string {
   // Dedupe intentionally excludes eventId/time so repeat observations update or
   // reopen the same logical finding instead of flooding analysts with duplicates.
   return createHash("sha256")

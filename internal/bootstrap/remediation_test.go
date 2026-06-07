@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,25 +11,81 @@ import (
 	"testing"
 )
 
-func TestExecuteRemediationOktaSuspend(t *testing.T) {
+type remediationHTTPDoerFunc func(*http.Request) (*http.Response, error)
+
+func (f remediationHTTPDoerFunc) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestRemediationActionClassificationMatrix(t *testing.T) {
+	expected := map[string]struct {
+		provider string
+		class    remediationActionClass
+	}{
+		"github.revoke_oauth_app":          {"GITHUB", remediationActionUnsupported},
+		"github.enforce_branch_protection": {"GITHUB", remediationActionUnsupported},
+		"slack.deactivate_user":            {"SLACK", remediationActionUnsupported},
+		"slack.revoke_app_install":         {"SLACK", remediationActionRealProvider},
+		"google.suspend_user":              {"GOOGLE_WORKSPACE", remediationActionUnsupported},
+		"google.revoke_oauth_grants":       {"GOOGLE_WORKSPACE", remediationActionUnsupported},
+		"okta.suspend_user":                {"OKTA", remediationActionUnsupported},
+		"okta.reset_mfa_factors":           {"OKTA", remediationActionUnsupported},
+		"ms365.revoke_sessions":            {"MICROSOFT_365", remediationActionUnsupported},
+		"ms365.disable_user":               {"MICROSOFT_365", remediationActionUnsupported},
+		"atlassian.revoke_user_access":     {"ATLASSIAN", remediationActionUnsupported},
+	}
+	if len(remediationActionDefinitions) != len(expected) {
+		t.Fatalf("classification table has %d actions, want %d", len(remediationActionDefinitions), len(expected))
+	}
+	for _, definition := range remediationActionDefinitions {
+		want, ok := expected[definition.Action]
+		if !ok {
+			t.Fatalf("unexpected action classification: %+v", definition)
+		}
+		if definition.Provider != want.provider || definition.Class != want.class {
+			t.Fatalf("classification for %s = (%s,%s), want (%s,%s)", definition.Action, definition.Provider, definition.Class, want.provider, want.class)
+		}
+	}
+	for _, connector := range rawConnectorCatalog() {
+		for _, action := range connector.RemediationActions {
+			definition, ok := findRemediationActionDefinition(action.Key)
+			if !ok {
+				t.Fatalf("catalog action %s is not classified", action.Key)
+			}
+			if definition.Provider != connector.Provider {
+				t.Fatalf("catalog action %s classified for %s, want %s", action.Key, definition.Provider, connector.Provider)
+			}
+		}
+	}
+}
+
+func TestExecuteUnsupportedRemediationMatrix(t *testing.T) {
 	app := &App{}
-	result := app.executeRemediation(context.Background(), remediationRequest{
-		Provider:          "OKTA",
-		Action:            "okta.suspend_user",
-		ExternalAccountID: "acme.okta.com",
-		TargetIdentifier:  "user@example.com",
-	})
-	if !result.Success {
-		t.Fatal("expected okta.suspend_user to succeed")
-	}
-	if !strings.HasPrefix(result.ProviderRequestID, "okta_") {
-		t.Fatalf("unexpected provider request id: %s", result.ProviderRequestID)
-	}
-	if len(result.Effects) != 3 {
-		t.Fatalf("expected 3 effects, got %d", len(result.Effects))
-	}
-	if !strings.Contains(result.Effects[0], "user@example.com") {
-		t.Fatalf("expected target in effect: %s", result.Effects[0])
+	for _, definition := range remediationActionDefinitions {
+		if definition.Class != remediationActionUnsupported {
+			continue
+		}
+		t.Run(definition.Action, func(t *testing.T) {
+			result := app.executeRemediation(context.Background(), remediationRequest{
+				Provider:          definition.Provider,
+				Action:            definition.Action,
+				ExternalAccountID: "tenant.example",
+				TargetIdentifier:  "user@example.com",
+				IntegrationToken:  "local-token",
+			})
+			if result.Success {
+				t.Fatal("expected unsupported action to fail")
+			}
+			if result.ProviderRequestID != "" {
+				t.Fatalf("unsupported action returned provider request id %q", result.ProviderRequestID)
+			}
+			if len(result.Effects) != 0 {
+				t.Fatalf("expected no effects, got %d", len(result.Effects))
+			}
+			if !strings.Contains(strings.ToLower(result.Message), "unavailable") {
+				t.Fatalf("expected unavailable message, got %q", result.Message)
+			}
+		})
 	}
 }
 
@@ -84,32 +141,110 @@ func TestExecuteRemediationSlackRevokeCallsAdminAppsUninstall(t *testing.T) {
 	}
 }
 
-func TestExecuteRemediationSlackRevokeProviderFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-Slack-Req-Id", "slack-req-failed")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "missing_scope"})
-	}))
-	defer server.Close()
+func TestExecuteRemediationSlackRevokeProviderFailures(t *testing.T) {
+	cases := []struct {
+		name                  string
+		networkErr            error
+		statusCode            int
+		body                  string
+		requestID             string
+		wantProviderRequestID string
+		wantMessage           string
+	}{
+		{
+			name:        "network error",
+			networkErr:  errors.New("dial tcp: connection refused"),
+			wantMessage: "request failed",
+		},
+		{
+			name:                  "non-2xx response",
+			statusCode:            http.StatusServiceUnavailable,
+			body:                  `{"ok":false,"error":"service_unavailable"}`,
+			requestID:             "slack-req-non-2xx",
+			wantProviderRequestID: "slack-req-non-2xx",
+			wantMessage:           "HTTP 503",
+		},
+		{
+			name:                  "malformed json",
+			body:                  `{"ok":`,
+			requestID:             "slack-req-malformed",
+			wantProviderRequestID: "slack-req-malformed",
+			wantMessage:           "invalid response",
+		},
+		{
+			name:                  "ok false",
+			body:                  `{"ok":false,"error":"missing_scope"}`,
+			requestID:             "slack-req-failed",
+			wantProviderRequestID: "slack-req-failed",
+			wantMessage:           "missing_scope",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			app := &App{}
+			if tc.networkErr != nil {
+				app.slackAPIBaseURL = "https://slack.example.test/api"
+				app.remediationHTTPClient = remediationHTTPDoerFunc(func(*http.Request) (*http.Response, error) {
+					calls.Add(1)
+					return nil, tc.networkErr
+				})
+			} else {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					if r.URL.Path != "/admin.apps.uninstall" {
+						t.Fatalf("path = %s, want /admin.apps.uninstall", r.URL.Path)
+					}
+					if r.Method != http.MethodPost {
+						t.Fatalf("method = %s, want POST", r.Method)
+					}
+					if err := r.ParseForm(); err != nil {
+						t.Fatalf("parse form: %v", err)
+					}
+					if got := r.Form.Get("app_id"); got != "A123" {
+						t.Fatalf("app_id = %q, want A123", got)
+					}
+					if got := r.Form.Get("team_ids"); got != "T123" {
+						t.Fatalf("team_ids = %q, want T123", got)
+					}
+					if tc.requestID != "" {
+						w.Header().Set("X-Slack-Req-Id", tc.requestID)
+					}
+					statusCode := tc.statusCode
+					if statusCode == 0 {
+						statusCode = http.StatusOK
+					}
+					w.WriteHeader(statusCode)
+					_, _ = w.Write([]byte(tc.body))
+				}))
+				defer server.Close()
+				app.remediationHTTPClient = server.Client()
+				app.slackAPIBaseURL = server.URL
+			}
 
-	app := &App{remediationHTTPClient: server.Client(), slackAPIBaseURL: server.URL}
-	result := app.executeRemediation(context.Background(), remediationRequest{
-		Provider:          "SLACK",
-		Action:            "slack.revoke_app_install",
-		ExternalAccountID: "T123",
-		TargetIdentifier:  "A123",
-		IntegrationToken:  "xoxp-remediation",
-	})
-	if result.Success {
-		t.Fatal("expected Slack provider failure to fail remediation")
-	}
-	if result.ProviderRequestID != "slack-req-failed" {
-		t.Fatalf("provider request id = %s", result.ProviderRequestID)
-	}
-	if !strings.Contains(result.Message, "missing_scope") {
-		t.Fatalf("expected Slack error in message, got %q", result.Message)
-	}
-	if len(result.Effects) != 0 {
-		t.Fatalf("expected no effects, got %d", len(result.Effects))
+			result := app.executeRemediation(context.Background(), remediationRequest{
+				Provider:          "SLACK",
+				Action:            "slack.revoke_app_install",
+				ExternalAccountID: "T123",
+				TargetIdentifier:  "A123",
+				IntegrationToken:  "xoxp-remediation",
+			})
+			if result.Success {
+				t.Fatalf("expected Slack provider failure to fail remediation: %+v", result)
+			}
+			if result.ProviderRequestID != tc.wantProviderRequestID {
+				t.Fatalf("provider request id = %s, want %s", result.ProviderRequestID, tc.wantProviderRequestID)
+			}
+			if !strings.Contains(result.Message, tc.wantMessage) {
+				t.Fatalf("expected message containing %q, got %q", tc.wantMessage, result.Message)
+			}
+			if len(result.Effects) != 0 {
+				t.Fatalf("expected no effects, got %d", len(result.Effects))
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("expected one provider call, got %d", calls.Load())
+			}
+		})
 	}
 }
 
@@ -130,10 +265,44 @@ func TestExecuteRemediationSlackRevokeRequiresTargetBeforeNetwork(t *testing.T) 
 	if result.Success {
 		t.Fatal("expected missing Slack app id to fail")
 	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("missing target returned provider request id %q", result.ProviderRequestID)
+	}
 	if called.Load() != 0 {
 		t.Fatalf("expected no provider request, got %d", called.Load())
 	}
 	if !strings.Contains(result.Message, "app id is required") {
+		t.Fatalf("unexpected message: %s", result.Message)
+	}
+}
+
+func TestExecuteRemediationSlackRevokeRequiresTokenBeforeNetwork(t *testing.T) {
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called.Add(1)
+	}))
+	defer server.Close()
+
+	app := &App{remediationHTTPClient: server.Client(), slackAPIBaseURL: server.URL}
+	result := app.executeRemediation(context.Background(), remediationRequest{
+		Provider:          "SLACK",
+		Action:            "slack.revoke_app_install",
+		ExternalAccountID: "T123",
+		TargetIdentifier:  "A123",
+	})
+	if result.Success {
+		t.Fatal("expected missing Slack token to fail")
+	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("missing token returned provider request id %q", result.ProviderRequestID)
+	}
+	if len(result.Effects) != 0 {
+		t.Fatalf("expected no provider effects, got %d", len(result.Effects))
+	}
+	if called.Load() != 0 {
+		t.Fatalf("expected no provider request, got %d", called.Load())
+	}
+	if !strings.Contains(result.Message, "access token is unavailable") {
 		t.Fatalf("unexpected message: %s", result.Message)
 	}
 }
@@ -149,10 +318,13 @@ func TestExecuteRemediationNotImplemented(t *testing.T) {
 	if result.Success {
 		t.Fatal("expected ms365.revoke_sessions to be unimplemented")
 	}
+	if result.ProviderRequestID != "" {
+		t.Fatalf("unsupported action returned provider request id %q", result.ProviderRequestID)
+	}
 	if len(result.Effects) != 0 {
 		t.Fatalf("expected no effects, got %d", len(result.Effects))
 	}
-	if !strings.Contains(result.Message, "not yet implemented") {
+	if !strings.Contains(strings.ToLower(result.Message), "unavailable") {
 		t.Fatalf("unexpected message: %s", result.Message)
 	}
 }
@@ -168,7 +340,7 @@ func TestExecuteRemediationUnknownAction(t *testing.T) {
 	if result.Success {
 		t.Fatal("expected unknown action to fail")
 	}
-	if !strings.HasPrefix(result.ProviderRequestID, "unknown_") {
+	if result.ProviderRequestID != "" {
 		t.Fatalf("unexpected provider request id: %s", result.ProviderRequestID)
 	}
 }

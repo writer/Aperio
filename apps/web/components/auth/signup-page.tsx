@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setAuthToken, signup } from "../../lib/api";
+import { signup } from "../../lib/api";
 import { useAuth } from "./auth-shell";
 import { AuthLayout } from "./auth-layout";
 import { Button } from "../ui/button";
@@ -44,14 +44,13 @@ export function SignupPage() {
     setMessage("");
 
     try {
-      const response = await signup({
+      await signup({
         organizationName: organizationName.trim(),
         organizationSlug: normalizeWorkspaceSlug(organizationSlug),
         ownerEmail: ownerEmail.trim().toLowerCase(),
         ownerDisplayName: ownerDisplayName.trim() || undefined,
         password
       });
-      setAuthToken(response.data.token);
       await refreshSession();
       router.replace("/");
     } catch (error) {

@@ -10,7 +10,6 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
-  clearAuthToken,
   fetchCurrentSession,
   logoutCurrentSession,
   type AuthSession
@@ -51,14 +50,12 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       const response = await fetchCurrentSession();
       setState({ status: "authenticated", session: response.data });
     } catch {
-      clearAuthToken();
       setState({ status: "unauthenticated", session: null });
     }
   }
 
   function logout() {
     void logoutCurrentSession().catch(() => undefined);
-    clearAuthToken();
     setState({ status: "unauthenticated", session: null });
     router.replace("/login");
   }

@@ -7,30 +7,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-func TestStableDeliveryKeyIncludesFindingOccurrence(t *testing.T) {
-	payload := Payload{
-		Kind:           "finding",
-		OrganizationID: "org_1",
-		OccurredAt:     "2026-06-06T00:00:00.000Z",
-		Record: map[string]any{
-			"dedupeKey": "stable-finding",
-			"status":    "OPEN",
-		},
+type siemParityFixture struct {
+	DestinationID       string          `json:"destinationId"`
+	Stream              string          `json:"stream"`
+	Payload             Payload         `json:"payload"`
+	ExpectedDeliveryKey string          `json:"expectedDeliveryKey"`
+	ReopenedSourceEvent string          `json:"reopenedSourceEventId"`
+	ReopenedOccurredAt  string          `json:"reopenedOccurredAt"`
+	RawPayload          json.RawMessage `json:"-"`
+}
+
+func readSiemParityFixture(t *testing.T) siemParityFixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "worker-parity", "siem-finding-delivery.json"))
+	if err != nil {
+		t.Fatalf("read SIEM parity fixture: %v", err)
 	}
-	first := StableDeliveryKey(payload, "dst_1", "FINDINGS")
+	var fixture siemParityFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode SIEM parity fixture: %v", err)
+	}
+	fixture.RawPayload = raw
+	return fixture
+}
+
+func TestStableDeliveryKeyIncludesFindingOccurrence(t *testing.T) {
+	fixture := readSiemParityFixture(t)
+	payload := fixture.Payload
+	first := StableDeliveryKey(payload, fixture.DestinationID, fixture.Stream)
 	reopenedPayload := payload
-	reopenedPayload.OccurredAt = "2026-06-06T01:00:00.000Z"
-	reopened := StableDeliveryKey(reopenedPayload, "dst_1", "FINDINGS")
+	reopenedPayload.OccurredAt = fixture.ReopenedOccurredAt
+	reopenedPayload.Record = map[string]any{}
+	for key, value := range payload.Record {
+		reopenedPayload.Record[key] = value
+	}
+	reopenedPayload.Record["sourceEventId"] = fixture.ReopenedSourceEvent
+	reopened := StableDeliveryKey(reopenedPayload, fixture.DestinationID, fixture.Stream)
+	if first != fixture.ExpectedDeliveryKey {
+		t.Fatalf("delivery key = %s, want shared golden %s", first, fixture.ExpectedDeliveryKey)
+	}
 	if first == reopened {
 		t.Fatal("expected reopened finding occurrence to produce a distinct key")
 	}
-	if first != StableDeliveryKey(payload, "dst_1", "FINDINGS") {
+	if first != StableDeliveryKey(payload, fixture.DestinationID, fixture.Stream) {
 		t.Fatal("expected stable delivery key to be deterministic")
 	}
 }
