@@ -6,17 +6,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/writer/aperio/internal/siemdispatcher"
 )
 
 func TestDBBackedAgentTaskMessageToolsPreserveSeededBehavior(t *testing.T) {
 	db := openMCPToolTestDB(t)
-	defer db.Close()
 	ctx := context.Background()
 	orgID := seedMCPToolOrganization(t, db, "MCP Tools Org")
 	otherOrgID := seedMCPToolOrganization(t, db, "MCP Other Org")
@@ -182,7 +183,6 @@ func TestDBBackedAgentTaskMessageToolsPreserveSeededBehavior(t *testing.T) {
 
 func TestDBBackedRemediationProposalsStayHumanGated(t *testing.T) {
 	db := openMCPToolTestDB(t)
-	defer db.Close()
 	orgID := seedMCPToolOrganization(t, db, "MCP Proposal Org")
 	otherOrgID := seedMCPToolOrganization(t, db, "MCP Proposal Other Org")
 	service := NewToolService(db)
@@ -267,9 +267,10 @@ func TestDBBackedRemediationProposalsStayHumanGated(t *testing.T) {
 
 func TestMCPSharedSecretAndTenantBoundariesRejectBeforeSideEffectsAndDoNotPersistSecrets(t *testing.T) {
 	db := openMCPToolTestDB(t)
-	defer db.Close()
 	orgID := seedMCPToolOrganization(t, db, "MCP Secret Org")
 	otherOrgID := seedMCPToolOrganization(t, db, "MCP Secret Other Org")
+	_ = seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "ACTIVE", "secret-finding.jsonl")
+	_ = seedMCPSIEMDestination(t, db, otherOrgID, "FINDINGS", "ACTIVE", "secret-other-finding.jsonl")
 	secret := "mcp-secret-" + randomID()
 	t.Setenv("APERIO_MCP_ORGANIZATION_ID", orgID)
 	t.Setenv("APERIO_MCP_SHARED_SECRET", secret)
@@ -294,10 +295,21 @@ func TestMCPSharedSecretAndTenantBoundariesRejectBeforeSideEffectsAndDoNotPersis
 		"taskType":       "blocked",
 		"title":          "Blocked task",
 	})
+	missingSIEMTokenOutput := expectMCPToolErrorFrame(t, service, "siem-missing-token", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"record":         map[string]any{"id": "blocked-siem"},
+	})
+	wrongSIEMOrgOutput := expectMCPToolErrorFrame(t, service, "siem-wrong-org", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": otherOrgID,
+		"authToken":      secret,
+		"record":         map[string]any{"id": "blocked-other-siem"},
+	})
 	for label, output := range map[string][]byte{
-		"missing token": missingTokenOutput,
-		"wrong token":   wrongTokenOutput,
-		"wrong org":     wrongOrgOutput,
+		"missing token":      missingTokenOutput,
+		"wrong token":        wrongTokenOutput,
+		"wrong org":          wrongOrgOutput,
+		"siem missing token": missingSIEMTokenOutput,
+		"siem wrong org":     wrongSIEMOrgOutput,
 	} {
 		if bytes.Contains(output, []byte(secret)) {
 			t.Fatalf("%s error frame disclosed shared secret in stdout: %q", label, string(output))
@@ -344,10 +356,236 @@ func TestMCPSharedSecretAndTenantBoundariesRejectBeforeSideEffectsAndDoNotPersis
 		"payload":            map[string]any{"ticket": "SEC-1"},
 	})
 	_ = requireStringField(t, proposal, "proposalId")
+	siem := callMCPToolFrame(t, service, "secret-siem", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"authToken":      secret,
+		"record":         map[string]any{"id": "secret-safe-siem", "sourceEventId": "evt-secret-safe"},
+	})
+	requireMCPEnqueued(t, siem, 1)
 	if agentID == "" || taskID == "" {
 		t.Fatalf("valid secret-scoped calls did not produce ids")
 	}
 	assertMCPSecretNotPersisted(t, db, orgID, secret)
+}
+
+func TestDBBackedSIEMEnqueueFansOutTenantLocalSubscribedDestinations(t *testing.T) {
+	db := openMCPToolTestDB(t)
+	ctx := context.Background()
+	orgID := seedMCPToolOrganization(t, db, "MCP SIEM Org")
+	otherOrgID := seedMCPToolOrganization(t, db, "MCP SIEM Other Org")
+	noDestinationOrgID := seedMCPToolOrganization(t, db, "MCP SIEM Empty Org")
+	service := NewToolService(db)
+	service.SetNowForTesting(func() time.Time {
+		return time.Date(2026, 6, 7, 12, 30, 0, 0, time.UTC)
+	})
+
+	findingActiveDestinationID := seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "ACTIVE", "finding-active.jsonl")
+	findingErrorDestinationID := seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "ERROR", "finding-error.jsonl")
+	_ = seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "PAUSED", "finding-paused.jsonl")
+	eventDestinationID := seedMCPSIEMDestination(t, db, orgID, "EVENTS", "ACTIVE", "event-active.jsonl")
+	auditDestinationID := seedMCPSIEMDestination(t, db, orgID, "AUDIT_LOGS", "ACTIVE", "audit-active.jsonl")
+	_ = seedMCPSIEMDestination(t, db, otherOrgID, "FINDINGS", "ACTIVE", "other-finding.jsonl")
+
+	occurredAt := "2026-06-07T12:30:00Z"
+	findingRecord := map[string]any{
+		"findingId":     "fnd-mcp-1",
+		"sourceEventId": "evt-mcp-1",
+		"status":        "OPEN",
+		"title":         "MCP finding payload",
+	}
+	findingResult := callMCPToolFrame(t, service, "siem-finding", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"kind":           "finding",
+		"occurredAt":     occurredAt,
+		"record":         findingRecord,
+	})
+	requireMCPEnqueued(t, findingResult, 2)
+	repeatedFindingResult := callMCPToolFrame(t, service, "siem-finding-repeat", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"kind":           "finding",
+		"occurredAt":     occurredAt,
+		"record":         findingRecord,
+	})
+	requireMCPEnqueued(t, repeatedFindingResult, 0)
+
+	eventResult := callMCPToolFrame(t, service, "siem-event", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"kind":           "event",
+		"occurredAt":     occurredAt,
+		"record": map[string]any{
+			"id":            "event-mcp-1",
+			"sourceEventId": "source-event-mcp-1",
+			"eventType":     "user.login",
+		},
+	})
+	requireMCPEnqueued(t, eventResult, 1)
+
+	auditResult := callMCPToolFrame(t, service, "siem-audit", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"kind":           "audit_log",
+		"occurredAt":     occurredAt,
+		"record": map[string]any{
+			"id":            "audit-mcp-1",
+			"sourceEventId": "source-audit-mcp-1",
+			"action":        "settings.update",
+		},
+	})
+	requireMCPEnqueued(t, auditResult, 1)
+
+	emptyResult := callMCPToolFrame(t, service, "siem-empty", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": noDestinationOrgID,
+		"kind":           "finding",
+		"record":         map[string]any{"id": "no-destination"},
+	})
+	requireMCPEnqueued(t, emptyResult, 0)
+	if count := queryMCPInt(t, db, `SELECT COUNT(*) FROM siem_deliveries WHERE organization_id = $1`, noDestinationOrgID); count != 0 {
+		t.Fatalf("empty tenant created %d SIEM deliveries, want 0", count)
+	}
+	if otherCount := queryMCPInt(t, db, `SELECT COUNT(*) FROM siem_deliveries WHERE organization_id = $1`, otherOrgID); otherCount != 0 {
+		t.Fatalf("cross-tenant destination received %d SIEM deliveries, want 0", otherCount)
+	}
+
+	deliveries := mcpSIEMDeliveries(t, db, orgID)
+	if len(deliveries) != 4 {
+		t.Fatalf("tenant SIEM delivery count = %d, want 4: %#v", len(deliveries), deliveries)
+	}
+	expected := map[string]struct {
+		stream string
+		kind   string
+	}{
+		findingActiveDestinationID: {"FINDINGS", "finding"},
+		findingErrorDestinationID:  {"FINDINGS", "finding"},
+		eventDestinationID:         {"EVENTS", "event"},
+		auditDestinationID:         {"AUDIT_LOGS", "audit_log"},
+	}
+	for _, delivery := range deliveries {
+		want, ok := expected[delivery.DestinationID]
+		if !ok {
+			t.Fatalf("unexpected destination enqueued: %#v", delivery)
+		}
+		if delivery.OrganizationID != orgID || delivery.Stream != want.stream || delivery.Status != "PENDING" || delivery.Attempts != 0 || delivery.DeliveredAt.Valid {
+			t.Fatalf("delivery row drifted for destination %s: %#v", delivery.DestinationID, delivery)
+		}
+		if delivery.Payload.OrganizationID != orgID || delivery.Payload.Kind != want.kind || delivery.Payload.OccurredAt == "" {
+			t.Fatalf("delivery payload drifted for destination %s: %#v", delivery.DestinationID, delivery.Payload)
+		}
+		if got := siemdispatcher.StableDeliveryKey(delivery.Payload, delivery.DestinationID, delivery.Stream); delivery.DedupeKey != got {
+			t.Fatalf("delivery dedupe key = %s, want %s for payload %#v", delivery.DedupeKey, got, delivery.Payload)
+		}
+		delete(expected, delivery.DestinationID)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing expected SIEM destinations: %#v", expected)
+	}
+	if count := queryMCPInt(t, db, `
+		SELECT COUNT(*)
+		FROM siem_deliveries
+		WHERE organization_id = $1
+		  AND destination_id IN (
+		    SELECT id FROM siem_destinations
+		    WHERE organization_id = $1 AND status = 'PAUSED'::"SiemStatus"
+		  )
+	`, orgID); count != 0 {
+		t.Fatalf("paused destinations received %d deliveries, want 0", count)
+	}
+	if _, err := db.ExecContext(ctx, `SELECT 1`); err != nil {
+		t.Fatalf("db liveness after SIEM enqueue fanout test: %v", err)
+	}
+}
+
+func TestDBBackedSIEMEnqueueOnlyThenGoDispatcherDrainDelivers(t *testing.T) {
+	db := openMCPToolTestDB(t)
+	ctx := context.Background()
+	orgID := seedMCPToolOrganization(t, db, "MCP SIEM Enqueue Only Org")
+	otherOrgID := seedMCPToolOrganization(t, db, "MCP SIEM Enqueue Only Other Org")
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	fileName := "mcp-enqueue-only.jsonl"
+	filePath := filepath.Join(exportRoot, fileName)
+	destinationID := seedMCPSIEMDestination(t, db, orgID, "FINDINGS", "ERROR", fileName)
+	_ = seedMCPSIEMDestination(t, db, otherOrgID, "FINDINGS", "ACTIVE", "other-enqueue-only.jsonl")
+	if _, err := db.ExecContext(ctx, `
+		UPDATE siem_destinations
+		SET deliveries_ok = 2,
+		    deliveries_fail = 5,
+		    last_error = 'previous delivery failure',
+		    last_delivery_at = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2
+	`, destinationID, orgID); err != nil {
+		t.Fatalf("seed destination health: %v", err)
+	}
+
+	service := NewToolService(db)
+	service.SetNowForTesting(func() time.Time {
+		return time.Date(2026, 6, 7, 13, 0, 0, 0, time.UTC)
+	})
+	result := callMCPToolFrame(t, service, "siem-enqueue-only", "aperio.enqueue_siem_payload", map[string]any{
+		"organizationId": orgID,
+		"kind":           "finding",
+		"record": map[string]any{
+			"findingId":     "fnd-enqueue-only",
+			"sourceEventId": "evt-enqueue-only",
+			"status":        "OPEN",
+			"title":         "Enqueue-only finding",
+		},
+	})
+	requireMCPEnqueued(t, result, 1)
+
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Fatalf("MCP enqueue wrote JSONL file before dispatcher drain: stat err=%v", err)
+	}
+	delivery := requireSingleMCPDelivery(t, db, orgID, destinationID)
+	if delivery.Status != "PENDING" || delivery.Attempts != 0 || delivery.DeliveredAt.Valid {
+		t.Fatalf("MCP enqueue drained or finalized delivery: %#v", delivery)
+	}
+	status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError := mcpSIEMDestinationHealth(t, db, orgID, destinationID)
+	if status != "ERROR" || deliveriesOK != 2 || deliveriesFail != 5 || lastDeliveryAt.Valid || !lastError.Valid || lastError.String != "previous delivery failure" {
+		t.Fatalf("MCP enqueue mutated destination health: status=%s ok=%d fail=%d lastDelivery=%v lastError=%v", status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError)
+	}
+	if otherCount := queryMCPInt(t, db, `SELECT COUNT(*) FROM siem_deliveries WHERE organization_id = $1`, otherOrgID); otherCount != 0 {
+		t.Fatalf("MCP enqueue created %d rows for another tenant, want 0", otherCount)
+	}
+
+	dispatcher := siemdispatcher.New(db)
+	dispatcher.SetOrganizationScope(orgID)
+	drainResult, err := dispatcher.Drain(ctx, 1)
+	if err != nil {
+		t.Fatalf("drain MCP-enqueued delivery with Go dispatcher: %v", err)
+	}
+	if drainResult.Processed != 1 || drainResult.Delivered != 1 || drainResult.Failed != 0 {
+		t.Fatalf("unexpected dispatcher drain result: %#v", drainResult)
+	}
+	delivered := requireSingleMCPDelivery(t, db, orgID, destinationID)
+	if delivered.Status != "DELIVERED" || delivered.Attempts != 1 || !delivered.DeliveredAt.Valid {
+		t.Fatalf("Go dispatcher did not deliver MCP-enqueued row: %#v", delivered)
+	}
+	status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError = mcpSIEMDestinationHealth(t, db, orgID, destinationID)
+	if status != "ACTIVE" || deliveriesOK != 3 || deliveriesFail != 5 || !lastDeliveryAt.Valid || lastError.Valid {
+		t.Fatalf("Go dispatcher did not update destination health after drain: status=%s ok=%d fail=%d lastDelivery=%v lastError=%v", status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError)
+	}
+	fileBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read dispatcher JSONL output: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(fileBytes)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("JSONL line count = %d, want 1: %q", len(lines), string(fileBytes))
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &envelope); err != nil {
+		t.Fatalf("decode dispatcher JSONL envelope: %v", err)
+	}
+	if envelope["schema_version"] != "aperio.finding.v1" ||
+		envelope["destination_id"] != destinationID ||
+		envelope["organization_id"] != orgID ||
+		envelope["kind"] != "finding" {
+		t.Fatalf("dispatcher envelope drifted: %#v", envelope)
+	}
+	record := envelope["record"].(map[string]any)
+	if record["findingId"] != "fnd-enqueue-only" || record["sourceEventId"] != "evt-enqueue-only" {
+		t.Fatalf("dispatcher envelope record drifted: %#v", record)
+	}
 }
 
 func openMCPToolTestDB(t *testing.T) *sql.DB {
@@ -364,6 +602,9 @@ func openMCPToolTestDB(t *testing.T) *sql.DB {
 		_ = db.Close()
 		t.Fatalf("ping MCP test database: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
 	return db
 }
 
@@ -489,6 +730,135 @@ func queryMCPInt(t *testing.T, db *sql.DB, query string, args ...any) int {
 		t.Fatalf("query int: %v\n%s", err, query)
 	}
 	return count
+}
+
+func seedMCPSIEMDestination(t *testing.T, db *sql.DB, orgID string, stream string, status string, filePath string) string {
+	t.Helper()
+	destinationID := prefixedID("dst")
+	name := "MCP " + stream + " " + strings.ToLower(randomID())
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO siem_destinations (
+			id, organization_id, kind, name, file_path, streams, status, created_at, updated_at
+		)
+		VALUES (
+			$1, $2, 'JSON_FILE'::"SiemKind", $3, $4,
+			ARRAY[$5::"SiemStreamType"], $6::"SiemStatus", NOW(), NOW()
+		)
+	`, destinationID, orgID, name, nullableString(filePath), stream, status); err != nil {
+		t.Fatalf("seed MCP SIEM destination: %v", err)
+	}
+	return destinationID
+}
+
+func requireMCPEnqueued(t *testing.T, result map[string]any, want int64) {
+	t.Helper()
+	value, ok := result["enqueued"]
+	if !ok {
+		t.Fatalf("SIEM enqueue result missing enqueued field: %#v", result)
+	}
+	var got int64
+	switch typed := value.(type) {
+	case float64:
+		got = int64(typed)
+	case int64:
+		got = typed
+	case int:
+		got = int64(typed)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			t.Fatalf("enqueued field is not an integer: %#v", value)
+		}
+		got = parsed
+	default:
+		t.Fatalf("enqueued field has unexpected type %T: %#v", value, value)
+	}
+	if got != want {
+		t.Fatalf("enqueued = %d, want %d in %#v", got, want, result)
+	}
+}
+
+type mcpSIEMDelivery struct {
+	ID             string
+	OrganizationID string
+	DestinationID  string
+	Stream         string
+	DedupeKey      string
+	Status         string
+	Attempts       int
+	DeliveredAt    sql.NullTime
+	Payload        siemdispatcher.Payload
+}
+
+func mcpSIEMDeliveries(t *testing.T, db *sql.DB, orgID string) []mcpSIEMDelivery {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), `
+		SELECT id, organization_id, destination_id, stream::text, dedupe_key, status::text, attempts, delivered_at, payload
+		FROM siem_deliveries
+		WHERE organization_id = $1
+		ORDER BY created_at, id
+	`, orgID)
+	if err != nil {
+		t.Fatalf("query MCP SIEM deliveries: %v", err)
+	}
+	defer rows.Close()
+	deliveries := []mcpSIEMDelivery{}
+	for rows.Next() {
+		var delivery mcpSIEMDelivery
+		var rawPayload []byte
+		if err := rows.Scan(
+			&delivery.ID,
+			&delivery.OrganizationID,
+			&delivery.DestinationID,
+			&delivery.Stream,
+			&delivery.DedupeKey,
+			&delivery.Status,
+			&delivery.Attempts,
+			&delivery.DeliveredAt,
+			&rawPayload,
+		); err != nil {
+			t.Fatalf("scan MCP SIEM delivery: %v", err)
+		}
+		if err := json.Unmarshal(rawPayload, &delivery.Payload); err != nil {
+			t.Fatalf("decode MCP SIEM delivery payload %q: %v", string(rawPayload), err)
+		}
+		deliveries = append(deliveries, delivery)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate MCP SIEM deliveries: %v", err)
+	}
+	return deliveries
+}
+
+func requireSingleMCPDelivery(t *testing.T, db *sql.DB, orgID string, destinationID string) mcpSIEMDelivery {
+	t.Helper()
+	deliveries := mcpSIEMDeliveries(t, db, orgID)
+	matches := []mcpSIEMDelivery{}
+	for _, delivery := range deliveries {
+		if delivery.DestinationID == destinationID {
+			matches = append(matches, delivery)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("delivery count for destination %s = %d, want 1 in %#v", destinationID, len(matches), deliveries)
+	}
+	return matches[0]
+}
+
+func mcpSIEMDestinationHealth(t *testing.T, db *sql.DB, orgID string, destinationID string) (string, int, int, sql.NullTime, sql.NullString) {
+	t.Helper()
+	var status string
+	var deliveriesOK, deliveriesFail int
+	var lastDeliveryAt sql.NullTime
+	var lastError sql.NullString
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT status::text, deliveries_ok, deliveries_fail, last_delivery_at, last_error
+		FROM siem_destinations
+		WHERE organization_id = $1 AND id = $2
+	`, orgID, destinationID).Scan(&status, &deliveriesOK, &deliveriesFail, &lastDeliveryAt, &lastError); err != nil {
+		t.Fatalf("query MCP SIEM destination health: %v", err)
+	}
+	return status, deliveriesOK, deliveriesFail, lastDeliveryAt, lastError
 }
 
 func assertAgentFields(t *testing.T, db *sql.DB, agentID string, wantName string, wantKind string, wantCapabilities []string, wantStatus string) {
