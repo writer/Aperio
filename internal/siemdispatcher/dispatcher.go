@@ -320,8 +320,13 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) (processErr err
 	payload := Payload{}
 	dest := destination{}
 	permanentFailure := false
+	var telemetryErr error
 	defer func() {
-		emitSIEMDeliveryWideEvent(item, payload, dest, processErr, permanentFailure, time.Since(startedAt))
+		errForTelemetry := processErr
+		if telemetryErr != nil {
+			errForTelemetry = telemetryErr
+		}
+		emitSIEMDeliveryWideEvent(item, payload, dest, errForTelemetry, permanentFailure, time.Since(startedAt))
 	}()
 
 	payload, err := parsePayload(item.Payload)
@@ -333,6 +338,17 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) (processErr err
 	if payload.OrganizationID != item.OrganizationID {
 		permanentFailure = true
 		processErr = d.failDelivery(ctx, item, true, "delivery payload organization mismatch")
+		return processErr
+	}
+	expectedStream, err := StreamForKind(payload.Kind)
+	if err != nil {
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, err.Error())
+		return processErr
+	}
+	if item.Stream != expectedStream {
+		permanentFailure = true
+		processErr = d.failDelivery(ctx, item, true, fmt.Sprintf("delivery stream does not match payload kind: %s requires %s", payload.Kind, expectedStream))
 		return processErr
 	}
 	if !item.DestinationID.Valid {
@@ -351,12 +367,13 @@ func (d *Dispatcher) process(ctx context.Context, item delivery) (processErr err
 	if err != nil {
 		permanent := isPermanentSendFailure(err)
 		permanentFailure = permanent
-		message := safeSIEMFailureMessage(err.Error())
+		message := safeSIEMFailureMessageForDestination(err.Error(), dest)
 		if finishErr := d.finish(ctx, item, false, permanent, message); finishErr != nil {
 			processErr = finishErr
 			return processErr
 		}
 		d.publishCerebroFanout(ctx, item, dest, payload, sendOutcome, false, message)
+		telemetryErr = err
 		processErr = errors.New(message)
 		return processErr
 	}
@@ -517,7 +534,21 @@ func writeJSONFile(dest destination, payload Payload) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	root, err := siemExportRoot()
+	if err != nil {
+		return err
+	}
+	parent := filepath.Dir(path)
+	if err := rejectSymlinkPath(root, parent, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if err := rejectSymlinkPath(root, parent, true); err != nil {
+		return err
+	}
+	if err := rejectSymlinkPath(root, path, true); err != nil {
 		return err
 	}
 	encoded, err := json.Marshal(BuildEnvelope(dest.ID, dest.OrganizationID, payload))
@@ -871,12 +902,43 @@ func buildCerebroClaims(dest destination, payload Payload) ([]cerebroClaim, erro
 }
 
 func cerebroRef(organizationID, runtimeID, entityType, externalID, label string) cerebroEntityRef {
-	encodedExternalID := strings.ReplaceAll(url.PathEscape(externalID), "%20", "-")
+	encodedExternalID := encodeURIComponentExternalID(externalID)
 	return cerebroEntityRef{
 		URN:        strings.Join([]string{"urn", "cerebro", organizationID, "runtime", runtimeID, entityType, encodedExternalID}, ":"),
 		EntityType: entityType,
 		Label:      label,
 	}
+}
+
+func encodeURIComponentExternalID(value string) string {
+	const upperHex = "0123456789ABCDEF"
+	var builder strings.Builder
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' ||
+			character == '_' ||
+			character == '.' ||
+			character == '!' ||
+			character == '~' ||
+			character == '*' ||
+			character == '\'' ||
+			character == '(' ||
+			character == ')' {
+			builder.WriteByte(character)
+			continue
+		}
+		if character == ' ' {
+			builder.WriteByte('-')
+			continue
+		}
+		builder.WriteByte('%')
+		builder.WriteByte(upperHex[character>>4])
+		builder.WriteByte(upperHex[character&0x0f])
+	}
+	return builder.String()
 }
 
 func claimBase(payload Payload, attributes map[string]string) cerebroClaim {
@@ -975,7 +1037,7 @@ func (d *Dispatcher) checkEndpoint(ctx context.Context, endpoint string) error {
 	return assertSafeEndpointURL(ctx, endpoint)
 }
 
-func normalizeFilePath(raw string) (string, error) {
+func siemExportRoot() (string, error) {
 	root := strings.TrimSpace(os.Getenv("APERIO_SIEM_EXPORT_DIR"))
 	if root == "" {
 		cwd, err := os.Getwd()
@@ -985,6 +1047,14 @@ func normalizeFilePath(raw string) (string, error) {
 		root = filepath.Join(cwd, "var", "siem-exports")
 	}
 	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func normalizeFilePath(raw string) (string, error) {
+	root, err := siemExportRoot()
 	if err != nil {
 		return "", err
 	}
@@ -1005,6 +1075,55 @@ func normalizeFilePath(raw string) (string, error) {
 		return "", fmt.Errorf("invalid SIEM export path: file path must stay within %s", root)
 	}
 	return candidate, nil
+}
+
+func rejectSymlinkPath(root string, target string, includeTarget bool) error {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if info, err := os.Lstat(root); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid SIEM export path: export root symlinks are not allowed")
+		}
+		if !info.IsDir() {
+			return errors.New("invalid SIEM export path: export root is not a directory")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return fmt.Errorf("invalid SIEM export path: file path must stay within %s", root)
+	}
+	if relative == "." {
+		return nil
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	limit := len(parts)
+	if !includeTarget {
+		limit--
+	}
+	current := root
+	for index := 0; index < limit; index++ {
+		part := parts[index]
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid SIEM export path: symlink path components are not allowed")
+		}
+		if !info.IsDir() && index < limit-1 {
+			return errors.New("invalid SIEM export path: path component is not a directory")
+		}
+	}
+	return nil
 }
 
 func assertSafeEndpointURL(ctx context.Context, raw string) error {
@@ -1269,6 +1388,21 @@ func safeSIEMFailureMessage(message string) string {
 	return truncate(runtimeutil.RedactText(message, siemRedactionSecretsFromEnv()...), 500)
 }
 
+func safeSIEMFailureMessageForDestination(message string, dest destination) string {
+	sanitized := message
+	if dest.EndpointURL.Valid {
+		endpoint := strings.TrimSpace(dest.EndpointURL.String)
+		if endpoint != "" {
+			redactedEndpoint := runtimeutil.RedactDSN(endpoint)
+			if redactedEndpoint != "" && redactedEndpoint != endpoint {
+				sanitized = strings.ReplaceAll(sanitized, endpoint, redactedEndpoint)
+			}
+		}
+	}
+	secrets := append(siemRedactionSecretsFromEnv(), siemRedactionSecretsFromDestination(dest)...)
+	return truncate(runtimeutil.RedactText(sanitized, secrets...), 500)
+}
+
 func siemRedactionSecretsFromEnv() []string {
 	envNames := []string{
 		"APERIO_ENCRYPTION_KEY",
@@ -1300,6 +1434,41 @@ func siemRedactionSecretsFromEnv() []string {
 			}
 			secrets = append(secrets, values...)
 		}
+	}
+	return secrets
+}
+
+func siemRedactionSecretsFromDestination(dest destination) []string {
+	secrets := []string{}
+	if dest.EndpointURL.Valid {
+		raw := strings.TrimSpace(dest.EndpointURL.String)
+		if parsed, err := url.Parse(raw); err == nil {
+			if parsed.User != nil {
+				if userInfo := parsed.User.String(); userInfo != "" {
+					secrets = append(secrets, userInfo)
+				}
+				if username := parsed.User.Username(); username != "" {
+					secrets = append(secrets, username)
+				}
+				if password, ok := parsed.User.Password(); ok {
+					secrets = append(secrets, password)
+				}
+			}
+			query := parsed.Query()
+			for key, values := range query {
+				if !siemSensitiveKey(key) {
+					continue
+				}
+				for _, value := range values {
+					if strings.TrimSpace(value) != "" {
+						secrets = append(secrets, value, key+"="+value)
+					}
+				}
+			}
+		}
+	}
+	if token, err := optionalDestinationToken(dest); err == nil && strings.TrimSpace(token) != "" {
+		secrets = append(secrets, token)
 	}
 	return secrets
 }

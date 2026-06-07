@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -181,6 +182,17 @@ func updateDispatcherDestinationIndex(t *testing.T, db *sql.DB, orgID, destinati
 	}
 }
 
+func updateDispatcherDestinationEndpoint(t *testing.T, db *sql.DB, orgID, destinationID, endpoint string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE siem_destinations
+		SET endpoint_url = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`, endpoint, destinationID, orgID); err != nil {
+		t.Fatalf("update SIEM destination endpoint: %v", err)
+	}
+}
+
 func nullableFilePath(value string) sql.NullString {
 	return sql.NullString{String: value, Valid: value != ""}
 }
@@ -342,7 +354,16 @@ func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
 	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
 	secret := "siem-fixture-secret"
+	destinationToken := "db-token-secret"
+	endpointUser := "endpoint-user-secret"
+	endpointPassword := "endpoint-password-secret"
+	endpointQuerySecret := "endpoint-query-secret"
+	endpoint := "https://" + endpointUser + ":" + endpointPassword + "@example.com/collector?api_key=" + endpointQuerySecret + "&tenant=local"
+	updateDispatcherDestinationEndpoint(t, db, orgID, destinationID, endpoint)
+	updateDispatcherDestinationToken(t, db, orgID, destinationID, destinationToken)
 	secretDSN := "postgres://aperio:" + secret + "@127.0.0.1:5433/aperio?sslmode=disable&token=" + secret
 	t.Setenv("DATABASE_URL", secretDSN)
 	t.Setenv("APERIO_NATS_URL", "nats://aperio:"+secret+"@127.0.0.1:4222")
@@ -356,7 +377,7 @@ func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: destinationID, payload: fixtureDeliveryPayload(t, orgID), status: "PENDING", attempts: 0, maxAttempts: 3})
 
-	transportErr := errors.New("request failed with token " + secret + " and dsn " + secretDSN)
+	transportErr := errors.New("request failed with token " + secret + " stored token " + destinationToken + " endpoint " + endpoint + " dsn " + secretDSN)
 	sink, restore := captureSIEMTelemetry(t)
 	result, err := (&Dispatcher{
 		db:                  db,
@@ -382,8 +403,13 @@ func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
 		"destination last_error": destinationError.String,
 		"telemetry":              sink.String(),
 	} {
-		if strings.Contains(value, secret) || strings.Contains(value, secretDSN) {
-			t.Fatalf("%s leaked secret material: %s", surface, value)
+		for _, leaked := range []string{secret, secretDSN, destinationToken, endpointUser, endpointPassword, endpointQuerySecret} {
+			if strings.Contains(value, leaked) {
+				t.Fatalf("%s leaked secret material", surface)
+			}
+		}
+		if strings.Contains(value, endpoint) {
+			t.Fatalf("%s leaked raw destination endpoint", surface)
 		}
 	}
 	if !strings.Contains(lastError.String, runtimeutil.Redacted) || !strings.Contains(destinationError.String, runtimeutil.Redacted) {
@@ -392,6 +418,78 @@ func TestDispatcherFailureRedactsPersistedErrorsAndTelemetry(t *testing.T) {
 	event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), "retryable_failed")
 	if event["destination_kind"] != "GENERIC_WEBHOOK" || event["permanence"] != "retryable" || event["error_kind"] != "error" {
 		t.Fatalf("unexpected redaction failure telemetry event: %#v", event)
+	}
+}
+
+func TestDrainTelemetryClassifiesTypedFailuresThroughProcessPath(t *testing.T) {
+	db := openDBBackedSIEMDispatcherDB(t)
+	orgID := seedDispatcherOrg(t, db)
+	destinationID := seedDispatcherDestination(t, db, orgID, "GENERIC_WEBHOOK", "ACTIVE", "")
+
+	cases := []struct {
+		name           string
+		transport      *captureTransport
+		wantOutcome    string
+		wantErrorKind  string
+		wantPermanence string
+	}{
+		{
+			name:           "timeout",
+			transport:      &captureTransport{err: context.DeadlineExceeded},
+			wantOutcome:    "timeout",
+			wantErrorKind:  "timeout",
+			wantPermanence: "retryable",
+		},
+		{
+			name:           "http 5xx",
+			transport:      &captureTransport{status: http.StatusServiceUnavailable},
+			wantOutcome:    "retryable_failed",
+			wantErrorKind:  "http_5xx",
+			wantPermanence: "retryable",
+		},
+		{
+			name:           "http 4xx",
+			transport:      &captureTransport{status: http.StatusUnauthorized},
+			wantOutcome:    "dead_letter",
+			wantErrorKind:  "http_4xx",
+			wantPermanence: "permanent",
+		},
+	}
+
+	for index, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			casePayload := fixtureDeliveryPayload(t, orgID)
+			seedDispatcherDelivery(t, db, struct {
+				orgID         string
+				destinationID string
+				payload       Payload
+				status        string
+				attempts      int
+				maxAttempts   int
+				leaseOwner    *string
+			}{orgID: orgID, destinationID: destinationID, payload: casePayload, status: "PENDING", attempts: 0, maxAttempts: 3})
+			sink, restore := captureSIEMTelemetry(t)
+			result, err := (&Dispatcher{
+				db:                  db,
+				leaseOwner:          fmt.Sprintf("go-siem-test-typed-telemetry-%d", index),
+				organizationID:      orgID,
+				httpClient:          &http.Client{Transport: testCase.transport},
+				endpointSafetyCheck: func(context.Context, string) error { return nil },
+			}).Drain(context.Background(), 1)
+			restore()
+			if err != nil {
+				t.Fatalf("drain typed telemetry case: %v", err)
+			}
+			if result.Processed != 1 || result.Delivered != 0 || result.Failed != 1 {
+				t.Fatalf("unexpected typed telemetry drain result: %#v", result)
+			}
+			event := requireSIEMTelemetryOutcome(t, decodeSIEMWideEvents(t, sink), testCase.wantOutcome)
+			if event["destination_kind"] != "GENERIC_WEBHOOK" ||
+				event["error_kind"] != testCase.wantErrorKind ||
+				event["permanence"] != testCase.wantPermanence {
+				t.Fatalf("unexpected typed telemetry event: %#v", event)
+			}
+		})
 	}
 }
 
@@ -714,7 +812,10 @@ func TestDrainRespectsStreamsTenantsAndExpiredLeases(t *testing.T) {
 func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T) {
 	db := openDBBackedSIEMDispatcherDB(t)
 	orgID := seedDispatcherOrg(t, db)
+	exportRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
 	destinationID := seedDispatcherDestination(t, db, orgID, "JSON_FILE", "ACTIVE", "invalid.jsonl")
+	streamMismatchDestinationID := seedDispatcherDestinationForStream(t, db, orgID, "JSON_FILE", "ACTIVE", "stream-mismatch.jsonl", "EVENTS")
 	validPayload := fixtureDeliveryPayload(t, orgID)
 	destinationlessID := seedDispatcherDeliveryForStream(t, db, struct {
 		orgID         string
@@ -740,16 +841,28 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 		leaseOwner    *string
 	}{orgID: orgID, destinationID: sql.NullString{String: destinationID, Valid: true}, payload: invalidPayload, stream: "FINDINGS", status: "PENDING", attempts: 0, maxAttempts: 5})
 
+	streamMismatchID := seedDispatcherDeliveryForStream(t, db, struct {
+		orgID         string
+		destinationID sql.NullString
+		payload       Payload
+		stream        string
+		status        string
+		attempts      int
+		maxAttempts   int
+		leaseOwner    *string
+	}{orgID: orgID, destinationID: sql.NullString{String: streamMismatchDestinationID, Valid: true}, payload: validPayload, stream: "EVENTS", status: "PENDING", attempts: 0, maxAttempts: 5})
+
 	result, err := (&Dispatcher{db: db, leaseOwner: "go-siem-test", organizationID: orgID}).Drain(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	if result.Processed != 2 || result.Delivered != 0 || result.Failed != 2 {
+	if result.Processed != 3 || result.Delivered != 0 || result.Failed != 3 {
 		t.Fatalf("unexpected invalid drain result: %#v", result)
 	}
 	for id, wantError := range map[string]string{
 		destinationlessID: "destination not configured",
 		invalidPayloadID:  "invalid delivery kind",
+		streamMismatchID:  "delivery stream does not match payload kind",
 	} {
 		status, attempts, leaseOwner, deliveredAt, _, lastError := siemDeliveryState(t, db, id)
 		if status != "DEAD_LETTER" || attempts != 1 || leaseOwner.Valid || deliveredAt.Valid || !lastError.Valid || !strings.Contains(lastError.String, wantError) {
@@ -759,6 +872,13 @@ func TestDrainDeadLettersInvalidPayloadAndDestinationlessDeliveries(t *testing.T
 	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError := siemDestinationHealth(t, db, destinationID)
 	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastDeliveryAt.Valid || destinationError.Valid {
 		t.Fatalf("invalid payload changed destination health: status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError = siemDestinationHealth(t, db, streamMismatchDestinationID)
+	if healthStatus != "ACTIVE" || deliveriesOK != 0 || deliveriesFail != 0 || lastDeliveryAt.Valid || destinationError.Valid {
+		t.Fatalf("stream mismatch changed destination health: status=%s ok=%d fail=%d delivered=%v error=%v", healthStatus, deliveriesOK, deliveriesFail, lastDeliveryAt, destinationError)
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, "stream-mismatch.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("stream mismatch delivery should fail before file write, stat err=%v", err)
 	}
 }
 

@@ -158,6 +158,25 @@ test("SIEM adapter matrix mirrors shared catalog required fields and streams", (
   }
 });
 
+test("/siem-connectors renders only adapter default stream toggles", () => {
+  const source = readRepoFile("apps/web/components/connectors/siem-page.tsx");
+  assert.match(
+    source,
+    /definition\.defaultStreams\.map\(\(stream\)/,
+    "SIEM connector dialog must render stream toggles from the selected adapter definition"
+  );
+  assert.doesNotMatch(
+    source,
+    /allStreams\.map/,
+    "SIEM connector dialog must not render every global stream for restricted-stream adapters"
+  );
+  const restrictedKinds = siemCatalog
+    .filter((definition) => definition.defaultStreams.length === 1)
+    .map((definition) => definition.kind);
+  assert.ok(restrictedKinds.includes("ELASTIC"), "Elasticsearch must remain a restricted-stream adapter fixture");
+  assert.ok(restrictedKinds.includes("JSON_FILE"), "JSON_FILE must remain a restricted-stream adapter fixture");
+});
+
 test("SIEM dispatcher defaults run Go and the TypeScript runtime is absent", () => {
   const packageJson = readJson<{ scripts: Record<string, string> }>("package.json");
   const makefile = readRepoFile("Makefile");

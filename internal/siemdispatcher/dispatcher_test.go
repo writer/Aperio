@@ -713,6 +713,20 @@ func TestCerebroClaimsRequestContractMatchesLocalCaptureFixture(t *testing.T) {
 	}
 }
 
+func TestCerebroRefEscapesExternalIDLikeEncodeURIComponent(t *testing.T) {
+	ref := cerebroRef(
+		"org_urn_encoding",
+		"runtime-main",
+		"finding",
+		"finding:id with spaces!*'()~:/?#[]@é",
+		"encoded finding",
+	)
+	want := "urn:cerebro:org_urn_encoding:runtime:runtime-main:finding:finding%3Aid-with-spaces!*'()~%3A%2F%3F%23%5B%5D%40%C3%A9"
+	if ref.URN != want {
+		t.Fatalf("Cerebro URN = %q, want %q", ref.URN, want)
+	}
+}
+
 func TestJSONFileSinkAppendsConfinedDeterministicJSONLFixture(t *testing.T) {
 	fixture := readJSONFixture[siemJSONFileSinkFixture](t, "siem-json-file-sink.json")
 	if fixture.Description == "" {
@@ -791,6 +805,61 @@ func TestJSONFileSinkAppendsConfinedDeterministicJSONLFixture(t *testing.T) {
 		if err := writeJSONFile(unsafeDest, fixture.Payloads[0]); err == nil {
 			t.Fatalf("expected unsafe path %q to be rejected", unsafePath)
 		}
+	}
+}
+
+func TestJSONFileSinkRejectsSymlinkComponentsAndFinalSymlink(t *testing.T) {
+	exportRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	t.Setenv("APERIO_SIEM_EXPORT_DIR", exportRoot)
+	payload := Payload{
+		Kind:           "finding",
+		OrganizationID: "org_symlink",
+		OccurredAt:     "2026-06-06T00:00:00.000Z",
+		Record:         map[string]any{"findingId": "fnd_symlink", "sourceEventId": "evt_symlink"},
+	}
+	dest := destination{
+		ID:             "dst_symlink",
+		OrganizationID: payload.OrganizationID,
+		Kind:           "JSON_FILE",
+		Name:           "JSON file symlink fixture",
+	}
+
+	componentLink := filepath.Join(exportRoot, "tenant-link")
+	if err := os.Symlink(outsideRoot, componentLink); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	dest.FilePath = sql.NullString{String: "tenant-link/findings.jsonl", Valid: true}
+	if err := writeJSONFile(dest, payload); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink component rejection, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideRoot, "findings.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("symlink component write touched outside target, stat err=%v", err)
+	}
+
+	insideDir := filepath.Join(exportRoot, "tenant-real")
+	if err := os.MkdirAll(insideDir, 0o755); err != nil {
+		t.Fatalf("create inside dir: %v", err)
+	}
+	outsideFile := filepath.Join(outsideRoot, "outside.jsonl")
+	original := []byte("outside target must not change\n")
+	if err := os.WriteFile(outsideFile, original, 0o600); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	finalLink := filepath.Join(insideDir, "findings.jsonl")
+	if err := os.Symlink(outsideFile, finalLink); err != nil {
+		t.Skipf("final symlink creation unavailable: %v", err)
+	}
+	dest.FilePath = sql.NullString{String: "tenant-real/findings.jsonl", Valid: true}
+	if err := writeJSONFile(dest, payload); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected final symlink rejection, got %v", err)
+	}
+	after, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("read outside target: %v", err)
+	}
+	if string(after) != string(original) {
+		t.Fatalf("final symlink write mutated outside target: %q", string(after))
 	}
 }
 
