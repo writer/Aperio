@@ -109,14 +109,12 @@ _run-web: require-env
 	@$(LOAD_ENV) npx next dev apps/web -p $(WEB_PORT)
 
 .PHONY: worker-ingestion
-worker-ingestion: require-env ## Run the TypeScript parity/reference ingestion worker
-	@$(MAKE) --no-print-directory db-up
-	@$(LOAD_ENV) npx tsx workers/ingestion-worker.ts
-
-.PHONY: worker-ingestion-go
-worker-ingestion-go: require-env ## Run the explicit Go transition ingestion worker
+worker-ingestion: require-env ## Run the Go ingestion worker
 	@$(MAKE) --no-print-directory db-up
 	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/ingestion-worker $(GO_WORKER_ARGS)
+
+.PHONY: worker-ingestion-go
+worker-ingestion-go: worker-ingestion ## Alias for the Go ingestion worker
 
 .PHONY: worker-siem
 worker-siem: require-env ## Run the TypeScript parity/reference SIEM dispatcher worker
@@ -131,7 +129,7 @@ worker-siem-go: require-env ## Run the explicit Go transition SIEM dispatcher wo
 .PHONY: smoke-workers-go
 smoke-workers-go: require-env ## Run bounded explicit Go worker transition smokes
 	@$(MAKE) --no-print-directory db-up migrate
-	@$(LOAD_ENV) npm run worker:ingestion:go -- -once -limit 1
+	@$(LOAD_ENV) npm run worker:ingestion -- -once -limit 1
 	@$(LOAD_ENV) npm run worker:siem:go -- -once -limit 1
 
 .PHONY: smoke-e2e

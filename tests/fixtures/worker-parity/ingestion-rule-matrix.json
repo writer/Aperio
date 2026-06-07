@@ -1,15 +1,15 @@
 {
   "version": 1,
   "finalCutoverPlan": {
-    "status": "planned-not-enforced",
-    "defaultsFlippedInThisFeature": false,
+    "status": "ingestion-go-default-enforced",
+    "defaultsFlippedInThisFeature": true,
     "fixture": "tests/fixtures/migration-ownership/final-cutover-plan.json",
     "localHarness": "tests/fixtures/worker-parity/foundation-local-harness.json#ingestion",
     "goDefaultRequires": [
-      "every rule row is go-default or removable",
+      "every rule row is go-default with fixture, unit, DB, smoke, and credential/config evidence",
       "provider credential envelopes pass positive, missing-key, malformed, wrong-AAD, and tampered-tag cases",
       "DB-backed side-effect tests prove no event/finding/SIEM writes on credential or config failure",
-      "bounded unsuffixed worker smokes exercise the Go default command"
+      "bounded unsuffixed worker smokes exercise npm run worker:ingestion and make worker-ingestion"
     ]
   },
   "unsupportedWorkPolicy": {
@@ -21,12 +21,12 @@
       "internal/ingestionworker/worker_db_test.go#TestDrainDeadLettersUnsupportedGoogleNegativeFixturesWithoutSideEffects"
     ]
   },
-  "source": "workers/ingestion-worker.ts:evaluateSecurityRules",
+  "source": "internal/ingestionworker/worker.go:evaluateSecurityRules",
   "rules": [
     {
       "ruleId": "github.public_repository_created",
       "provider": "GITHUB",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "PUBLIC_REPOSITORY_CREATED"
       ],
@@ -46,15 +46,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "GitHub public repository parity is fixture-backed for canonical and repository-publicized events with DB side-effect coverage; Go-default remains blocked until every ingestion rule row is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "slack.mfa_disabled",
       "provider": "SLACK",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "MFA_DISABLED",
         "TWO_FACTOR_AUTH_DISABLED"
@@ -74,15 +72,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Slack MFA-disabled parity is fixture-backed for canonical and normalized aliases with DB side-effect coverage; Go-default remains blocked until every ingestion rule row is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "okta.admin_role_assigned",
       "provider": "OKTA",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "USER_ACCOUNT_PRIVILEGE_GRANT",
         "USER_ACCOUNT_PRIVILEGE_GRANTED",
@@ -111,15 +107,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Okta admin-role assignment parity is fixture-backed for privileged grants, non-privileged negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "okta.mfa_factor_reset",
       "provider": "OKTA",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "USER_MFA_FACTOR_RESET",
         "USER_MFA_FACTOR_RESET_ALL",
@@ -145,15 +139,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Okta MFA factor reset parity is fixture-backed for admin resets, self-service negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "okta.password_policy_weakened",
       "provider": "OKTA",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "POLICY_LIFECYCLE_UPDATE",
         "PASSWORD_POLICY_UPDATED"
@@ -177,15 +169,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Okta password policy weakening parity is fixture-backed for weakened settings, stronger-change negatives, non-password-policy negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "okta.suspicious_signin",
       "provider": "OKTA",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "SECURITY_THREAT_DETECTED",
         "USER_AUTHENTICATION_FAILED",
@@ -211,15 +201,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Okta suspicious sign-in parity is fixture-backed for threat/proxy/high-risk positives, normal sign-in negatives, aliases, disabled checks, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.external_sharing_enabled",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "EXTERNAL_SHARING_ENABLED"
       ],
@@ -237,15 +225,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace external sharing parity is fixture-backed for admin audit and Drive payload shapes, external actor extraction, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.super_admin_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "SUPER_ADMIN_GRANTED"
       ],
@@ -263,15 +249,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace super-admin grant parity is fixture-backed for target/parameter extraction, critical severity, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.admin_role_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "ADMIN_ROLE_GRANTED"
       ],
@@ -289,15 +273,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace admin-role grant parity is fixture-backed for role extraction variants, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.risky_oauth_grant",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "RISKY_OAUTH_GRANT"
       ],
@@ -315,15 +297,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace risky OAuth parity is fixture-backed for critical Gmail scopes, high mailbox scopes, admin/Drive fallback scopes, empty-scope default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.admin_mfa_not_enforced",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "ADMIN_MFA_NOT_ENFORCED"
       ],
@@ -341,15 +321,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace admin MFA parity is fixture-backed for not-enrolled critical findings, enrolled-but-not-enforced high findings, delegated-admin evidence, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.admin_external_recovery_email",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "ADMIN_EXTERNAL_RECOVERY_EMAIL"
       ],
@@ -367,15 +345,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace admin external recovery email parity is fixture-backed for recovery email and delegated-admin extraction variants, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until the full ingestion matrix is Go-owned and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.email_forwarding_enabled",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "EMAIL_FORWARDING_ENABLED"
       ],
@@ -393,15 +369,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace email forwarding parity is fixture-backed for forwarding parameter variants, actor/self handling, generic extraction, default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.mailbox_delegation_granted",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "MAILBOX_DELEGATION_GRANTED"
       ],
@@ -419,15 +393,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace mailbox delegation parity is fixture-backed for delegate extraction variants, self-delegate handling, default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.legacy_mail_auth_used",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "LEGACY_MAIL_AUTH_USED"
       ],
@@ -445,15 +417,13 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace legacy mail auth parity is fixture-backed for app-password, basic, legacy, IMAP, POP, SMTP, empty-extraction default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     },
     {
       "ruleId": "google_workspace.forwarding_delegate_send_as_combo",
       "provider": "GOOGLE_WORKSPACE",
-      "state": "go-parity",
+      "state": "go-default",
       "typescriptEventAliases": [
         "FORWARDING_DELEGATE_SEND_AS_COMBO"
       ],
@@ -471,10 +441,8 @@
         "internal/ingestionworker/worker_test.go",
         "internal/ingestionworker/worker_db_test.go"
       ],
-      "cutoverBlockers": [
-        "Google Workspace forwarding/delegate/send-as combo parity is fixture-backed for forwarding+delegate, forwarding+send-as, forwarding+both, empty-combo default-positive behavior, disabled checks, true negatives, dedupe, and DB side effects; Go-default remains blocked until queue/lifecycle policy and unsuffixed commands are flipped."
-      ],
-      "goDefaultBlocked": true
+      "cutoverBlockers": [],
+      "goDefaultBlocked": false
     }
   ]
 }

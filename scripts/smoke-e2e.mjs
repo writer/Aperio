@@ -106,7 +106,7 @@ export const WORKER_SMOKE_COMMANDS = Object.freeze([
   {
     label: "go-ingestion-worker",
     command: "npm",
-    args: ["run", "worker:ingestion:go", "--", "-once", "-limit", "1"],
+    args: ["run", "worker:ingestion", "--", "-once", "-limit", "1"],
     timeoutMs: 120_000
   },
   {

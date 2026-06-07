@@ -25,38 +25,50 @@
   },
   "entries": [
     {
-      "id": "package-workers-typescript-reference",
+      "id": "package-siem-worker-typescript-reference",
       "state": "typescript-reference",
       "covers": [
-        "package-script:worker:ingestion",
         "package-script:worker:siem"
       ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "Unsuffixed worker commands remain the TypeScript reference/fallback runtimes until slice matrices prove Go default or removability.",
+      "owner": "TypeScript SIEM worker reference runtime",
+      "rationale": "The unsuffixed SIEM worker command remains the TypeScript reference/fallback runtime until SIEM adapter cutover criteria are proven.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "source:workers/ingestion-worker.ts",
         "source:workers/siem-dispatcher.ts"
       ]
+    },
+    {
+      "id": "package-ingestion-worker-go-default",
+      "state": "go-default",
+      "covers": [
+        "package-script:worker:ingestion",
+        "package-script:worker:ingestion:go"
+      ],
+      "owner": "Go ingestion worker default runtime",
+      "rationale": "The unsuffixed ingestion worker command now runs the Go worker with the shared local env and pgx-safe DATABASE_URL path; the suffixed command is only an alias to the same default.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
+        "command:npm run worker:ingestion -- -once -limit 1"
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion reference command."
     },
     {
       "id": "package-go-worker-transition-smokes",
       "state": "go-parity",
       "covers": [
-        "package-script:worker:ingestion:go",
         "package-script:worker:siem:go",
         "package-script:smoke:workers:go"
       ],
-      "owner": "Explicit Go worker transition commands",
-      "rationale": "Go workers are runnable only through suffixed transition commands and bounded one-shot smokes while TypeScript remains fallback.",
+      "owner": "Explicit Go SIEM transition command and bounded worker smokes",
+      "rationale": "The SIEM Go worker remains a suffixed transition command; the aggregate smoke uses the Go ingestion default plus the explicit Go SIEM transition smoke.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "command:npm run smoke:workers:go"
       ],
-      "rollback": "Use the unsuffixed TypeScript worker commands without changing production/default entrypoints."
+      "rollback": "Use the unsuffixed TypeScript SIEM worker command while SIEM fallback remains available."
     },
     {
       "id": "package-go-api-runtime",
@@ -145,37 +157,50 @@
       ]
     },
     {
-      "id": "make-workers-typescript-reference",
+      "id": "make-siem-worker-typescript-reference",
       "state": "typescript-reference",
       "covers": [
-        "make-target:worker-ingestion",
         "make-target:worker-siem"
       ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "Unsuffixed Make worker targets intentionally mirror the TypeScript reference/fallback npm commands.",
+      "owner": "TypeScript SIEM worker reference runtime",
+      "rationale": "The unsuffixed Make SIEM worker target intentionally mirrors the TypeScript SIEM reference/fallback command until SIEM cutover.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
         "source:Makefile"
       ]
     },
     {
+      "id": "make-ingestion-worker-go-default",
+      "state": "go-default",
+      "covers": [
+        "make-target:worker-ingestion",
+        "make-target:worker-ingestion-go"
+      ],
+      "owner": "Go ingestion worker default Make target",
+      "rationale": "The unsuffixed Make ingestion target now runs the Go worker with GO_WORKER_ARGS support, and the suffixed target is a strict alias.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "command:make -n worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\"",
+        "command:make worker-ingestion GO_WORKER_ARGS=\"-once -limit 1\""
+      ],
+      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion Make target."
+    },
+    {
       "id": "make-go-worker-transition-smokes",
       "state": "go-parity",
       "covers": [
-        "make-target:worker-ingestion-go",
         "make-target:worker-siem-go",
         "make-target:smoke-workers-go"
       ],
-      "owner": "Explicit Go worker transition commands",
-      "rationale": "Make exposes Go workers only as explicit transition/smoke targets with bounded -once -limit 1 execution.",
+      "owner": "Explicit Go SIEM transition command and bounded worker smokes",
+      "rationale": "Make still exposes the SIEM Go worker as a suffixed transition target; smoke-workers-go runs Go ingestion default plus Go SIEM transition smoke.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
         "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
         "command:make smoke-workers-go"
       ],
-      "rollback": "Run make worker-ingestion or make worker-siem to use TypeScript fallback/reference workers."
+      "rollback": "Use make worker-siem while SIEM TypeScript fallback remains available."
     },
     {
       "id": "make-mcp-typescript-reference",
@@ -322,37 +347,66 @@
       "rollback": "Revert the API command/runtime change to the previous committed Go API entrypoint."
     },
     {
-      "id": "cmd-go-worker-transition",
-      "state": "go-parity",
+      "id": "cmd-ingestion-worker-go-default",
+      "state": "go-default",
       "covers": [
-        "repo-file:cmd/ingestion-worker/*.go",
-        "repo-file:cmd/siem-dispatcher/*.go"
+        "repo-file:cmd/ingestion-worker/*.go"
       ],
-      "owner": "Explicit Go worker transition entrypoints",
-      "rationale": "Go worker commands expose one-shot smoke flags and remain explicit until worker slice cutover criteria are proven.",
+      "owner": "Go ingestion worker default entrypoint",
+      "rationale": "cmd/ingestion-worker is the default ingestion worker entrypoint and exposes bounded one-shot smoke flags.",
       "evidence": [
         "test:tests/worker-command-guardrails.test.ts",
-        "fixture:tests/fixtures/worker-parity/github-public-repository.json",
-        "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
-        "command:npm run smoke:workers:go"
+        "test:internal/ingestionworker/worker_test.go",
+        "command:npm run worker:ingestion -- -once -limit 1"
       ],
-      "rollback": "Use TypeScript worker reference commands and leave unsupported work for fallback processing."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime."
+    },
+    {
+      "id": "cmd-go-siem-worker-transition",
+      "state": "go-parity",
+      "covers": [
+        "repo-file:cmd/siem-dispatcher/*.go"
+      ],
+      "owner": "Explicit Go SIEM worker transition entrypoint",
+      "rationale": "The Go SIEM dispatcher exposes one-shot smoke flags and remains explicit until SIEM adapter cutover criteria are proven.",
+      "evidence": [
+        "test:tests/worker-command-guardrails.test.ts",
+        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "command:npm run worker:siem:go -- -once -limit 1"
+      ],
+      "rollback": "Use the TypeScript SIEM worker reference command and leave unsupported SIEM deliveries for fallback processing."
+    },
+    {
+      "id": "workers-ingestion-runtime-removed",
+      "state": "removable",
+      "covers": [
+        "repo-file:workers/ingestion-worker.ts"
+      ],
+      "owner": "Deleted TypeScript ingestion runtime",
+      "rationale": "The TypeScript ingestion worker runtime has been deleted after Go parity/default cutover; tests use fixtures and Go coverage rather than importing it as a hidden oracle.",
+      "evidence": [
+        "test:tests/ingestion-parity-matrix.test.ts",
+        "test:tests/worker-command-guardrails.test.ts",
+        "command:test ! -e workers/ingestion-worker.ts"
+      ],
+      "rollback": "Revert this cutover commit if the Go default ingestion worker must be rolled back."
     },
     {
       "id": "workers-typescript-reference-runtime",
       "state": "typescript-reference",
       "covers": [
-        "repo-file:workers/*.ts"
+        "repo-file:workers/siem-dispatcher.ts",
+        "repo-file:workers/event-bus.ts",
+        "repo-file:workers/telemetry.ts"
       ],
-      "owner": "TypeScript worker reference runtime",
-      "rationale": "TypeScript ingestion, SIEM dispatcher, event bus, and telemetry remain the reference/fallback semantics for worker parity.",
+      "owner": "TypeScript SIEM worker reference runtime and shared TypeScript worker tooling",
+      "rationale": "The remaining tracked workers/*.ts files are SIEM reference/runtime or TypeScript worker telemetry/event-bus helpers; the ingestion runtime file is removed.",
       "evidence": [
-        "test:tests/github-rules.test.ts",
         "test:tests/siem-dispatcher.test.ts",
         "test:tests/worker-telemetry.test.ts",
-        "source:workers/ingestion-worker.ts",
-        "source:workers/siem-dispatcher.ts"
+        "source:workers/siem-dispatcher.ts",
+        "source:workers/event-bus.ts",
+        "source:workers/telemetry.ts"
       ]
     },
     {
@@ -385,24 +439,25 @@
       "rollback": "Revert affected Go API handler changes and preserve compatibility routes until typed cutover is proven."
     },
     {
-      "id": "internal-ingestionworker-go-parity",
-      "state": "go-parity",
+      "id": "internal-ingestionworker-go-default",
+      "state": "go-default",
       "covers": [
         "repo-file:internal/ingestionworker/*.go"
       ],
-      "owner": "Go ingestion worker parity slice",
-      "rationale": "Go ingestion currently claims only the locally proven GitHub public repository and Slack MFA-disabled slices and must leave unsupported provider/event jobs untouched for TypeScript fallback.",
+      "owner": "Go ingestion worker default runtime",
+      "rationale": "Go ingestion owns all matrix rule slices, credential/config gates, queue/lifecycle/outbox behavior, and the final no-fallback unsupported-work policy.",
       "evidence": [
+        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
         "fixture:tests/fixtures/worker-parity/github-public-repository.json",
         "fixture:tests/fixtures/worker-parity/slack-mfa-disabled.json",
-        "fixture:tests/fixtures/worker-parity/ingestion-rule-matrix.json",
-        "fixture:tests/fixtures/worker-parity/siem-finding-delivery.json",
+        "fixture:tests/fixtures/worker-parity/okta-admin-role-assigned.json",
+        "fixture:tests/fixtures/worker-parity/google-admin-oauth-rules.json",
         "test:tests/ingestion-parity-matrix.test.ts",
         "test:internal/ingestionworker/worker_test.go",
         "test:internal/ingestionworker/worker_db_test.go",
-        "command:npm run worker:ingestion:go -- -once -limit 1"
+        "command:npm run worker:ingestion -- -once -limit 1"
       ],
-      "rollback": "Disable explicit Go ingestion worker usage and run the TypeScript ingestion worker fallback."
+      "rollback": "Revert this cutover commit to restore the previous TypeScript ingestion runtime and matrix state."
     },
     {
       "id": "internal-siemdispatcher-go-parity",
@@ -588,7 +643,7 @@
         "validator:worker-smoke"
       ],
       "owner": "Bounded Go worker smoke command",
-      "rationale": "The bounded smoke command verifies explicit Go transition workers without changing unsuffixed TypeScript fallback defaults.",
+      "rationale": "The bounded smoke command verifies the Go ingestion default and explicit Go SIEM transition worker without changing SIEM ownership.",
       "evidence": [
         "command:npm run smoke:workers:go",
         "command:make smoke-workers-go",

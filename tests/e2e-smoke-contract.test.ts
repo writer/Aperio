@@ -94,7 +94,7 @@ test("worker smoke commands are bounded Go transition smokes", async () => {
     [
       {
         command: "npm",
-        args: ["run", "worker:ingestion:go", "--", "-once", "-limit", "1"]
+        args: ["run", "worker:ingestion", "--", "-once", "-limit", "1"]
       },
       {
         command: "npm",

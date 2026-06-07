@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { dedupeKey, evaluateSecurityRules } from "../workers/ingestion-worker";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,42 +50,47 @@ function readFixture(): GitHubParityFixture {
   ) as GitHubParityFixture;
 }
 
-function payloadFromFixture(input: GitHubParityFixture["positive"]["payload"]) {
-  return {
-    ...input,
-    occurredAt: new Date(input.occurredAt)
-  };
+function expectedDedupeKey(
+  payload: GitHubPayloadFixture,
+  expected: GitHubParityFixture["positive"]["expectedFinding"]
+) {
+  const subject =
+    typeof expected.evidence.subject === "string"
+      ? expected.evidence.subject
+      : expected.target;
+  return createHash("sha256")
+    .update([payload.organizationId, payload.integrationId, expected.ruleId, subject].join(":"))
+    .digest("hex");
 }
 
-test("GitHub public repository rule matches the shared worker parity fixture", () => {
+test("GitHub public repository fixture captures the Go-owned positive finding", () => {
   const fixture = readFixture();
-  const payload = payloadFromFixture(fixture.positive.payload);
-  const findings = evaluateSecurityRules(payload);
+  const { payload, expectedFinding } = fixture.positive;
 
-  assert.equal(findings.length, 1);
-  const [finding] = findings;
-  assert.equal(finding.ruleId, fixture.positive.expectedFinding.ruleId);
-  assert.equal(finding.title, fixture.positive.expectedFinding.title);
-  assert.equal(finding.description, fixture.positive.expectedFinding.description);
-  assert.equal(finding.severity, fixture.positive.expectedFinding.severity);
-  assert.equal(finding.riskScore, fixture.positive.expectedFinding.riskScore);
-  assert.equal(finding.target, fixture.positive.expectedFinding.target);
-  assert.deepEqual(finding.evidence, fixture.positive.expectedFinding.evidence);
-  assert.equal(dedupeKey(payload, finding), fixture.positive.expectedFinding.dedupeKey);
+  assert.equal(payload.provider, "GITHUB");
+  assert.equal(payload.payload.repository?.["visibility"], "public");
+  assert.equal(payload.payload.repository?.["private"], false);
+  assert.equal(expectedFinding.ruleId, fixture.disabledCheck);
+  assert.equal(expectedFinding.title, "Public GitHub repository created");
+  assert.equal(expectedFinding.severity, "CRITICAL");
+  assert.equal(expectedFinding.riskScore, 95);
+  assert.equal(expectedFinding.target, "writer/aperio");
+  assert.deepEqual(expectedFinding.evidence, {
+    repository: "writer/aperio",
+    subject: "writer/aperio",
+    visibility: "public"
+  });
+  assert.equal(expectedFinding.dedupeKey, expectedDedupeKey(payload, expectedFinding));
 });
 
-test("GitHub parity fixture covers private and disabled-check negatives", () => {
+test("GitHub parity fixture covers alias, private negative, and disabled-check metadata", () => {
   const fixture = readFixture();
 
-  const aliasFindings = evaluateSecurityRules(payloadFromFixture(fixture.alias.payload));
-  assert.equal(aliasFindings.length, 1);
-  assert.equal(aliasFindings[0].ruleId, fixture.positive.expectedFinding.ruleId);
-  assert.equal(aliasFindings[0].target, fixture.positive.expectedFinding.target);
-
-  assert.equal(evaluateSecurityRules(payloadFromFixture(fixture.negative.payload)).length, 0);
-  assert.equal(
-    evaluateSecurityRules(payloadFromFixture(fixture.positive.payload), [fixture.disabledCheck])
-      .length,
-    0
-  );
+  assert.equal(fixture.alias.payload.provider, "GITHUB");
+  assert.equal(fixture.alias.payload.eventType, "PUBLIC_REPOSITORY_CREATED");
+  assert.equal(fixture.alias.payload.payload.repository?.["full_name"], "writer/aperio");
+  assert.equal(fixture.negative.payload.provider, "GITHUB");
+  assert.equal(fixture.negative.payload.payload.repository?.["private"], true);
+  assert.equal(fixture.negative.payload.payload.repository?.["visibility"], "private");
+  assert.equal(fixture.disabledCheck, fixture.positive.expectedFinding.ruleId);
 });

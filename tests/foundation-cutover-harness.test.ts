@@ -108,8 +108,8 @@ function sectionForTool(source: string, toolName: string) {
 test("final ownership matrices expose non-enforcing cutover placeholders", () => {
   const finalPlan = loadFinalPlan();
   assert.equal(finalPlan.version, 1);
-  assert.equal(finalPlan.status, "planned-not-enforced");
-  assert.equal(finalPlan.defaultsFlippedInThisFeature, false);
+  assert.equal(finalPlan.status, "partially-enforced");
+  assert.equal(finalPlan.defaultsFlippedInThisFeature, true);
 
   const matrixFixtures = [
     "tests/fixtures/migration-ownership/migration-matrix.json",
@@ -119,12 +119,13 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
   for (const fixturePath of matrixFixtures) {
     const matrix = readJsonFixture<MatrixWithCutoverPlan>(fixturePath);
     assert.equal(matrix.version, 1, `${fixturePath} version drift`);
-    assert.equal(
-      matrix.finalCutoverPlan.defaultsFlippedInThisFeature,
-      false,
-      `${fixturePath} must not flip defaults in the foundation harness feature`
-    );
-    assert.equal(matrix.finalCutoverPlan.status, "planned-not-enforced");
+    if (fixturePath.includes("ingestion-rule-matrix")) {
+      assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, true);
+      assert.equal(matrix.finalCutoverPlan.status, "ingestion-go-default-enforced");
+    } else {
+      assert.equal(matrix.finalCutoverPlan.defaultsFlippedInThisFeature, false);
+      assert.equal(matrix.finalCutoverPlan.status, "planned-not-enforced");
+    }
     assert.equal(
       matrix.finalCutoverPlan.fixture,
       "tests/fixtures/migration-ownership/final-cutover-plan.json"
@@ -149,7 +150,11 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
   );
 
   for (const surface of finalPlan.surfaces) {
-    assert.ok(surface.blockedBy.length > 0, `${surface.id} must name current blockers`);
+    if (surface.currentState === surface.targetState || surface.currentState === "removed") {
+      assert.deepEqual(surface.blockedBy, [], `${surface.id} must not retain blockers after cutover`);
+    } else {
+      assert.ok(surface.blockedBy.length > 0, `${surface.id} must name current blockers`);
+    }
     assert.ok(surface.requiredEvidence.length > 0, `${surface.id} must name evidence`);
     for (const evidence of surface.requiredEvidence) {
       assert.ok(
@@ -157,7 +162,7 @@ test("final ownership matrices expose non-enforcing cutover placeholders", () =>
         `${surface.id} cites unknown evidence kind ${evidence}`
       );
     }
-    if (surface.targetState === "go-default") {
+    if (surface.targetState === "go-default" && surface.currentState !== "go-default") {
       assert.match(
         surface.targetCommandContains ?? "",
         /go run \.\/cmd\//,
@@ -186,7 +191,7 @@ test("current command ownership is characterized without flipping worker or MCP 
   );
   assert.equal(
     classifyRuntimeCommand(scripts["worker:ingestion"]),
-    "typescript-ingestion-reference"
+    "go-ingestion"
   );
   assert.equal(
     classifyRuntimeCommand(scripts["worker:siem"]),

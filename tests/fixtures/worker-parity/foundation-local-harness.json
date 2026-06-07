@@ -126,17 +126,15 @@
   },
   "commandOwnership": {
     "currentDefaults": {
-      "package-script:worker:ingestion": "tsx workers/ingestion-worker.ts",
+      "package-script:worker:ingestion": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
       "package-script:worker:siem": "tsx workers/siem-dispatcher.ts",
       "package-script:mcp:broker": "tsx apps/mcp/src/server.ts",
-      "make-target:worker-ingestion": "npx tsx workers/ingestion-worker.ts",
+      "make-target:worker-ingestion": "go run ./cmd/ingestion-worker",
       "make-target:worker-siem": "npx tsx workers/siem-dispatcher.ts",
       "make-target:mcp": "npx tsx apps/mcp/src/server.ts"
     },
     "explicitGoTransitionContains": {
-      "package-script:worker:ingestion:go": "go run ./cmd/ingestion-worker",
       "package-script:worker:siem:go": "go run ./cmd/siem-dispatcher",
-      "make-target:worker-ingestion-go": "go run ./cmd/ingestion-worker",
       "make-target:worker-siem-go": "go run ./cmd/siem-dispatcher"
     }
   }

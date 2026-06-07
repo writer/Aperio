@@ -1,8 +1,8 @@
 {
   "version": 1,
   "intent": "Final Go-default ownership and deletion evidence checklist used by later cutover workers; this fixture is not an active default flip.",
-  "defaultsFlippedInThisFeature": false,
-  "status": "planned-not-enforced",
+  "defaultsFlippedInThisFeature": true,
+  "status": "partially-enforced",
   "requiredEvidenceKinds": [
     "package-script-dump",
     "make-dry-run",
@@ -17,14 +17,11 @@
     {
       "id": "npm-worker-ingestion-default",
       "surface": "package-script:worker:ingestion",
-      "currentState": "typescript-reference",
-      "currentCommand": "tsx workers/ingestion-worker.ts",
+      "currentState": "go-default",
+      "currentCommand": "DATABASE_URL=\"$(node scripts/dev-config.mjs go-database-url)\" node scripts/dev-env.mjs go run ./cmd/ingestion-worker",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/ingestion-worker",
-      "blockedBy": [
-        "ingestion-rule-matrix rows still include typescript-reference and goDefaultBlocked=true",
-        "shared Go credential/config primitives are not yet complete"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "package-script-dump",
         "bounded-default-worker-smoke",
@@ -69,13 +66,11 @@
     {
       "id": "make-worker-ingestion-default",
       "surface": "make-target:worker-ingestion",
-      "currentState": "typescript-reference",
-      "currentCommandContains": "npx tsx workers/ingestion-worker.ts",
+      "currentState": "go-default",
+      "currentCommandContains": "go run ./cmd/ingestion-worker",
       "targetState": "go-default",
       "targetCommandContains": "go run ./cmd/ingestion-worker",
-      "blockedBy": [
-        "npm worker:ingestion remains TypeScript reference"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "make-dry-run",
         "bounded-default-worker-smoke",
@@ -118,11 +113,9 @@
     {
       "id": "typescript-ingestion-runtime-deletion",
       "surface": "repo-file:workers/ingestion-worker.ts",
-      "currentState": "typescript-reference",
+      "currentState": "removed",
       "targetState": "removed",
-      "blockedBy": [
-        "unsuffixed ingestion defaults are not Go-owned yet"
-      ],
+      "blockedBy": [],
       "requiredEvidence": [
         "deleted-runtime-file-audit",
         "typescript-fallback-negative-guardrail",
@@ -163,7 +156,7 @@
       "currentState": "go-parity",
       "targetState": "removed-or-strict-alias",
       "blockedBy": [
-        "unsuffixed worker defaults are not Go-owned yet"
+        "SIEM unsuffixed worker default is not Go-owned yet; ingestion :go is already a strict alias"
       ],
       "requiredEvidence": [
         "package-script-dump",

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { dedupeKey, evaluateSecurityRules } from "../workers/ingestion-worker";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,80 +50,71 @@ function readFixture(relativePath: string): OktaRuleFixture {
 }
 
 function payloadFromFixture(input: OktaPayloadFixture) {
-  return {
-    ...input,
-    occurredAt: new Date(input.occurredAt)
-  };
+  const occurredAt = new Date(input.occurredAt);
+  assert.ok(!Number.isNaN(occurredAt.valueOf()), `${input.eventType} fixture occurredAt must parse`);
+  return input;
 }
 
-function oktaPayload(eventType: string, payload: Record<string, unknown>, provider = "OKTA") {
-  return {
-    organizationId: "org_1",
-    integrationId: "int_okta",
-    provider: provider as "OKTA",
-    eventType,
-    source: "okta.system_log",
-    actor: "admin@example.com",
-    occurredAt: new Date("2026-06-06T00:00:00.000Z"),
-    payload
-  };
+function expectedDedupeKey(
+  payload: OktaPayloadFixture,
+  expected: OktaRuleFixture["positive"]["expectedFinding"]
+) {
+  const subject =
+    typeof expected.evidence.subject === "string"
+      ? expected.evidence.subject
+      : expected.target;
+  return createHash("sha256")
+    .update([payload.organizationId, payload.integrationId, expected.ruleId, subject].join(":"))
+    .digest("hex");
+}
+
+function assertExpectedFindingFixture(fixture: OktaRuleFixture) {
+  const payload = payloadFromFixture(fixture.positive.payload);
+  const expected = fixture.positive.expectedFinding;
+
+  assert.equal(payload.provider, "OKTA");
+  assert.equal(expected.ruleId, fixture.disabledCheck);
+  assert.ok(expected.title.length > 0);
+  assert.ok(expected.description.length > 0);
+  assert.ok(["CRITICAL", "HIGH", "MEDIUM"].includes(expected.severity));
+  assert.ok(expected.riskScore > 0);
+  assert.ok(expected.target.length > 0);
+  assert.equal(typeof expected.evidence.subject, "string");
+  assert.equal(expected.dedupeKey, expectedDedupeKey(payload, expected));
 }
 
 for (const fixturePath of oktaFixturePaths) {
   const fixture = readFixture(fixturePath);
 
-  test(`${fixture.positive.expectedFinding.ruleId} matches the shared worker parity fixture`, () => {
-    const payload = payloadFromFixture(fixture.positive.payload);
-    const findings = evaluateSecurityRules(payload);
-
-    assert.equal(findings.length, 1);
-    const [finding] = findings;
-    assert.equal(finding.ruleId, fixture.positive.expectedFinding.ruleId);
-    assert.equal(finding.title, fixture.positive.expectedFinding.title);
-    assert.equal(finding.description, fixture.positive.expectedFinding.description);
-    assert.equal(finding.severity, fixture.positive.expectedFinding.severity);
-    assert.equal(finding.riskScore, fixture.positive.expectedFinding.riskScore);
-    assert.equal(finding.target, fixture.positive.expectedFinding.target);
-    assert.deepEqual(finding.evidence, fixture.positive.expectedFinding.evidence);
-    assert.equal(dedupeKey(payload, finding), fixture.positive.expectedFinding.dedupeKey);
+  test(`${fixture.positive.expectedFinding.ruleId} fixture captures the Go-owned positive finding`, () => {
+    assertExpectedFindingFixture(fixture);
   });
 
-  test(`${fixture.positive.expectedFinding.ruleId} covers aliases, negatives, and disabled checks`, () => {
+  test(`${fixture.positive.expectedFinding.ruleId} fixture covers aliases, negatives, and disabled checks`, () => {
     for (const alias of fixture.aliases) {
-      const aliasFindings = evaluateSecurityRules(payloadFromFixture(alias.payload));
-      assert.equal(aliasFindings.length, 1, `${alias.payload.eventType} should produce one finding`);
-      assert.equal(aliasFindings[0].ruleId, fixture.positive.expectedFinding.ruleId);
+      const aliasPayload = payloadFromFixture(alias.payload);
+      assert.equal(aliasPayload.provider, "OKTA");
+      assert.equal(aliasPayload.integrationId, fixture.positive.payload.integrationId);
+      assert.notEqual(aliasPayload.eventType, "");
     }
 
-    assert.equal(evaluateSecurityRules(payloadFromFixture(fixture.negative.payload)).length, 0);
-    for (const negative of fixture.additionalNegatives ?? []) {
-      assert.equal(
-        evaluateSecurityRules(payloadFromFixture(negative.payload)).length,
-        0,
-        `${negative.name} should produce no finding`
-      );
-    }
-    assert.equal(
-      evaluateSecurityRules(payloadFromFixture(fixture.positive.payload), [fixture.disabledCheck])
-        .length,
-      0
+    assert.equal(payloadFromFixture(fixture.negative.payload).provider, "OKTA");
+    assert.notEqual(
+      fixture.negative.payload.eventType,
+      "",
+      `${fixture.positive.expectedFinding.ruleId} negative fixture must name an event type`
     );
+    for (const negative of fixture.additionalNegatives ?? []) {
+      assert.equal(payloadFromFixture(negative.payload).provider, "OKTA", negative.name);
+    }
+    assert.equal(fixture.disabledCheck, fixture.positive.expectedFinding.ruleId);
   });
 }
 
-test("Okta rules do not match other providers", () => {
-  const findings = evaluateSecurityRules({
-    ...oktaPayload(
-      "user.account.privilege.grant",
-      {
-        target: [{ alternateId: "new-admin@example.com", type: "User" }],
-        debugContext: { debugData: { role: "SUPER_ADMIN" } }
-      },
-      "SLACK"
-    ),
-    integrationId: "int_slack",
-    source: "slack.audit"
-  } as Parameters<typeof evaluateSecurityRules>[0]);
-
-  assert.equal(findings.length, 0);
+test("Okta fixture suite is provider-scoped and does not import the deleted TypeScript runtime", () => {
+  for (const fixturePath of oktaFixturePaths) {
+    const fixture = readFixture(fixturePath);
+    assert.equal(fixture.positive.payload.provider, "OKTA");
+    assert.equal(fixture.negative.payload.provider, "OKTA");
+  }
 });
