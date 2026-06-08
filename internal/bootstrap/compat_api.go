@@ -23,11 +23,24 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
 	"github.com/writer/aperio/internal/runtimeutil"
 	"github.com/writer/aperio/internal/siemdispatcher"
 	"golang.org/x/crypto/scrypt"
 )
+
+// isUniqueViolation reports whether err is a Postgres 23505 unique_violation.
+// We treat this as the only signal that a slug/email is already taken; every
+// other database error must be surfaced as Internal so it isn't masked behind
+// a misleading "already exists" response.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23505"
+}
 
 const (
 	compatEncryptionAlgorithm  = runtimeutil.CredentialAlgorithm
@@ -588,7 +601,10 @@ func (a *App) compatSignup(ctx context.Context, body map[string]any, headers htt
 	defer tx.Rollback()
 	orgID, roleID, userID := compatID("org"), compatID("role"), compatID("usr")
 	if _, err := tx.ExecContext(ctx, `INSERT INTO organizations (id, name, slug, notification_email, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW())`, orgID, orgName, orgSlug, optionalStringPtr(body, "notificationEmail")); err != nil {
-		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("workspace slug is already in use"))
+		if isUniqueViolation(err) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("workspace slug is already in use"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	for _, role := range []string{"OWNER", "ADMIN", "SECURITY_ANALYST", "VIEWER"} {
 		id := compatID("role")
@@ -608,7 +624,12 @@ func (a *App) compatSignup(ctx context.Context, body map[string]any, headers htt
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, password_hash, display_name, mfa_enabled, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,FALSE,TRUE,NOW(),NOW())`, userID, orgID, roleID, email, compatHashPassword(password), displayName); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	_, _ = tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, created_at) VALUES ($1,$2,$3,'auth.signup','organization',$2,NOW())`, compatID("aud"), orgID, userID)
+	// The audit log INSERT used to swallow its error, which poisoned the
+	// surrounding transaction and surfaced the real failure as a misleading
+	// SQLSTATE 25P02 "current transaction is aborted" on the next statement.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, created_at) VALUES ($1,$2,$3,'auth.signup','organization',$2,NOW())`, compatID("aud"), orgID, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -646,12 +667,19 @@ func (a *App) compatLogin(ctx context.Context, body map[string]any, headers http
 		}
 		mfaCounter = counter
 	}
-	tx, _ := a.db.BeginTx(ctx, nil)
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	defer tx.Rollback()
 	if mfaEnabled {
-		_, _ = tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), mfa_last_counter = $2, updated_at = NOW() WHERE id = $1`, userID, mfaCounter)
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), mfa_last_counter = $2, updated_at = NOW() WHERE id = $1`, userID, mfaCounter); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
 	} else {
-		_, _ = tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, userID)
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, userID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, !mfaEnabled || requiredString(body, "totpCode") != "")
 	if err != nil {
@@ -726,11 +754,18 @@ func (a *App) compatSwitchWorkspace(ctx context.Context, body map[string]any, au
 		}
 		targetMFACounter = counter
 	}
-	_, _ = a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, auth.SessionID)
-	tx, _ := a.db.BeginTx(ctx, nil)
+	if _, err := a.db.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, auth.SessionID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	defer tx.Rollback()
 	if targetMFAEnabled {
-		_, _ = tx.ExecContext(ctx, `UPDATE users SET mfa_last_counter = $2, last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, target.UserID, targetMFACounter)
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET mfa_last_counter = $2, last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, target.UserID, targetMFACounter); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
 	}
 	session, err := compatIssueSessionTx(ctx, tx, target.OrganizationID, target.UserID, !targetMFAEnabled || targetMFACounter > 0)
 	if err != nil {
@@ -779,11 +814,20 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid or expired token"))
 	}
-	tx, _ := a.db.BeginTx(ctx, nil)
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID)
-	_, _ = tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token))
-	_, _ = tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token)); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
