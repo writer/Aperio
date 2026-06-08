@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -88,6 +89,14 @@ type signupPayload struct {
 // public surface never returns raw Postgres constraint text. Every rejection
 // path returns CodeInvalidArgument with a stable, generic message; we do not
 // echo the offending value back because the signup endpoint is unauthenticated.
+//
+// Length checks deliberately use utf8.RuneCountInString rather than len()
+// for the Unicode-capable text fields (workspace name, display name, password)
+// because Postgres VARCHAR(N) counts characters, not bytes. A byte-count cap
+// would reject international multibyte names like 'Müller' or '株式会社' that
+// would otherwise fit the underlying column. Slug and email stay on len()
+// because the slug regex restricts to ASCII and our email regex (RFC 5321
+// shape) forbids whitespace and the addresses we accept are ASCII-only.
 func validateSignupPayload(body map[string]any) (signupPayload, *connect.Error) {
 	var payload signupPayload
 	payload.OrganizationName = requiredString(body, "organizationName")
@@ -97,8 +106,11 @@ func validateSignupPayload(body map[string]any) (signupPayload, *connect.Error) 
 	payload.NotificationEmail = optionalStringPtr(body, "notificationEmail")
 	payload.Password = requiredString(body, "password")
 
-	if len(payload.OrganizationName) < minOrgNameLength || len(payload.OrganizationName) > maxOrgNameLength {
+	if nameChars := utf8.RuneCountInString(payload.OrganizationName); nameChars < minOrgNameLength || nameChars > maxOrgNameLength {
 		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace name must be 1-160 characters"))
+	}
+	if !utf8.ValidString(payload.OrganizationName) {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace name must be valid UTF-8"))
 	}
 	if len(payload.OrganizationSlug) < minOrgSlugLength || len(payload.OrganizationSlug) > maxOrgSlugLength {
 		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace slug must be 2-120 characters"))
@@ -115,10 +127,16 @@ func validateSignupPayload(body map[string]any) (signupPayload, *connect.Error) 
 			return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("notification email is not a valid address"))
 		}
 	}
-	if payload.OwnerDisplayName != nil && len(*payload.OwnerDisplayName) > maxDisplayNameLength {
-		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("display name must be 160 characters or fewer"))
+	if payload.OwnerDisplayName != nil {
+		value := *payload.OwnerDisplayName
+		if utf8.RuneCountInString(value) > maxDisplayNameLength {
+			return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("display name must be 160 characters or fewer"))
+		}
+		if !utf8.ValidString(value) {
+			return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("display name must be valid UTF-8"))
+		}
 	}
-	if len(payload.Password) < minPasswordLength || len(payload.Password) > maxPasswordLength {
+	if passwordChars := utf8.RuneCountInString(payload.Password); passwordChars < minPasswordLength || passwordChars > maxPasswordLength {
 		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("password must be at least 12 characters"))
 	}
 	return payload, nil

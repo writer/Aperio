@@ -194,3 +194,69 @@ func TestCompatSignupValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestCompatSignupAcceptsMultibyteNames pins the character-vs-byte distinction
+// on the schema-mapped text fields. The Prisma columns are VarChar(160) which
+// Postgres counts in characters, so an international name like 'Müller' (6
+// chars, 7 UTF-8 bytes) or a 160-rune CJK name must NOT be rejected by the
+// pre-DB validator. Switching utf8.RuneCountInString back to len() would
+// regress this test.
+func TestCompatSignupAcceptsMultibyteNames(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{"european accented name", "organizationName", "Müller GmbH"},
+		{"emoji-laden display name", "ownerDisplayName", strings.Repeat("é", 160)},
+		{"160-character cjk workspace name", "organizationName", strings.Repeat("株", 160)},
+		{"160-character cjk display name", "ownerDisplayName", strings.Repeat("株", 160)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{
+				"organizationName": "Multibyte Co",
+				"organizationSlug": "multibyte-co",
+				"ownerEmail":       "owner@example.com",
+				"password":         "Sup3rSecretPassphrase!",
+			}
+			body[tc.field] = tc.value
+			if _, err := validateSignupPayload(body); err != nil {
+				t.Fatalf("multibyte value rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestCompatSignupRejectsOverMultibyteNames(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		value string
+		want  string
+	}{
+		{"161-character cjk workspace name", "organizationName", strings.Repeat("株", 161), "workspace name"},
+		{"161-character cjk display name", "ownerDisplayName", strings.Repeat("株", 161), "display name"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{
+				"organizationName": "Multibyte Co",
+				"organizationSlug": "multibyte-co",
+				"ownerEmail":       "owner@example.com",
+				"password":         "Sup3rSecretPassphrase!",
+			}
+			body[tc.field] = tc.value
+			_, err := validateSignupPayload(body)
+			if err == nil {
+				t.Fatal("expected over-limit multibyte value to be rejected")
+			}
+			if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+				t.Fatalf("expected CodeInvalidArgument, got %v (%v)", code, err)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), tc.want) {
+				t.Fatalf("expected error to mention %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
