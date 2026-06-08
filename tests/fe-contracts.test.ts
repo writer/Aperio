@@ -56,7 +56,8 @@ test("frontend-consumed AperioService RPC inventory is implemented and wrapped",
   const client = readRepoFile("packages/connect/src/client.ts");
   const appSources = [
     readRepoFile("internal/bootstrap/app.go"),
-    readRepoFile("internal/bootstrap/typed_compat.go")
+    readRepoFile("internal/bootstrap/typed_compat.go"),
+    readRepoFile("internal/bootstrap/oauth_clients.go")
   ].join("\n");
 
   const rpcs = serviceRpcNames(proto);

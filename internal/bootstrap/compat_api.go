@@ -337,7 +337,7 @@ func (a *App) dispatchCompatAPI(
 		if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 			return nil, err
 		}
-		return a.compatGoogleOAuthStart(body, auth)
+		return a.compatGoogleOAuthStart(ctx, body, auth)
 	case method == http.MethodGet && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "google-mailbox-scan":
 		return a.compatGoogleMailboxConfig(ctx, segments[3], auth)
 	case method == http.MethodPatch && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "google-mailbox-scan":

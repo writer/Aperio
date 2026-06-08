@@ -35,6 +35,9 @@ service AperioService {
   rpc GetGoogleMailboxScanConfig(GetGoogleMailboxScanConfigRequest) returns (GetGoogleMailboxScanConfigResponse);
   rpc UpdateGoogleMailboxScanConfig(UpdateGoogleMailboxScanConfigRequest) returns (UpdateGoogleMailboxScanConfigResponse);
   rpc StartGoogleWorkspaceOAuth(StartGoogleWorkspaceOAuthRequest) returns (StartGoogleWorkspaceOAuthResponse);
+  rpc GetIntegrationOAuthClient(GetIntegrationOAuthClientRequest) returns (GetIntegrationOAuthClientResponse);
+  rpc SetIntegrationOAuthClient(SetIntegrationOAuthClientRequest) returns (SetIntegrationOAuthClientResponse);
+  rpc ClearIntegrationOAuthClient(ClearIntegrationOAuthClientRequest) returns (ClearIntegrationOAuthClientResponse);
   rpc ForceSyncIntegration(ForceSyncIntegrationRequest) returns (ForceSyncIntegrationResponse);
   rpc ListSiemCatalog(ListSiemCatalogRequest) returns (ListSiemCatalogResponse);
   rpc ListSiemDestinations(ListSiemDestinationsRequest) returns (ListSiemDestinationsResponse);
@@ -486,6 +489,42 @@ message StartGoogleWorkspaceOAuthRequest {
 
 message StartGoogleWorkspaceOAuthResponse {
   OAuthStart data = 1;
+}
+
+message IntegrationOAuthClient {
+  string provider = 1;
+  string client_id = 2;
+  string redirect_uri = 3;
+  bool configured = 4;
+  string default_redirect_uri = 5;
+  string updated_at = 6;
+}
+
+message GetIntegrationOAuthClientRequest {
+  string provider = 1;
+}
+
+message GetIntegrationOAuthClientResponse {
+  IntegrationOAuthClient data = 1;
+}
+
+message SetIntegrationOAuthClientRequest {
+  string provider = 1;
+  string client_id = 2;
+  string client_secret = 3;
+  string redirect_uri = 4;
+}
+
+message SetIntegrationOAuthClientResponse {
+  IntegrationOAuthClient data = 1;
+}
+
+message ClearIntegrationOAuthClientRequest {
+  string provider = 1;
+}
+
+message ClearIntegrationOAuthClientResponse {
+  IntegrationOAuthClient data = 1;
 }
 
 message OAuthStart {

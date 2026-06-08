@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -62,6 +63,9 @@ type googleIntegrationUpsert struct {
 	requestIP         string
 }
 
+// resolveGoogleOAuthConfig is the operator-wide fallback resolver used when
+// the per-organization config is missing or the callback runs without org
+// context. New code should prefer (*App).resolveGoogleOAuthConfigForOrg.
 func resolveGoogleOAuthConfig() *googleOAuthConfig {
 	clientID := strings.TrimSpace(os.Getenv("GOOGLE_WORKSPACE_CLIENT_ID"))
 	clientSecret := strings.TrimSpace(os.Getenv("GOOGLE_WORKSPACE_CLIENT_SECRET"))
@@ -71,6 +75,67 @@ func resolveGoogleOAuthConfig() *googleOAuthConfig {
 	}
 	webOrigin := firstConfiguredWebOrigin(envOrDefault("APERIO_WEB_ORIGIN", envOrDefault("NEXT_PUBLIC_APP_BASE_URL", "http://localhost:3000")))
 	return &googleOAuthConfig{clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI, webOrigin: webOrigin}
+}
+
+// resolveGoogleOAuthConfigForOrg prefers per-organization OAuth credentials
+// from integration_oauth_clients (so each tenant can register their own
+// Google Cloud OAuth app from the admin UI) and falls back to the operator
+// .env values when the org has not configured a credential yet.
+func (a *App) resolveGoogleOAuthConfigForOrg(ctx context.Context, organizationID string) *googleOAuthConfig {
+	webOrigin := firstConfiguredWebOrigin(envOrDefault("APERIO_WEB_ORIGIN", envOrDefault("NEXT_PUBLIC_APP_BASE_URL", "http://localhost:3000")))
+	if a.db != nil && strings.TrimSpace(organizationID) != "" {
+		var clientID, encryptedSecret, redirectURI string
+		err := a.db.QueryRowContext(ctx, `
+			SELECT client_id, encrypted_client_secret, redirect_uri
+			FROM integration_oauth_clients
+			WHERE organization_id = $1 AND provider = 'GOOGLE_WORKSPACE'
+		`, organizationID).Scan(&clientID, &encryptedSecret, &redirectURI)
+		if err == nil {
+			plain, decErr := compatDecryptString(encryptedSecret, oauthClientSecretAAD(organizationID, "GOOGLE_WORKSPACE"))
+			if decErr == nil && clientID != "" && plain != "" && redirectURI != "" {
+				return &googleOAuthConfig{
+					clientID:     clientID,
+					clientSecret: plain,
+					redirectURI:  redirectURI,
+					webOrigin:    webOrigin,
+				}
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			// Fall through to env fallback; a transient DB error should not
+			// silently surface as "not configured" on the env path.
+			_ = err
+		}
+	}
+	return resolveGoogleOAuthConfig()
+}
+
+// oauthClientSecretAAD binds the encrypted client_secret to its tenant +
+// provider scope, mirroring the pattern used for integration access tokens.
+func oauthClientSecretAAD(organizationID string, provider string) string {
+	return "oauth-client:" + organizationID + ":" + provider
+}
+
+// defaultGoogleOAuthRedirectURI is the URL the admin UI pre-fills when the
+// tenant hasn't configured a custom redirect_uri. It points at the Go API
+// callback handler so the operator's Google Cloud OAuth app only needs one
+// authorised redirect entry per Aperio deployment.
+func defaultGoogleOAuthRedirectURI() string {
+	if env := strings.TrimSpace(os.Getenv("GOOGLE_WORKSPACE_REDIRECT_URI")); env != "" {
+		return env
+	}
+	addr := strings.TrimSpace(os.Getenv("APERIO_CONNECT_ADDR"))
+	if addr == "" {
+		addr = "127.0.0.1:4100"
+	}
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	scheme := "http"
+	if strings.HasPrefix(strings.ToLower(addr), "https://") {
+		scheme = "https"
+		addr = strings.TrimPrefix(strings.TrimPrefix(addr, "https://"), "http://")
+	}
+	return scheme + "://" + addr + "/api/v1/integrations/google-workspace/oauth/callback"
 }
 
 func firstConfiguredWebOrigin(raw string) string {
@@ -158,14 +223,14 @@ func decodeJWTPayload(token string) (googleIdentityClaims, error) {
 	return claims, nil
 }
 
-func (a *App) compatGoogleOAuthStart(body map[string]any, auth compatAuth) (any, error) {
+func (a *App) compatGoogleOAuthStart(ctx context.Context, body map[string]any, auth compatAuth) (any, error) {
 	mode := strings.ToUpper(stringDefault(body, "mode", "READ_ONLY"))
 	if mode != "READ_ONLY" && mode != "REMEDIATION" {
 		mode = "READ_ONLY"
 	}
-	config := resolveGoogleOAuthConfig()
+	config := a.resolveGoogleOAuthConfigForOrg(ctx, auth.OrganizationID)
 	if config == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("Google Workspace OAuth is not configured. Set GOOGLE_WORKSPACE_CLIENT_ID, GOOGLE_WORKSPACE_CLIENT_SECRET, and GOOGLE_WORKSPACE_REDIRECT_URI."))
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("Google Workspace OAuth client is not configured for this workspace. An OWNER or ADMIN must add their Google Cloud OAuth client credentials in Settings → Connectors."))
 	}
 	state, err := encodeOAuthState(googleOAuthState{
 		OrganizationID: auth.OrganizationID,
@@ -198,11 +263,7 @@ func (a *App) compatGoogleOAuthStart(body map[string]any, auth compatAuth) (any,
 }
 
 func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	config := resolveGoogleOAuthConfig()
 	fallbackOrigin := firstConfiguredWebOrigin(envOrDefault("APERIO_WEB_ORIGIN", "http://localhost:3000"))
-	if config != nil {
-		fallbackOrigin = config.webOrigin
-	}
 	redirectError := func(message string) {
 		// Errors are returned to the web origin as query parameters; avoid writing
 		// provider tokens or internal errors to the browser response body.
@@ -224,10 +285,6 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 		redirectError("Missing OAuth callback parameters")
 		return
 	}
-	if config == nil {
-		redirectError("Google Workspace OAuth is not configured")
-		return
-	}
 	state, err := decodeOAuthState(stateToken)
 	if err != nil {
 		redirectError(err.Error())
@@ -246,6 +303,12 @@ func (a *App) handleGoogleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 		redirectError("Insufficient permissions to connect Google Workspace.")
 		return
 	}
+	config := a.resolveGoogleOAuthConfigForOrg(r.Context(), liveAuth.OrganizationID)
+	if config == nil {
+		redirectError("Google Workspace OAuth client is not configured for this workspace. Add credentials in Settings → Connectors and reconnect.")
+		return
+	}
+	fallbackOrigin = config.webOrigin
 	tokens, err := exchangeGoogleAuthCode(r.Context(), config, code)
 	if err != nil {
 		redirectError("Unable to exchange Google authorization code")

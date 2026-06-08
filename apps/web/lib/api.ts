@@ -413,6 +413,26 @@ export async function startGoogleWorkspaceOAuth(mode: IntegrationMode) {
   return aperioConnectClient.startGoogleWorkspaceOAuth(mode);
 }
 
+export async function fetchIntegrationOAuthClient(provider: "GOOGLE_WORKSPACE") {
+  return aperioConnectClient.getIntegrationOAuthClient(provider);
+}
+
+export async function saveIntegrationOAuthClient(input: {
+  provider: "GOOGLE_WORKSPACE";
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}) {
+  return aperioConnectClient.setIntegrationOAuthClient(input);
+}
+
+export async function clearIntegrationOAuthClient(provider: "GOOGLE_WORKSPACE") {
+  return aperioConnectClient.clearIntegrationOAuthClient(provider);
+}
+
+export type IntegrationOAuthClient =
+  import("@aperio/connect/client").ConnectIntegrationOAuthClient;
+
 export async function fetchSiemCatalog() {
   return aperioConnectClient.listSiemCatalog() as Promise<{
     data: SiemDestinationDefinition[];

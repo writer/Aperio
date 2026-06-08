@@ -142,6 +142,15 @@ export type ConnectIntegrationPayload = {
   };
 };
 
+export type ConnectIntegrationOAuthClient = {
+  provider: "GOOGLE_WORKSPACE";
+  clientId: string;
+  redirectUri: string;
+  defaultRedirectUri: string;
+  configured: boolean;
+  updatedAt: string | null;
+};
+
 export type ConnectConnectorDefinition = {
   provider: ConnectProvider;
   name: string;
@@ -667,6 +676,30 @@ function findingFromProto(finding: ProtoFinding): ConnectFinding {
         "") as ConnectFinding["integration"]["provider"],
       displayName: finding.integration?.displayName ?? ""
     }
+  };
+}
+
+function integrationOAuthClientFromProto(
+  proto: { provider: string; clientId: string; redirectUri: string; configured: boolean; defaultRedirectUri: string; updatedAt: string } | undefined,
+  fallbackProvider: "GOOGLE_WORKSPACE"
+): ConnectIntegrationOAuthClient {
+  if (!proto) {
+    return {
+      provider: fallbackProvider,
+      clientId: "",
+      redirectUri: "",
+      defaultRedirectUri: "",
+      configured: false,
+      updatedAt: null
+    };
+  }
+  return {
+    provider: (proto.provider || fallbackProvider) as "GOOGLE_WORKSPACE",
+    clientId: proto.clientId,
+    redirectUri: proto.redirectUri,
+    defaultRedirectUri: proto.defaultRedirectUri,
+    configured: proto.configured,
+    updatedAt: proto.updatedAt || null
   };
 }
 
@@ -1417,6 +1450,27 @@ export const aperioConnectClient = {
     // in tenant identity and encrypted tokens server-side.
     const response = await client.startGoogleWorkspaceOAuth({ mode });
     return { data: { url: response.data?.url ?? "" } };
+  },
+  async getIntegrationOAuthClient(
+    provider: "GOOGLE_WORKSPACE"
+  ): Promise<{ data: ConnectIntegrationOAuthClient }> {
+    const response = await client.getIntegrationOAuthClient({ provider });
+    return { data: integrationOAuthClientFromProto(response.data, provider) };
+  },
+  async setIntegrationOAuthClient(input: {
+    provider: "GOOGLE_WORKSPACE";
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+  }): Promise<{ data: ConnectIntegrationOAuthClient }> {
+    const response = await client.setIntegrationOAuthClient(input);
+    return { data: integrationOAuthClientFromProto(response.data, input.provider) };
+  },
+  async clearIntegrationOAuthClient(
+    provider: "GOOGLE_WORKSPACE"
+  ): Promise<{ data: ConnectIntegrationOAuthClient }> {
+    const response = await client.clearIntegrationOAuthClient({ provider });
+    return { data: integrationOAuthClientFromProto(response.data, provider) };
   },
   async forceSyncIntegration(integrationId: string): Promise<{
     data: ConnectIntegrationConnection;
