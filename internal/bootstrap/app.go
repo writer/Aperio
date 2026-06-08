@@ -658,7 +658,7 @@ func (a *App) StartGoogleWorkspaceOAuth(
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
-	result, err := a.compatGoogleOAuthStart(map[string]any{"mode": req.Msg.Mode}, auth)
+	result, err := a.compatGoogleOAuthStart(ctx, map[string]any{"mode": req.Msg.Mode}, auth)
 	if err != nil {
 		return nil, err
 	}

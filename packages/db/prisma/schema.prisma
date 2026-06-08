@@ -238,6 +238,7 @@ model Organization {
   oauthAppGrants    OauthAppGrant[]
   ingestionJobs      IngestionJob[]
   executiveReports  ExecutiveReport[]
+  oauthClients      IntegrationOAuthClient[]
 
   @@map("organizations")
 }
@@ -310,6 +311,7 @@ model User {
   authTokens       AuthToken[] @relation("AuthTokenUser")
   createdAuthTokens AuthToken[] @relation("AuthTokenCreatedBy")
   sessions        UserSession[]
+  createdIntegrationOauthClients IntegrationOAuthClient[] @relation("IntegrationOAuthClientCreatedBy")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -348,6 +350,31 @@ model IntegrationConnection {
   @@index([organizationId])
   @@index([organizationId, provider, status])
   @@map("integration_connections")
+}
+
+// Per-organization OAuth client credentials for SaaS connectors. Lets each
+// tenant register their own Google/Microsoft/etc. OAuth app from the admin
+// UI without touching the Aperio operator's .env file. The client secret is
+// encrypted with APERIO_ENCRYPTION_KEY (same wrapping used for integration
+// tokens); the client id and redirect URI are stored in plaintext because
+// both are public values returned to browsers during the OAuth redirect.
+model IntegrationOAuthClient {
+  id                    String       @id @default(cuid())
+  organizationId        String       @map("organization_id")
+  provider              SaaSProvider
+  clientId              String       @map("client_id") @db.VarChar(500)
+  encryptedClientSecret String       @map("encrypted_client_secret") @db.Text
+  redirectUri           String       @map("redirect_uri") @db.VarChar(500)
+  tokenKeyVersion       String       @default("v1") @map("token_key_version") @db.VarChar(32)
+  createdById           String?      @map("created_by_id")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy             User?        @relation("IntegrationOAuthClientCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@map("integration_oauth_clients")
 }
 
 model IngestedEvent {

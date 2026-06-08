@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/url"
@@ -74,7 +75,7 @@ func TestCompatGoogleOAuthStartBuildsAuthorizationURL(t *testing.T) {
 	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback")
 
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
-	result, err := app.compatGoogleOAuthStart(map[string]any{"mode": "READ_ONLY"}, compatAuth{OrganizationID: "org1", UserID: "user1", Role: "ADMIN"})
+	result, err := app.compatGoogleOAuthStart(context.Background(), map[string]any{"mode": "READ_ONLY"}, compatAuth{OrganizationID: "org1", UserID: "user1", Role: "ADMIN"})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -120,11 +121,33 @@ func TestCompatGoogleOAuthStartUnconfigured(t *testing.T) {
 	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
 
 	app := NewApp(config.Config{WebOrigin: "http://localhost:3000"}, nil)
-	_, err := app.compatGoogleOAuthStart(map[string]any{"mode": "READ_ONLY"}, compatAuth{OrganizationID: "org1"})
+	_, err := app.compatGoogleOAuthStart(context.Background(), map[string]any{"mode": "READ_ONLY"}, compatAuth{OrganizationID: "org1"})
 	if err == nil {
 		t.Fatal("expected unconfigured OAuth to error")
 	}
-	if connect.CodeOf(err) != connect.CodeUnavailable {
-		t.Fatalf("expected CodeUnavailable, got %v", connect.CodeOf(err))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected CodeFailedPrecondition, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestDefaultGoogleOAuthRedirectURIFromEnv(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback")
+	if got := defaultGoogleOAuthRedirectURI(); got != "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("env redirect not preferred: %s", got)
+	}
+}
+
+func TestDefaultGoogleOAuthRedirectURIFallsBackToConnectAddr(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+	t.Setenv("APERIO_CONNECT_ADDR", ":4100")
+	got := defaultGoogleOAuthRedirectURI()
+	if got != "http://127.0.0.1:4100/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("unexpected redirect uri: %s", got)
+	}
+}
+
+func TestOAuthClientSecretAAD(t *testing.T) {
+	if oauthClientSecretAAD("org1", "GOOGLE_WORKSPACE") != "oauth-client:org1:GOOGLE_WORKSPACE" {
+		t.Fatal("AAD shape changed; existing per-tenant secrets will fail to decrypt")
 	}
 }

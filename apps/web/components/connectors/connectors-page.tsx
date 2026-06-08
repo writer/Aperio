@@ -4,15 +4,19 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { CheckCircle2, ExternalLink, Plus, Search, Unplug } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
+  clearIntegrationOAuthClient,
   connectIntegration,
   disconnectIntegration,
   fetchConnectorCatalog,
+  fetchIntegrationOAuthClient,
   fetchIntegrations,
+  saveIntegrationOAuthClient,
   startGoogleWorkspaceOAuth,
   type ConnectIntegrationPayload,
   type ConnectorDefinition,
   type IntegrationConnection,
-  type IntegrationMode
+  type IntegrationMode,
+  type IntegrationOAuthClient
 } from "../../lib/api";
 import { useToast } from "../ui/toast";
 import { PageHeader } from "../layout/page-header";
@@ -364,6 +368,11 @@ function ConnectDialog({
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [oauthClient, setOauthClient] = useState<IntegrationOAuthClient | null>(null);
+  const [oauthClientLoading, setOauthClientLoading] = useState(false);
+  const [showOauthSetup, setShowOauthSetup] = useState(false);
+
+  const isGoogleWorkspace = connector?.provider === "GOOGLE_WORKSPACE";
 
   useEffect(() => {
     if (connector) {
@@ -374,14 +383,45 @@ function ConnectDialog({
       setMode("READ_ONLY");
       setFieldValues({});
       setError("");
+      setOauthClient(null);
+      setShowOauthSetup(false);
     }
   }, [connector]);
+
+  useEffect(() => {
+    if (!connector || !isGoogleWorkspace) return;
+    let cancelled = false;
+    setOauthClientLoading(true);
+    fetchIntegrationOAuthClient("GOOGLE_WORKSPACE")
+      .then(({ data }) => {
+        if (cancelled) return;
+        setOauthClient(data);
+        setShowOauthSetup(data.source === "");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOauthClient({
+          provider: "GOOGLE_WORKSPACE",
+          clientId: "",
+          redirectUri: "",
+          defaultRedirectUri: "",
+          configured: false,
+          source: "",
+          updatedAt: null
+        });
+        setShowOauthSetup(true);
+      })
+      .finally(() => {
+        if (!cancelled) setOauthClientLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connector, isGoogleWorkspace]);
 
   if (!connector) {
     return null;
   }
-
-  const isGoogleWorkspace = connector?.provider === "GOOGLE_WORKSPACE";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -390,6 +430,13 @@ function ConnectDialog({
     if (isGoogleWorkspace) {
       // Google Workspace captures the workspace domain and refresh token through
       // OAuth callback state, so manual credential fields are deliberately hidden.
+      if (!oauthClient || oauthClient.source === "") {
+        setShowOauthSetup(true);
+        setError(
+          "Add your Google Cloud OAuth client credentials below before continuing."
+        );
+        return;
+      }
       setSaving(true);
       setError("");
       try {
@@ -496,6 +543,21 @@ function ConnectDialog({
             </div>
           </Field>
 
+          {isGoogleWorkspace ? (
+            <GoogleOAuthClientPanel
+              loading={oauthClientLoading}
+              client={oauthClient}
+              showSetup={showOauthSetup}
+              onChange={(next) => {
+                setOauthClient(next);
+                setShowOauthSetup(next.source === "");
+              }}
+              onRequestEdit={() => setShowOauthSetup(true)}
+              onCancelEdit={() => setShowOauthSetup(false)}
+              onError={setError}
+            />
+          ) : null}
+
           {isGoogleWorkspace
             ? null
             : connector.fields.map((field) => (
@@ -532,6 +594,13 @@ function ConnectDialog({
               loadingText={
                 isGoogleWorkspace ? "Redirecting…" : "Connecting…"
               }
+              disabled={
+                isGoogleWorkspace &&
+                (oauthClientLoading ||
+                  !oauthClient ||
+                  oauthClient.source === "" ||
+                  showOauthSetup)
+              }
             >
               <CheckCircle2 className="h-4 w-4" />
               {isGoogleWorkspace ? "Continue with Google" : "Connect"}
@@ -540,5 +609,245 @@ function ConnectDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function GoogleOAuthClientPanel({
+  loading,
+  client,
+  showSetup,
+  onChange,
+  onRequestEdit,
+  onCancelEdit,
+  onError
+}: {
+  loading: boolean;
+  client: IntegrationOAuthClient | null;
+  showSetup: boolean;
+  onChange: (next: IntegrationOAuthClient) => void;
+  onRequestEdit: () => void;
+  onCancelEdit: () => void;
+  onError: (message: string) => void;
+}) {
+  const clientIdInputId = useId();
+  const clientSecretInputId = useId();
+  const redirectInputId = useId();
+  const [clientIdInput, setClientIdInput] = useState("");
+  const [clientSecretInput, setClientSecretInput] = useState("");
+  const [redirectInput, setRedirectInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  useEffect(() => {
+    if (!client) return;
+    if (client.source === "tenant") {
+      setClientIdInput(client.clientId);
+      setRedirectInput(client.redirectUri || client.defaultRedirectUri);
+    } else {
+      // env or unconfigured: start the setup form blank so admins don't
+      // accidentally save the operator-wide values as their tenant secret.
+      setClientIdInput("");
+      setRedirectInput(client.defaultRedirectUri);
+    }
+    setClientSecretInput("");
+  }, [client]);
+
+  if (loading) {
+    return (
+      <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+        Loading Google OAuth client configuration…
+      </div>
+    );
+  }
+
+  if (!client) return null;
+
+  const isTenantConfigured = client.source === "tenant";
+
+  async function handleSave() {
+    if (!clientIdInput.trim() || !clientSecretInput.trim() || !redirectInput.trim()) {
+      onError("Client ID, client secret, and redirect URI are required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await saveIntegrationOAuthClient({
+        provider: "GOOGLE_WORKSPACE",
+        clientId: clientIdInput.trim(),
+        clientSecret: clientSecretInput.trim(),
+        redirectUri: redirectInput.trim()
+      });
+      onChange(data);
+      onError("");
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Unable to save Google OAuth client credentials"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleClear() {
+    setClearing(true);
+    try {
+      const { data } = await clearIntegrationOAuthClient("GOOGLE_WORKSPACE");
+      // onChange flips back into summary mode when the response still has a
+      // usable source (e.g. env fallback). When neither tenant nor env is set
+      // it shows the setup form.
+      onChange(data);
+      setClientIdInput("");
+      setClientSecretInput("");
+      setRedirectInput(data.defaultRedirectUri);
+      onError("");
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Unable to clear Google OAuth client credentials"
+      );
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  if (client.source !== "" && !showSetup) {
+    return (
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
+        <div className="space-y-0.5">
+          <div className="font-medium text-foreground">
+            {isTenantConfigured
+              ? "Using your Google Cloud OAuth app"
+              : "Using the operator-configured Google OAuth app"}
+          </div>
+          <div className="text-muted-foreground">Client ID: {client.clientId}</div>
+          <div className="text-muted-foreground">
+            Redirect URI: {client.redirectUri}
+          </div>
+          {!isTenantConfigured ? (
+            <div className="text-muted-foreground">
+              These credentials come from the Aperio deployment&apos;s
+              environment variables. You can override them for this workspace
+              by registering your own OAuth app.
+            </div>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onRequestEdit}
+        >
+          {isTenantConfigured ? "Edit" : "Use your own app"}
+        </Button>
+      </div>
+    );
+  }
+
+  function handlePanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    // The credential editor is nested inside the outer connect form. Without
+    // this guard, pressing Enter in a field would submit the outer form and
+    // start OAuth with the old saved credentials before the edits are saved.
+    if (event.key !== "Enter" || event.shiftKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.tagName !== "INPUT") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!saving) {
+      void handleSave();
+    }
+  }
+
+  return (
+    <div
+      className="space-y-3 rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs"
+      onKeyDown={handlePanelKeyDown}
+    >
+      <div className="space-y-1">
+        <div className="text-sm font-medium text-foreground">
+          Google Cloud OAuth client
+        </div>
+        <p className="text-muted-foreground">
+          One-time setup per workspace. In Google Cloud Console open APIs &amp; Services
+          → Credentials, create an OAuth client ID (type: Web application), add the
+          redirect URI below to "Authorized redirect URIs", then paste the client ID
+          and secret here.
+        </p>
+      </div>
+      {/*
+        The editor lives inside the outer connect <form>, so we deliberately
+        skip the native `required` attribute on these inputs. handleSave runs
+        the equivalent presence check before calling the RPC, which avoids
+        HTML5 validation bubbles firing on a blank credential secret when the
+        user submits the outer form to start OAuth with existing credentials.
+      */}
+      <Field label="Client ID" htmlFor={clientIdInputId} required>
+        <Input
+          id={clientIdInputId}
+          value={clientIdInput}
+          onChange={(event) => setClientIdInput(event.target.value)}
+          placeholder="...apps.googleusercontent.com"
+          aria-required="true"
+        />
+      </Field>
+      <Field label="Client secret" htmlFor={clientSecretInputId} required>
+        <Input
+          id={clientSecretInputId}
+          type="password"
+          value={clientSecretInput}
+          onChange={(event) => setClientSecretInput(event.target.value)}
+          placeholder={isTenantConfigured ? "Re-enter the client secret to update" : ""}
+          aria-required="true"
+        />
+      </Field>
+      <Field
+        label="Authorized redirect URI"
+        htmlFor={redirectInputId}
+        hint="Must match the value configured in Google Cloud Console exactly."
+        required
+      >
+        <Input
+          id={redirectInputId}
+          value={redirectInput}
+          onChange={(event) => setRedirectInput(event.target.value)}
+          aria-required="true"
+        />
+      </Field>
+      <div className="flex flex-wrap justify-end gap-2">
+        {isTenantConfigured ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClear}
+            loading={clearing}
+            loadingText="Removing…"
+          >
+            Remove credentials
+          </Button>
+        ) : null}
+        {client.source !== "" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onCancelEdit}
+          >
+            Cancel
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleSave}
+          loading={saving}
+          loadingText="Saving…"
+        >
+          Save credentials
+        </Button>
+      </div>
+    </div>
   );
 }

@@ -113,6 +113,15 @@ const (
 	// AperioServiceStartGoogleWorkspaceOAuthProcedure is the fully-qualified name of the
 	// AperioService's StartGoogleWorkspaceOAuth RPC.
 	AperioServiceStartGoogleWorkspaceOAuthProcedure = "/aperio.v1.AperioService/StartGoogleWorkspaceOAuth"
+	// AperioServiceGetIntegrationOAuthClientProcedure is the fully-qualified name of the
+	// AperioService's GetIntegrationOAuthClient RPC.
+	AperioServiceGetIntegrationOAuthClientProcedure = "/aperio.v1.AperioService/GetIntegrationOAuthClient"
+	// AperioServiceSetIntegrationOAuthClientProcedure is the fully-qualified name of the
+	// AperioService's SetIntegrationOAuthClient RPC.
+	AperioServiceSetIntegrationOAuthClientProcedure = "/aperio.v1.AperioService/SetIntegrationOAuthClient"
+	// AperioServiceClearIntegrationOAuthClientProcedure is the fully-qualified name of the
+	// AperioService's ClearIntegrationOAuthClient RPC.
+	AperioServiceClearIntegrationOAuthClientProcedure = "/aperio.v1.AperioService/ClearIntegrationOAuthClient"
 	// AperioServiceForceSyncIntegrationProcedure is the fully-qualified name of the AperioService's
 	// ForceSyncIntegration RPC.
 	AperioServiceForceSyncIntegrationProcedure = "/aperio.v1.AperioService/ForceSyncIntegration"
@@ -223,6 +232,9 @@ type AperioServiceClient interface {
 	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
 	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
 	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
+	GetIntegrationOAuthClient(context.Context, *connect.Request[v1.GetIntegrationOAuthClientRequest]) (*connect.Response[v1.GetIntegrationOAuthClientResponse], error)
+	SetIntegrationOAuthClient(context.Context, *connect.Request[v1.SetIntegrationOAuthClientRequest]) (*connect.Response[v1.SetIntegrationOAuthClientResponse], error)
+	ClearIntegrationOAuthClient(context.Context, *connect.Request[v1.ClearIntegrationOAuthClientRequest]) (*connect.Response[v1.ClearIntegrationOAuthClientResponse], error)
 	ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error)
 	ListSiemCatalog(context.Context, *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error)
 	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
@@ -430,6 +442,24 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("StartGoogleWorkspaceOAuth")),
 			connect.WithClientOptions(opts...),
 		),
+		getIntegrationOAuthClient: connect.NewClient[v1.GetIntegrationOAuthClientRequest, v1.GetIntegrationOAuthClientResponse](
+			httpClient,
+			baseURL+AperioServiceGetIntegrationOAuthClientProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetIntegrationOAuthClient")),
+			connect.WithClientOptions(opts...),
+		),
+		setIntegrationOAuthClient: connect.NewClient[v1.SetIntegrationOAuthClientRequest, v1.SetIntegrationOAuthClientResponse](
+			httpClient,
+			baseURL+AperioServiceSetIntegrationOAuthClientProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("SetIntegrationOAuthClient")),
+			connect.WithClientOptions(opts...),
+		),
+		clearIntegrationOAuthClient: connect.NewClient[v1.ClearIntegrationOAuthClientRequest, v1.ClearIntegrationOAuthClientResponse](
+			httpClient,
+			baseURL+AperioServiceClearIntegrationOAuthClientProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ClearIntegrationOAuthClient")),
+			connect.WithClientOptions(opts...),
+		),
 		forceSyncIntegration: connect.NewClient[v1.ForceSyncIntegrationRequest, v1.ForceSyncIntegrationResponse](
 			httpClient,
 			baseURL+AperioServiceForceSyncIntegrationProcedure,
@@ -619,6 +649,9 @@ type aperioServiceClient struct {
 	getGoogleMailboxScanConfig    *connect.Client[v1.GetGoogleMailboxScanConfigRequest, v1.GetGoogleMailboxScanConfigResponse]
 	updateGoogleMailboxScanConfig *connect.Client[v1.UpdateGoogleMailboxScanConfigRequest, v1.UpdateGoogleMailboxScanConfigResponse]
 	startGoogleWorkspaceOAuth     *connect.Client[v1.StartGoogleWorkspaceOAuthRequest, v1.StartGoogleWorkspaceOAuthResponse]
+	getIntegrationOAuthClient     *connect.Client[v1.GetIntegrationOAuthClientRequest, v1.GetIntegrationOAuthClientResponse]
+	setIntegrationOAuthClient     *connect.Client[v1.SetIntegrationOAuthClientRequest, v1.SetIntegrationOAuthClientResponse]
+	clearIntegrationOAuthClient   *connect.Client[v1.ClearIntegrationOAuthClientRequest, v1.ClearIntegrationOAuthClientResponse]
 	forceSyncIntegration          *connect.Client[v1.ForceSyncIntegrationRequest, v1.ForceSyncIntegrationResponse]
 	listSiemCatalog               *connect.Client[v1.ListSiemCatalogRequest, v1.ListSiemCatalogResponse]
 	listSiemDestinations          *connect.Client[v1.ListSiemDestinationsRequest, v1.ListSiemDestinationsResponse]
@@ -787,6 +820,21 @@ func (c *aperioServiceClient) StartGoogleWorkspaceOAuth(ctx context.Context, req
 	return c.startGoogleWorkspaceOAuth.CallUnary(ctx, req)
 }
 
+// GetIntegrationOAuthClient calls aperio.v1.AperioService.GetIntegrationOAuthClient.
+func (c *aperioServiceClient) GetIntegrationOAuthClient(ctx context.Context, req *connect.Request[v1.GetIntegrationOAuthClientRequest]) (*connect.Response[v1.GetIntegrationOAuthClientResponse], error) {
+	return c.getIntegrationOAuthClient.CallUnary(ctx, req)
+}
+
+// SetIntegrationOAuthClient calls aperio.v1.AperioService.SetIntegrationOAuthClient.
+func (c *aperioServiceClient) SetIntegrationOAuthClient(ctx context.Context, req *connect.Request[v1.SetIntegrationOAuthClientRequest]) (*connect.Response[v1.SetIntegrationOAuthClientResponse], error) {
+	return c.setIntegrationOAuthClient.CallUnary(ctx, req)
+}
+
+// ClearIntegrationOAuthClient calls aperio.v1.AperioService.ClearIntegrationOAuthClient.
+func (c *aperioServiceClient) ClearIntegrationOAuthClient(ctx context.Context, req *connect.Request[v1.ClearIntegrationOAuthClientRequest]) (*connect.Response[v1.ClearIntegrationOAuthClientResponse], error) {
+	return c.clearIntegrationOAuthClient.CallUnary(ctx, req)
+}
+
 // ForceSyncIntegration calls aperio.v1.AperioService.ForceSyncIntegration.
 func (c *aperioServiceClient) ForceSyncIntegration(ctx context.Context, req *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error) {
 	return c.forceSyncIntegration.CallUnary(ctx, req)
@@ -947,6 +995,9 @@ type AperioServiceHandler interface {
 	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
 	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
 	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
+	GetIntegrationOAuthClient(context.Context, *connect.Request[v1.GetIntegrationOAuthClientRequest]) (*connect.Response[v1.GetIntegrationOAuthClientResponse], error)
+	SetIntegrationOAuthClient(context.Context, *connect.Request[v1.SetIntegrationOAuthClientRequest]) (*connect.Response[v1.SetIntegrationOAuthClientResponse], error)
+	ClearIntegrationOAuthClient(context.Context, *connect.Request[v1.ClearIntegrationOAuthClientRequest]) (*connect.Response[v1.ClearIntegrationOAuthClientResponse], error)
 	ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error)
 	ListSiemCatalog(context.Context, *connect.Request[v1.ListSiemCatalogRequest]) (*connect.Response[v1.ListSiemCatalogResponse], error)
 	ListSiemDestinations(context.Context, *connect.Request[v1.ListSiemDestinationsRequest]) (*connect.Response[v1.ListSiemDestinationsResponse], error)
@@ -1148,6 +1199,24 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		AperioServiceStartGoogleWorkspaceOAuthProcedure,
 		svc.StartGoogleWorkspaceOAuth,
 		connect.WithSchema(aperioServiceMethods.ByName("StartGoogleWorkspaceOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetIntegrationOAuthClientHandler := connect.NewUnaryHandler(
+		AperioServiceGetIntegrationOAuthClientProcedure,
+		svc.GetIntegrationOAuthClient,
+		connect.WithSchema(aperioServiceMethods.ByName("GetIntegrationOAuthClient")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceSetIntegrationOAuthClientHandler := connect.NewUnaryHandler(
+		AperioServiceSetIntegrationOAuthClientProcedure,
+		svc.SetIntegrationOAuthClient,
+		connect.WithSchema(aperioServiceMethods.ByName("SetIntegrationOAuthClient")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceClearIntegrationOAuthClientHandler := connect.NewUnaryHandler(
+		AperioServiceClearIntegrationOAuthClientProcedure,
+		svc.ClearIntegrationOAuthClient,
+		connect.WithSchema(aperioServiceMethods.ByName("ClearIntegrationOAuthClient")),
 		connect.WithHandlerOptions(opts...),
 	)
 	aperioServiceForceSyncIntegrationHandler := connect.NewUnaryHandler(
@@ -1364,6 +1433,12 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceUpdateGoogleMailboxScanConfigHandler.ServeHTTP(w, r)
 		case AperioServiceStartGoogleWorkspaceOAuthProcedure:
 			aperioServiceStartGoogleWorkspaceOAuthHandler.ServeHTTP(w, r)
+		case AperioServiceGetIntegrationOAuthClientProcedure:
+			aperioServiceGetIntegrationOAuthClientHandler.ServeHTTP(w, r)
+		case AperioServiceSetIntegrationOAuthClientProcedure:
+			aperioServiceSetIntegrationOAuthClientHandler.ServeHTTP(w, r)
+		case AperioServiceClearIntegrationOAuthClientProcedure:
+			aperioServiceClearIntegrationOAuthClientHandler.ServeHTTP(w, r)
 		case AperioServiceForceSyncIntegrationProcedure:
 			aperioServiceForceSyncIntegrationHandler.ServeHTTP(w, r)
 		case AperioServiceListSiemCatalogProcedure:
@@ -1535,6 +1610,18 @@ func (UnimplementedAperioServiceHandler) UpdateGoogleMailboxScanConfig(context.C
 
 func (UnimplementedAperioServiceHandler) StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.StartGoogleWorkspaceOAuth is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetIntegrationOAuthClient(context.Context, *connect.Request[v1.GetIntegrationOAuthClientRequest]) (*connect.Response[v1.GetIntegrationOAuthClientResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetIntegrationOAuthClient is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) SetIntegrationOAuthClient(context.Context, *connect.Request[v1.SetIntegrationOAuthClientRequest]) (*connect.Response[v1.SetIntegrationOAuthClientResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.SetIntegrationOAuthClient is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ClearIntegrationOAuthClient(context.Context, *connect.Request[v1.ClearIntegrationOAuthClientRequest]) (*connect.Response[v1.ClearIntegrationOAuthClientResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ClearIntegrationOAuthClient is not implemented"))
 }
 
 func (UnimplementedAperioServiceHandler) ForceSyncIntegration(context.Context, *connect.Request[v1.ForceSyncIntegrationRequest]) (*connect.Response[v1.ForceSyncIntegrationResponse], error) {
