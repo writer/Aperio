@@ -1445,6 +1445,17 @@ async function runBrowserValidation(report) {
       status: emptyLocalStorage ? "passed" : "failed"
     };
 
+    // Wait for React to hydrate the form before submitting. The SSR HTML shows
+    // "Sign in" before client JS attaches the onSubmit handler, so without this
+    // gate the form can fire a native GET submit instead of the React fetch.
+    // React attaches __reactProps$* onto interactive elements during hydration.
+    await waitForExpression(
+      cdp,
+      "login form hydrated",
+      `(() => { const form = document.querySelector("form"); if (!form) return false; return Object.keys(form).some((k) => k.startsWith("__reactProps$")); })()`,
+      60_000
+    );
+
     currentPhase = "login";
     const password = process.env.DEMO_OWNER_PASSWORD ?? "DemoPass1234";
     await evaluate(
@@ -1861,6 +1872,12 @@ async function runSmokeE2E() {
   } catch (error) {
     report.status = "failed";
     report.error = summarizeError(error);
+    report.processDiagnostics = state.processes.map((p) => ({
+      label: p.info.label,
+      pid: p.info.pid,
+      stdoutTail: tailLines(p.info.stdout ?? ""),
+      stderrTail: tailLines(p.info.stderr ?? "")
+    }));
   } finally {
     await cleanupHarness(state, report);
     if (report.cleanup.status !== "passed") {

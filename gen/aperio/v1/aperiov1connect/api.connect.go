@@ -179,6 +179,18 @@ const (
 	// AperioServiceUpdateRiskExceptionProcedure is the fully-qualified name of the AperioService's
 	// UpdateRiskException RPC.
 	AperioServiceUpdateRiskExceptionProcedure = "/aperio.v1.AperioService/UpdateRiskException"
+	// AperioServiceListExecutiveReportsProcedure is the fully-qualified name of the AperioService's
+	// ListExecutiveReports RPC.
+	AperioServiceListExecutiveReportsProcedure = "/aperio.v1.AperioService/ListExecutiveReports"
+	// AperioServiceGetExecutiveReportProcedure is the fully-qualified name of the AperioService's
+	// GetExecutiveReport RPC.
+	AperioServiceGetExecutiveReportProcedure = "/aperio.v1.AperioService/GetExecutiveReport"
+	// AperioServiceCreateExecutiveReportProcedure is the fully-qualified name of the AperioService's
+	// CreateExecutiveReport RPC.
+	AperioServiceCreateExecutiveReportProcedure = "/aperio.v1.AperioService/CreateExecutiveReport"
+	// AperioServiceDeleteExecutiveReportProcedure is the fully-qualified name of the AperioService's
+	// DeleteExecutiveReport RPC.
+	AperioServiceDeleteExecutiveReportProcedure = "/aperio.v1.AperioService/DeleteExecutiveReport"
 )
 
 // AperioServiceClient is a client for the aperio.v1.AperioService service.
@@ -233,6 +245,10 @@ type AperioServiceClient interface {
 	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
 	CreateRiskException(context.Context, *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error)
 	UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error)
+	ListExecutiveReports(context.Context, *connect.Request[v1.ListExecutiveReportsRequest]) (*connect.Response[v1.ListExecutiveReportsResponse], error)
+	GetExecutiveReport(context.Context, *connect.Request[v1.GetExecutiveReportRequest]) (*connect.Response[v1.GetExecutiveReportResponse], error)
+	CreateExecutiveReport(context.Context, *connect.Request[v1.CreateExecutiveReportRequest]) (*connect.Response[v1.CreateExecutiveReportResponse], error)
+	DeleteExecutiveReport(context.Context, *connect.Request[v1.DeleteExecutiveReportRequest]) (*connect.Response[v1.DeleteExecutiveReportResponse], error)
 }
 
 // NewAperioServiceClient constructs a client for the aperio.v1.AperioService service. By default,
@@ -546,6 +562,30 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(aperioServiceMethods.ByName("UpdateRiskException")),
 			connect.WithClientOptions(opts...),
 		),
+		listExecutiveReports: connect.NewClient[v1.ListExecutiveReportsRequest, v1.ListExecutiveReportsResponse](
+			httpClient,
+			baseURL+AperioServiceListExecutiveReportsProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListExecutiveReports")),
+			connect.WithClientOptions(opts...),
+		),
+		getExecutiveReport: connect.NewClient[v1.GetExecutiveReportRequest, v1.GetExecutiveReportResponse](
+			httpClient,
+			baseURL+AperioServiceGetExecutiveReportProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("GetExecutiveReport")),
+			connect.WithClientOptions(opts...),
+		),
+		createExecutiveReport: connect.NewClient[v1.CreateExecutiveReportRequest, v1.CreateExecutiveReportResponse](
+			httpClient,
+			baseURL+AperioServiceCreateExecutiveReportProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateExecutiveReport")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteExecutiveReport: connect.NewClient[v1.DeleteExecutiveReportRequest, v1.DeleteExecutiveReportResponse](
+			httpClient,
+			baseURL+AperioServiceDeleteExecutiveReportProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("DeleteExecutiveReport")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -601,6 +641,10 @@ type aperioServiceClient struct {
 	listRiskExceptions            *connect.Client[v1.ListRiskExceptionsRequest, v1.ListRiskExceptionsResponse]
 	createRiskException           *connect.Client[v1.CreateRiskExceptionRequest, v1.CreateRiskExceptionResponse]
 	updateRiskException           *connect.Client[v1.UpdateRiskExceptionRequest, v1.UpdateRiskExceptionResponse]
+	listExecutiveReports          *connect.Client[v1.ListExecutiveReportsRequest, v1.ListExecutiveReportsResponse]
+	getExecutiveReport            *connect.Client[v1.GetExecutiveReportRequest, v1.GetExecutiveReportResponse]
+	createExecutiveReport         *connect.Client[v1.CreateExecutiveReportRequest, v1.CreateExecutiveReportResponse]
+	deleteExecutiveReport         *connect.Client[v1.DeleteExecutiveReportRequest, v1.DeleteExecutiveReportResponse]
 }
 
 // CallApi calls aperio.v1.AperioService.CallApi.
@@ -853,6 +897,26 @@ func (c *aperioServiceClient) UpdateRiskException(ctx context.Context, req *conn
 	return c.updateRiskException.CallUnary(ctx, req)
 }
 
+// ListExecutiveReports calls aperio.v1.AperioService.ListExecutiveReports.
+func (c *aperioServiceClient) ListExecutiveReports(ctx context.Context, req *connect.Request[v1.ListExecutiveReportsRequest]) (*connect.Response[v1.ListExecutiveReportsResponse], error) {
+	return c.listExecutiveReports.CallUnary(ctx, req)
+}
+
+// GetExecutiveReport calls aperio.v1.AperioService.GetExecutiveReport.
+func (c *aperioServiceClient) GetExecutiveReport(ctx context.Context, req *connect.Request[v1.GetExecutiveReportRequest]) (*connect.Response[v1.GetExecutiveReportResponse], error) {
+	return c.getExecutiveReport.CallUnary(ctx, req)
+}
+
+// CreateExecutiveReport calls aperio.v1.AperioService.CreateExecutiveReport.
+func (c *aperioServiceClient) CreateExecutiveReport(ctx context.Context, req *connect.Request[v1.CreateExecutiveReportRequest]) (*connect.Response[v1.CreateExecutiveReportResponse], error) {
+	return c.createExecutiveReport.CallUnary(ctx, req)
+}
+
+// DeleteExecutiveReport calls aperio.v1.AperioService.DeleteExecutiveReport.
+func (c *aperioServiceClient) DeleteExecutiveReport(ctx context.Context, req *connect.Request[v1.DeleteExecutiveReportRequest]) (*connect.Response[v1.DeleteExecutiveReportResponse], error) {
+	return c.deleteExecutiveReport.CallUnary(ctx, req)
+}
+
 // AperioServiceHandler is an implementation of the aperio.v1.AperioService service.
 type AperioServiceHandler interface {
 	CallApi(context.Context, *connect.Request[v1.CallApiRequest]) (*connect.Response[v1.CallApiResponse], error)
@@ -905,6 +969,10 @@ type AperioServiceHandler interface {
 	ListRiskExceptions(context.Context, *connect.Request[v1.ListRiskExceptionsRequest]) (*connect.Response[v1.ListRiskExceptionsResponse], error)
 	CreateRiskException(context.Context, *connect.Request[v1.CreateRiskExceptionRequest]) (*connect.Response[v1.CreateRiskExceptionResponse], error)
 	UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error)
+	ListExecutiveReports(context.Context, *connect.Request[v1.ListExecutiveReportsRequest]) (*connect.Response[v1.ListExecutiveReportsResponse], error)
+	GetExecutiveReport(context.Context, *connect.Request[v1.GetExecutiveReportRequest]) (*connect.Response[v1.GetExecutiveReportResponse], error)
+	CreateExecutiveReport(context.Context, *connect.Request[v1.CreateExecutiveReportRequest]) (*connect.Response[v1.CreateExecutiveReportResponse], error)
+	DeleteExecutiveReport(context.Context, *connect.Request[v1.DeleteExecutiveReportRequest]) (*connect.Response[v1.DeleteExecutiveReportResponse], error)
 }
 
 // NewAperioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1214,6 +1282,30 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(aperioServiceMethods.ByName("UpdateRiskException")),
 		connect.WithHandlerOptions(opts...),
 	)
+	aperioServiceListExecutiveReportsHandler := connect.NewUnaryHandler(
+		AperioServiceListExecutiveReportsProcedure,
+		svc.ListExecutiveReports,
+		connect.WithSchema(aperioServiceMethods.ByName("ListExecutiveReports")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceGetExecutiveReportHandler := connect.NewUnaryHandler(
+		AperioServiceGetExecutiveReportProcedure,
+		svc.GetExecutiveReport,
+		connect.WithSchema(aperioServiceMethods.ByName("GetExecutiveReport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateExecutiveReportHandler := connect.NewUnaryHandler(
+		AperioServiceCreateExecutiveReportProcedure,
+		svc.CreateExecutiveReport,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateExecutiveReport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceDeleteExecutiveReportHandler := connect.NewUnaryHandler(
+		AperioServiceDeleteExecutiveReportProcedure,
+		svc.DeleteExecutiveReport,
+		connect.WithSchema(aperioServiceMethods.ByName("DeleteExecutiveReport")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aperio.v1.AperioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AperioServiceCallApiProcedure:
@@ -1316,6 +1408,14 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceCreateRiskExceptionHandler.ServeHTTP(w, r)
 		case AperioServiceUpdateRiskExceptionProcedure:
 			aperioServiceUpdateRiskExceptionHandler.ServeHTTP(w, r)
+		case AperioServiceListExecutiveReportsProcedure:
+			aperioServiceListExecutiveReportsHandler.ServeHTTP(w, r)
+		case AperioServiceGetExecutiveReportProcedure:
+			aperioServiceGetExecutiveReportHandler.ServeHTTP(w, r)
+		case AperioServiceCreateExecutiveReportProcedure:
+			aperioServiceCreateExecutiveReportHandler.ServeHTTP(w, r)
+		case AperioServiceDeleteExecutiveReportProcedure:
+			aperioServiceDeleteExecutiveReportHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1523,4 +1623,20 @@ func (UnimplementedAperioServiceHandler) CreateRiskException(context.Context, *c
 
 func (UnimplementedAperioServiceHandler) UpdateRiskException(context.Context, *connect.Request[v1.UpdateRiskExceptionRequest]) (*connect.Response[v1.UpdateRiskExceptionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateRiskException is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListExecutiveReports(context.Context, *connect.Request[v1.ListExecutiveReportsRequest]) (*connect.Response[v1.ListExecutiveReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListExecutiveReports is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) GetExecutiveReport(context.Context, *connect.Request[v1.GetExecutiveReportRequest]) (*connect.Response[v1.GetExecutiveReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.GetExecutiveReport is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateExecutiveReport(context.Context, *connect.Request[v1.CreateExecutiveReportRequest]) (*connect.Response[v1.CreateExecutiveReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateExecutiveReport is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) DeleteExecutiveReport(context.Context, *connect.Request[v1.DeleteExecutiveReportRequest]) (*connect.Response[v1.DeleteExecutiveReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.DeleteExecutiveReport is not implemented"))
 }

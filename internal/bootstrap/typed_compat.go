@@ -878,3 +878,112 @@ func anyKey(data map[string]any, keys ...string) any {
 	}
 	return nil
 }
+
+func executiveReportFromAny(value any) *aperiov1.ExecutiveReport {
+	data := asMap(value)
+	if len(data) == 0 {
+		return nil
+	}
+	kpiJSON := "{}"
+	if kpi, ok := data["kpiSnapshot"]; ok && kpi != nil {
+		if bytes, err := json.Marshal(kpi); err == nil {
+			kpiJSON = string(bytes)
+		}
+	}
+	return &aperiov1.ExecutiveReport{
+		Id:                stringFromAny(data["id"]),
+		Template:          stringFromAny(data["template"]),
+		Period:            stringFromAny(data["period"]),
+		PeriodStart:       stringFromAny(data["periodStart"]),
+		PeriodEnd:         stringFromAny(data["periodEnd"]),
+		Title:             stringFromAny(data["title"]),
+		Summary:           stringFromAny(data["summary"]),
+		Status:            stringFromAny(data["status"]),
+		KpiSnapshotJson:   kpiJSON,
+		HasHtml:           boolFromAny(data["hasHtml"]),
+		HasPdf:            boolFromAny(data["hasPdf"]),
+		HtmlUrl:           stringFromAny(data["htmlUrl"]),
+		PdfUrl:            stringFromAny(data["pdfUrl"]),
+		CreatedAt:         stringFromAny(data["createdAt"]),
+		UpdatedAt:         stringFromAny(data["updatedAt"]),
+		GeneratedAt:       stringFromAny(data["generatedAt"]),
+		ErrorMessage:      stringFromAny(data["errorMessage"]),
+		RequestedByUserId: stringFromAny(data["requestedByUser"]),
+	}
+}
+
+func executiveReportsFromAny(value any) []*aperiov1.ExecutiveReport {
+	items := anyList(value)
+	out := make([]*aperiov1.ExecutiveReport, 0, len(items))
+	for _, item := range items {
+		report := executiveReportFromAny(item)
+		if report != nil {
+			out = append(out, report)
+		}
+	}
+	return out
+}
+
+func (a *App) ListExecutiveReports(ctx context.Context, req *connect.Request[aperiov1.ListExecutiveReportsRequest]) (*connect.Response[aperiov1.ListExecutiveReportsResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatListExecutiveReports(ctx, auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.ListExecutiveReportsResponse{
+		Data: executiveReportsFromAny(asMap(result)["data"]),
+	}), nil
+}
+
+func (a *App) GetExecutiveReport(ctx context.Context, req *connect.Request[aperiov1.GetExecutiveReportRequest]) (*connect.Response[aperiov1.GetExecutiveReportResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatGetExecutiveReport(ctx, req.Msg.Id, auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.GetExecutiveReportResponse{
+		Data: executiveReportFromAny(asMap(result)["data"]),
+	}), nil
+}
+
+func (a *App) CreateExecutiveReport(ctx context.Context, req *connect.Request[aperiov1.CreateExecutiveReportRequest]) (*connect.Response[aperiov1.CreateExecutiveReportResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	body := map[string]any{
+		"period":      req.Msg.Period,
+		"title":       req.Msg.Title,
+		"periodStart": req.Msg.PeriodStart,
+		"periodEnd":   req.Msg.PeriodEnd,
+		"template":    req.Msg.Template,
+	}
+	result, err := a.compatCreateExecutiveReport(ctx, body, auth)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&aperiov1.CreateExecutiveReportResponse{
+		Data: executiveReportFromAny(asMap(result)["data"]),
+	}), nil
+}
+
+func (a *App) DeleteExecutiveReport(ctx context.Context, req *connect.Request[aperiov1.DeleteExecutiveReportRequest]) (*connect.Response[aperiov1.DeleteExecutiveReportResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatDeleteExecutiveReport(ctx, req.Msg.Id, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.DeleteExecutiveReportResponse{
+		Deleted: boolFromAny(data["deleted"]),
+	}), nil
+}

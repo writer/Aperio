@@ -57,6 +57,10 @@ service AperioService {
   rpc ListRiskExceptions(ListRiskExceptionsRequest) returns (ListRiskExceptionsResponse);
   rpc CreateRiskException(CreateRiskExceptionRequest) returns (CreateRiskExceptionResponse);
   rpc UpdateRiskException(UpdateRiskExceptionRequest) returns (UpdateRiskExceptionResponse);
+  rpc ListExecutiveReports(ListExecutiveReportsRequest) returns (ListExecutiveReportsResponse);
+  rpc GetExecutiveReport(GetExecutiveReportRequest) returns (GetExecutiveReportResponse);
+  rpc CreateExecutiveReport(CreateExecutiveReportRequest) returns (CreateExecutiveReportResponse);
+  rpc DeleteExecutiveReport(DeleteExecutiveReportRequest) returns (DeleteExecutiveReportResponse);
 }
 
 message CallApiRequest {
@@ -995,4 +999,59 @@ message UpdateRiskExceptionRequest {
 
 message UpdateRiskExceptionResponse {
   RiskException data = 1;
+}
+
+message ExecutiveReport {
+  string id = 1;
+  string period = 2;
+  string period_start = 3;
+  string period_end = 4;
+  string title = 5;
+  string summary = 6;
+  string status = 7;
+  string kpi_snapshot_json = 8;
+  bool has_html = 9;
+  bool has_pdf = 10;
+  string html_url = 11;
+  string pdf_url = 12;
+  string created_at = 13;
+  string updated_at = 14;
+  string generated_at = 15;
+  string error_message = 16;
+  string requested_by_user_id = 17;
+  string template = 18;
+}
+
+message ListExecutiveReportsRequest {}
+
+message ListExecutiveReportsResponse {
+  repeated ExecutiveReport data = 1;
+}
+
+message GetExecutiveReportRequest {
+  string id = 1;
+}
+
+message GetExecutiveReportResponse {
+  ExecutiveReport data = 1;
+}
+
+message CreateExecutiveReportRequest {
+  string period = 1;
+  string title = 2;
+  string period_start = 3;
+  string period_end = 4;
+  string template = 5;
+}
+
+message CreateExecutiveReportResponse {
+  ExecutiveReport data = 1;
+}
+
+message DeleteExecutiveReportRequest {
+  string id = 1;
+}
+
+message DeleteExecutiveReportResponse {
+  bool deleted = 1;
 }

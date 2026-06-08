@@ -9454,6 +9454,562 @@ func (x *UpdateRiskExceptionResponse) GetData() *RiskException {
 	return nil
 }
 
+type ExecutiveReport struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Period            string                 `protobuf:"bytes,2,opt,name=period,proto3" json:"period,omitempty"`
+	PeriodStart       string                 `protobuf:"bytes,3,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd         string                 `protobuf:"bytes,4,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	Title             string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
+	Summary           string                 `protobuf:"bytes,6,opt,name=summary,proto3" json:"summary,omitempty"`
+	Status            string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	KpiSnapshotJson   string                 `protobuf:"bytes,8,opt,name=kpi_snapshot_json,json=kpiSnapshotJson,proto3" json:"kpi_snapshot_json,omitempty"`
+	HasHtml           bool                   `protobuf:"varint,9,opt,name=has_html,json=hasHtml,proto3" json:"has_html,omitempty"`
+	HasPdf            bool                   `protobuf:"varint,10,opt,name=has_pdf,json=hasPdf,proto3" json:"has_pdf,omitempty"`
+	HtmlUrl           string                 `protobuf:"bytes,11,opt,name=html_url,json=htmlUrl,proto3" json:"html_url,omitempty"`
+	PdfUrl            string                 `protobuf:"bytes,12,opt,name=pdf_url,json=pdfUrl,proto3" json:"pdf_url,omitempty"`
+	CreatedAt         string                 `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt         string                 `protobuf:"bytes,14,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	GeneratedAt       string                 `protobuf:"bytes,15,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
+	ErrorMessage      string                 `protobuf:"bytes,16,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	RequestedByUserId string                 `protobuf:"bytes,17,opt,name=requested_by_user_id,json=requestedByUserId,proto3" json:"requested_by_user_id,omitempty"`
+	Template          string                 `protobuf:"bytes,18,opt,name=template,proto3" json:"template,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ExecutiveReport) Reset() {
+	*x = ExecutiveReport{}
+	mi := &file_aperio_v1_api_proto_msgTypes[150]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutiveReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutiveReport) ProtoMessage() {}
+
+func (x *ExecutiveReport) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[150]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutiveReport.ProtoReflect.Descriptor instead.
+func (*ExecutiveReport) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{150}
+}
+
+func (x *ExecutiveReport) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetPeriod() string {
+	if x != nil {
+		return x.Period
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetPeriodStart() string {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetPeriodEnd() string {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetKpiSnapshotJson() string {
+	if x != nil {
+		return x.KpiSnapshotJson
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetHasHtml() bool {
+	if x != nil {
+		return x.HasHtml
+	}
+	return false
+}
+
+func (x *ExecutiveReport) GetHasPdf() bool {
+	if x != nil {
+		return x.HasPdf
+	}
+	return false
+}
+
+func (x *ExecutiveReport) GetHtmlUrl() string {
+	if x != nil {
+		return x.HtmlUrl
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetPdfUrl() string {
+	if x != nil {
+		return x.PdfUrl
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetGeneratedAt() string {
+	if x != nil {
+		return x.GeneratedAt
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetRequestedByUserId() string {
+	if x != nil {
+		return x.RequestedByUserId
+	}
+	return ""
+}
+
+func (x *ExecutiveReport) GetTemplate() string {
+	if x != nil {
+		return x.Template
+	}
+	return ""
+}
+
+type ListExecutiveReportsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListExecutiveReportsRequest) Reset() {
+	*x = ListExecutiveReportsRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[151]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListExecutiveReportsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListExecutiveReportsRequest) ProtoMessage() {}
+
+func (x *ListExecutiveReportsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[151]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListExecutiveReportsRequest.ProtoReflect.Descriptor instead.
+func (*ListExecutiveReportsRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{151}
+}
+
+type ListExecutiveReportsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []*ExecutiveReport     `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListExecutiveReportsResponse) Reset() {
+	*x = ListExecutiveReportsResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[152]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListExecutiveReportsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListExecutiveReportsResponse) ProtoMessage() {}
+
+func (x *ListExecutiveReportsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[152]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListExecutiveReportsResponse.ProtoReflect.Descriptor instead.
+func (*ListExecutiveReportsResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{152}
+}
+
+func (x *ListExecutiveReportsResponse) GetData() []*ExecutiveReport {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type GetExecutiveReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetExecutiveReportRequest) Reset() {
+	*x = GetExecutiveReportRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[153]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetExecutiveReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetExecutiveReportRequest) ProtoMessage() {}
+
+func (x *GetExecutiveReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[153]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetExecutiveReportRequest.ProtoReflect.Descriptor instead.
+func (*GetExecutiveReportRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{153}
+}
+
+func (x *GetExecutiveReportRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetExecutiveReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          *ExecutiveReport       `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetExecutiveReportResponse) Reset() {
+	*x = GetExecutiveReportResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[154]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetExecutiveReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetExecutiveReportResponse) ProtoMessage() {}
+
+func (x *GetExecutiveReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[154]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetExecutiveReportResponse.ProtoReflect.Descriptor instead.
+func (*GetExecutiveReportResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{154}
+}
+
+func (x *GetExecutiveReportResponse) GetData() *ExecutiveReport {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type CreateExecutiveReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Period        string                 `protobuf:"bytes,1,opt,name=period,proto3" json:"period,omitempty"`
+	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	PeriodStart   string                 `protobuf:"bytes,3,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd     string                 `protobuf:"bytes,4,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	Template      string                 `protobuf:"bytes,5,opt,name=template,proto3" json:"template,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateExecutiveReportRequest) Reset() {
+	*x = CreateExecutiveReportRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[155]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateExecutiveReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateExecutiveReportRequest) ProtoMessage() {}
+
+func (x *CreateExecutiveReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[155]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateExecutiveReportRequest.ProtoReflect.Descriptor instead.
+func (*CreateExecutiveReportRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{155}
+}
+
+func (x *CreateExecutiveReportRequest) GetPeriod() string {
+	if x != nil {
+		return x.Period
+	}
+	return ""
+}
+
+func (x *CreateExecutiveReportRequest) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *CreateExecutiveReportRequest) GetPeriodStart() string {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return ""
+}
+
+func (x *CreateExecutiveReportRequest) GetPeriodEnd() string {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return ""
+}
+
+func (x *CreateExecutiveReportRequest) GetTemplate() string {
+	if x != nil {
+		return x.Template
+	}
+	return ""
+}
+
+type CreateExecutiveReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          *ExecutiveReport       `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateExecutiveReportResponse) Reset() {
+	*x = CreateExecutiveReportResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[156]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateExecutiveReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateExecutiveReportResponse) ProtoMessage() {}
+
+func (x *CreateExecutiveReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[156]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateExecutiveReportResponse.ProtoReflect.Descriptor instead.
+func (*CreateExecutiveReportResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{156}
+}
+
+func (x *CreateExecutiveReportResponse) GetData() *ExecutiveReport {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type DeleteExecutiveReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteExecutiveReportRequest) Reset() {
+	*x = DeleteExecutiveReportRequest{}
+	mi := &file_aperio_v1_api_proto_msgTypes[157]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteExecutiveReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteExecutiveReportRequest) ProtoMessage() {}
+
+func (x *DeleteExecutiveReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[157]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteExecutiveReportRequest.ProtoReflect.Descriptor instead.
+func (*DeleteExecutiveReportRequest) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{157}
+}
+
+func (x *DeleteExecutiveReportRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteExecutiveReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Deleted       bool                   `protobuf:"varint,1,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteExecutiveReportResponse) Reset() {
+	*x = DeleteExecutiveReportResponse{}
+	mi := &file_aperio_v1_api_proto_msgTypes[158]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteExecutiveReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteExecutiveReportResponse) ProtoMessage() {}
+
+func (x *DeleteExecutiveReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aperio_v1_api_proto_msgTypes[158]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteExecutiveReportResponse.ProtoReflect.Descriptor instead.
+func (*DeleteExecutiveReportResponse) Descriptor() ([]byte, []int) {
+	return file_aperio_v1_api_proto_rawDescGZIP(), []int{158}
+}
+
+func (x *DeleteExecutiveReportResponse) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
 var File_aperio_v1_api_proto protoreflect.FileDescriptor
 
 const file_aperio_v1_api_proto_rawDesc = "" +
@@ -10227,7 +10783,50 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\a_statusB\r\n" +
 	"\v_expires_at\"K\n" +
 	"\x1bUpdateRiskExceptionResponse\x12,\n" +
-	"\x04data\x18\x01 \x01(\v2\x18.aperio.v1.RiskExceptionR\x04data2\xf4%\n" +
+	"\x04data\x18\x01 \x01(\v2\x18.aperio.v1.RiskExceptionR\x04data\"\xaa\x04\n" +
+	"\x0fExecutiveReport\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06period\x18\x02 \x01(\tR\x06period\x12!\n" +
+	"\fperiod_start\x18\x03 \x01(\tR\vperiodStart\x12\x1d\n" +
+	"\n" +
+	"period_end\x18\x04 \x01(\tR\tperiodEnd\x12\x14\n" +
+	"\x05title\x18\x05 \x01(\tR\x05title\x12\x18\n" +
+	"\asummary\x18\x06 \x01(\tR\asummary\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12*\n" +
+	"\x11kpi_snapshot_json\x18\b \x01(\tR\x0fkpiSnapshotJson\x12\x19\n" +
+	"\bhas_html\x18\t \x01(\bR\ahasHtml\x12\x17\n" +
+	"\ahas_pdf\x18\n" +
+	" \x01(\bR\x06hasPdf\x12\x19\n" +
+	"\bhtml_url\x18\v \x01(\tR\ahtmlUrl\x12\x17\n" +
+	"\apdf_url\x18\f \x01(\tR\x06pdfUrl\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\r \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x0e \x01(\tR\tupdatedAt\x12!\n" +
+	"\fgenerated_at\x18\x0f \x01(\tR\vgeneratedAt\x12#\n" +
+	"\rerror_message\x18\x10 \x01(\tR\ferrorMessage\x12/\n" +
+	"\x14requested_by_user_id\x18\x11 \x01(\tR\x11requestedByUserId\x12\x1a\n" +
+	"\btemplate\x18\x12 \x01(\tR\btemplate\"\x1d\n" +
+	"\x1bListExecutiveReportsRequest\"N\n" +
+	"\x1cListExecutiveReportsResponse\x12.\n" +
+	"\x04data\x18\x01 \x03(\v2\x1a.aperio.v1.ExecutiveReportR\x04data\"+\n" +
+	"\x19GetExecutiveReportRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"L\n" +
+	"\x1aGetExecutiveReportResponse\x12.\n" +
+	"\x04data\x18\x01 \x01(\v2\x1a.aperio.v1.ExecutiveReportR\x04data\"\xaa\x01\n" +
+	"\x1cCreateExecutiveReportRequest\x12\x16\n" +
+	"\x06period\x18\x01 \x01(\tR\x06period\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12!\n" +
+	"\fperiod_start\x18\x03 \x01(\tR\vperiodStart\x12\x1d\n" +
+	"\n" +
+	"period_end\x18\x04 \x01(\tR\tperiodEnd\x12\x1a\n" +
+	"\btemplate\x18\x05 \x01(\tR\btemplate\"O\n" +
+	"\x1dCreateExecutiveReportResponse\x12.\n" +
+	"\x04data\x18\x01 \x01(\v2\x1a.aperio.v1.ExecutiveReportR\x04data\".\n" +
+	"\x1cDeleteExecutiveReportRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"9\n" +
+	"\x1dDeleteExecutiveReportResponse\x12\x18\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted2\x98)\n" +
 	"\rAperioService\x12@\n" +
 	"\aCallApi\x12\x19.aperio.v1.CallApiRequest\x1a\x1a.aperio.v1.CallApiResponse\x12=\n" +
 	"\x06Signup\x12\x18.aperio.v1.SignupRequest\x1a\x19.aperio.v1.SignupResponse\x12:\n" +
@@ -10280,7 +10879,11 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x13UpdateSecurityAsset\x12%.aperio.v1.UpdateSecurityAssetRequest\x1a&.aperio.v1.UpdateSecurityAssetResponse\x12a\n" +
 	"\x12ListRiskExceptions\x12$.aperio.v1.ListRiskExceptionsRequest\x1a%.aperio.v1.ListRiskExceptionsResponse\x12d\n" +
 	"\x13CreateRiskException\x12%.aperio.v1.CreateRiskExceptionRequest\x1a&.aperio.v1.CreateRiskExceptionResponse\x12d\n" +
-	"\x13UpdateRiskException\x12%.aperio.v1.UpdateRiskExceptionRequest\x1a&.aperio.v1.UpdateRiskExceptionResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
+	"\x13UpdateRiskException\x12%.aperio.v1.UpdateRiskExceptionRequest\x1a&.aperio.v1.UpdateRiskExceptionResponse\x12g\n" +
+	"\x14ListExecutiveReports\x12&.aperio.v1.ListExecutiveReportsRequest\x1a'.aperio.v1.ListExecutiveReportsResponse\x12a\n" +
+	"\x12GetExecutiveReport\x12$.aperio.v1.GetExecutiveReportRequest\x1a%.aperio.v1.GetExecutiveReportResponse\x12j\n" +
+	"\x15CreateExecutiveReport\x12'.aperio.v1.CreateExecutiveReportRequest\x1a(.aperio.v1.CreateExecutiveReportResponse\x12j\n" +
+	"\x15DeleteExecutiveReport\x12'.aperio.v1.DeleteExecutiveReportRequest\x1a(.aperio.v1.DeleteExecutiveReportResponseB1Z/github.com/writer/aperio/gen/aperio/v1;aperiov1b\x06proto3"
 
 var (
 	file_aperio_v1_api_proto_rawDescOnce sync.Once
@@ -10294,7 +10897,7 @@ func file_aperio_v1_api_proto_rawDescGZIP() []byte {
 	return file_aperio_v1_api_proto_rawDescData
 }
 
-var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 150)
+var file_aperio_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 159)
 var file_aperio_v1_api_proto_goTypes = []any{
 	(*CallApiRequest)(nil),                        // 0: aperio.v1.CallApiRequest
 	(*CallApiResponse)(nil),                       // 1: aperio.v1.CallApiResponse
@@ -10446,7 +11049,16 @@ var file_aperio_v1_api_proto_goTypes = []any{
 	(*CreateRiskExceptionResponse)(nil),           // 147: aperio.v1.CreateRiskExceptionResponse
 	(*UpdateRiskExceptionRequest)(nil),            // 148: aperio.v1.UpdateRiskExceptionRequest
 	(*UpdateRiskExceptionResponse)(nil),           // 149: aperio.v1.UpdateRiskExceptionResponse
-	(*timestamppb.Timestamp)(nil),                 // 150: google.protobuf.Timestamp
+	(*ExecutiveReport)(nil),                       // 150: aperio.v1.ExecutiveReport
+	(*ListExecutiveReportsRequest)(nil),           // 151: aperio.v1.ListExecutiveReportsRequest
+	(*ListExecutiveReportsResponse)(nil),          // 152: aperio.v1.ListExecutiveReportsResponse
+	(*GetExecutiveReportRequest)(nil),             // 153: aperio.v1.GetExecutiveReportRequest
+	(*GetExecutiveReportResponse)(nil),            // 154: aperio.v1.GetExecutiveReportResponse
+	(*CreateExecutiveReportRequest)(nil),          // 155: aperio.v1.CreateExecutiveReportRequest
+	(*CreateExecutiveReportResponse)(nil),         // 156: aperio.v1.CreateExecutiveReportResponse
+	(*DeleteExecutiveReportRequest)(nil),          // 157: aperio.v1.DeleteExecutiveReportRequest
+	(*DeleteExecutiveReportResponse)(nil),         // 158: aperio.v1.DeleteExecutiveReportResponse
+	(*timestamppb.Timestamp)(nil),                 // 159: google.protobuf.Timestamp
 }
 var file_aperio_v1_api_proto_depIdxs = []int32{
 	26,  // 0: aperio.v1.SignupResponse.data:type_name -> aperio.v1.AuthSession
@@ -10463,7 +11075,7 @@ var file_aperio_v1_api_proto_depIdxs = []int32{
 	26,  // 11: aperio.v1.DisableMfaResponse.data:type_name -> aperio.v1.AuthSession
 	27,  // 12: aperio.v1.AuthSession.user:type_name -> aperio.v1.AuthUser
 	28,  // 13: aperio.v1.AuthSession.organization:type_name -> aperio.v1.AuthOrganization
-	150, // 14: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
+	159, // 14: aperio.v1.CheckHealthResponse.checked_at:type_name -> google.protobuf.Timestamp
 	34,  // 15: aperio.v1.CheckHealthResponse.components:type_name -> aperio.v1.HealthComponent
 	37,  // 16: aperio.v1.GetDashboardMetricsResponse.data:type_name -> aperio.v1.DashboardMetrics
 	48,  // 17: aperio.v1.ListFindingsResponse.data:type_name -> aperio.v1.Finding
@@ -10534,111 +11146,122 @@ var file_aperio_v1_api_proto_depIdxs = []int32{
 	136, // 82: aperio.v1.RiskException.approved_by:type_name -> aperio.v1.SecurityPrincipal
 	143, // 83: aperio.v1.CreateRiskExceptionResponse.data:type_name -> aperio.v1.RiskException
 	143, // 84: aperio.v1.UpdateRiskExceptionResponse.data:type_name -> aperio.v1.RiskException
-	0,   // 85: aperio.v1.AperioService.CallApi:input_type -> aperio.v1.CallApiRequest
-	2,   // 86: aperio.v1.AperioService.Signup:input_type -> aperio.v1.SignupRequest
-	4,   // 87: aperio.v1.AperioService.Login:input_type -> aperio.v1.LoginRequest
-	6,   // 88: aperio.v1.AperioService.GetCurrentSession:input_type -> aperio.v1.GetCurrentSessionRequest
-	8,   // 89: aperio.v1.AperioService.LogoutCurrentSession:input_type -> aperio.v1.LogoutCurrentSessionRequest
-	10,  // 90: aperio.v1.AperioService.ListWorkspaces:input_type -> aperio.v1.ListWorkspacesRequest
-	12,  // 91: aperio.v1.AperioService.SwitchWorkspace:input_type -> aperio.v1.SwitchWorkspaceRequest
-	14,  // 92: aperio.v1.AperioService.RequestPasswordReset:input_type -> aperio.v1.RequestPasswordResetRequest
-	16,  // 93: aperio.v1.AperioService.ResetPassword:input_type -> aperio.v1.ResetPasswordRequest
-	18,  // 94: aperio.v1.AperioService.AcceptInvite:input_type -> aperio.v1.AcceptInviteRequest
-	20,  // 95: aperio.v1.AperioService.BeginMfaEnrollment:input_type -> aperio.v1.BeginMfaEnrollmentRequest
-	22,  // 96: aperio.v1.AperioService.EnableMfa:input_type -> aperio.v1.EnableMfaRequest
-	24,  // 97: aperio.v1.AperioService.DisableMfa:input_type -> aperio.v1.DisableMfaRequest
-	32,  // 98: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
-	35,  // 99: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
-	38,  // 100: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
-	40,  // 101: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
-	42,  // 102: aperio.v1.AperioService.UpdateFindingStatus:input_type -> aperio.v1.UpdateFindingStatusRequest
-	45,  // 103: aperio.v1.AperioService.RemediateFinding:input_type -> aperio.v1.RemediateFindingRequest
-	51,  // 104: aperio.v1.AperioService.ListConnectorCatalog:input_type -> aperio.v1.ListConnectorCatalogRequest
-	57,  // 105: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
-	60,  // 106: aperio.v1.AperioService.CreateIntegration:input_type -> aperio.v1.CreateIntegrationRequest
-	63,  // 107: aperio.v1.AperioService.DeleteIntegration:input_type -> aperio.v1.DeleteIntegrationRequest
-	66,  // 108: aperio.v1.AperioService.GetIntegrationChecks:input_type -> aperio.v1.GetIntegrationChecksRequest
-	68,  // 109: aperio.v1.AperioService.UpdateIntegrationChecks:input_type -> aperio.v1.UpdateIntegrationChecksRequest
-	72,  // 110: aperio.v1.AperioService.GetGoogleMailboxScanConfig:input_type -> aperio.v1.GetGoogleMailboxScanConfigRequest
-	74,  // 111: aperio.v1.AperioService.UpdateGoogleMailboxScanConfig:input_type -> aperio.v1.UpdateGoogleMailboxScanConfigRequest
-	77,  // 112: aperio.v1.AperioService.StartGoogleWorkspaceOAuth:input_type -> aperio.v1.StartGoogleWorkspaceOAuthRequest
-	80,  // 113: aperio.v1.AperioService.ForceSyncIntegration:input_type -> aperio.v1.ForceSyncIntegrationRequest
-	83,  // 114: aperio.v1.AperioService.ListSiemCatalog:input_type -> aperio.v1.ListSiemCatalogRequest
-	87,  // 115: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
-	90,  // 116: aperio.v1.AperioService.CreateSiemDestination:input_type -> aperio.v1.CreateSiemDestinationRequest
-	92,  // 117: aperio.v1.AperioService.DeleteSiemDestination:input_type -> aperio.v1.DeleteSiemDestinationRequest
-	94,  // 118: aperio.v1.AperioService.TestSiemDestination:input_type -> aperio.v1.TestSiemDestinationRequest
-	97,  // 119: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
-	100, // 120: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
-	105, // 121: aperio.v1.AperioService.GetTenantSettings:input_type -> aperio.v1.GetTenantSettingsRequest
-	107, // 122: aperio.v1.AperioService.UpdateTenantSettings:input_type -> aperio.v1.UpdateTenantSettingsRequest
-	110, // 123: aperio.v1.AperioService.ListTenantMembers:input_type -> aperio.v1.ListTenantMembersRequest
-	112, // 124: aperio.v1.AperioService.CreateTenantMember:input_type -> aperio.v1.CreateTenantMemberRequest
-	114, // 125: aperio.v1.AperioService.CreateMemberResetLink:input_type -> aperio.v1.CreateMemberResetLinkRequest
-	116, // 126: aperio.v1.AperioService.UpdateMemberRole:input_type -> aperio.v1.UpdateMemberRoleRequest
-	120, // 127: aperio.v1.AperioService.ListAuditLogs:input_type -> aperio.v1.ListAuditLogsRequest
-	123, // 128: aperio.v1.AperioService.GetSecurityOverview:input_type -> aperio.v1.GetSecurityOverviewRequest
-	133, // 129: aperio.v1.AperioService.ListSecurityAssets:input_type -> aperio.v1.ListSecurityAssetsRequest
-	137, // 130: aperio.v1.AperioService.CreateSecurityAsset:input_type -> aperio.v1.CreateSecurityAssetRequest
-	139, // 131: aperio.v1.AperioService.UpdateSecurityAsset:input_type -> aperio.v1.UpdateSecurityAssetRequest
-	141, // 132: aperio.v1.AperioService.ListRiskExceptions:input_type -> aperio.v1.ListRiskExceptionsRequest
-	146, // 133: aperio.v1.AperioService.CreateRiskException:input_type -> aperio.v1.CreateRiskExceptionRequest
-	148, // 134: aperio.v1.AperioService.UpdateRiskException:input_type -> aperio.v1.UpdateRiskExceptionRequest
-	1,   // 135: aperio.v1.AperioService.CallApi:output_type -> aperio.v1.CallApiResponse
-	3,   // 136: aperio.v1.AperioService.Signup:output_type -> aperio.v1.SignupResponse
-	5,   // 137: aperio.v1.AperioService.Login:output_type -> aperio.v1.LoginResponse
-	7,   // 138: aperio.v1.AperioService.GetCurrentSession:output_type -> aperio.v1.GetCurrentSessionResponse
-	9,   // 139: aperio.v1.AperioService.LogoutCurrentSession:output_type -> aperio.v1.LogoutCurrentSessionResponse
-	11,  // 140: aperio.v1.AperioService.ListWorkspaces:output_type -> aperio.v1.ListWorkspacesResponse
-	13,  // 141: aperio.v1.AperioService.SwitchWorkspace:output_type -> aperio.v1.SwitchWorkspaceResponse
-	15,  // 142: aperio.v1.AperioService.RequestPasswordReset:output_type -> aperio.v1.RequestPasswordResetResponse
-	17,  // 143: aperio.v1.AperioService.ResetPassword:output_type -> aperio.v1.ResetPasswordResponse
-	19,  // 144: aperio.v1.AperioService.AcceptInvite:output_type -> aperio.v1.AcceptInviteResponse
-	21,  // 145: aperio.v1.AperioService.BeginMfaEnrollment:output_type -> aperio.v1.BeginMfaEnrollmentResponse
-	23,  // 146: aperio.v1.AperioService.EnableMfa:output_type -> aperio.v1.EnableMfaResponse
-	25,  // 147: aperio.v1.AperioService.DisableMfa:output_type -> aperio.v1.DisableMfaResponse
-	33,  // 148: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
-	36,  // 149: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
-	39,  // 150: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
-	41,  // 151: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
-	43,  // 152: aperio.v1.AperioService.UpdateFindingStatus:output_type -> aperio.v1.UpdateFindingStatusResponse
-	46,  // 153: aperio.v1.AperioService.RemediateFinding:output_type -> aperio.v1.RemediateFindingResponse
-	52,  // 154: aperio.v1.AperioService.ListConnectorCatalog:output_type -> aperio.v1.ListConnectorCatalogResponse
-	58,  // 155: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
-	62,  // 156: aperio.v1.AperioService.CreateIntegration:output_type -> aperio.v1.CreateIntegrationResponse
-	64,  // 157: aperio.v1.AperioService.DeleteIntegration:output_type -> aperio.v1.DeleteIntegrationResponse
-	67,  // 158: aperio.v1.AperioService.GetIntegrationChecks:output_type -> aperio.v1.GetIntegrationChecksResponse
-	69,  // 159: aperio.v1.AperioService.UpdateIntegrationChecks:output_type -> aperio.v1.UpdateIntegrationChecksResponse
-	73,  // 160: aperio.v1.AperioService.GetGoogleMailboxScanConfig:output_type -> aperio.v1.GetGoogleMailboxScanConfigResponse
-	75,  // 161: aperio.v1.AperioService.UpdateGoogleMailboxScanConfig:output_type -> aperio.v1.UpdateGoogleMailboxScanConfigResponse
-	78,  // 162: aperio.v1.AperioService.StartGoogleWorkspaceOAuth:output_type -> aperio.v1.StartGoogleWorkspaceOAuthResponse
-	81,  // 163: aperio.v1.AperioService.ForceSyncIntegration:output_type -> aperio.v1.ForceSyncIntegrationResponse
-	84,  // 164: aperio.v1.AperioService.ListSiemCatalog:output_type -> aperio.v1.ListSiemCatalogResponse
-	88,  // 165: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
-	91,  // 166: aperio.v1.AperioService.CreateSiemDestination:output_type -> aperio.v1.CreateSiemDestinationResponse
-	93,  // 167: aperio.v1.AperioService.DeleteSiemDestination:output_type -> aperio.v1.DeleteSiemDestinationResponse
-	95,  // 168: aperio.v1.AperioService.TestSiemDestination:output_type -> aperio.v1.TestSiemDestinationResponse
-	98,  // 169: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
-	101, // 170: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
-	106, // 171: aperio.v1.AperioService.GetTenantSettings:output_type -> aperio.v1.GetTenantSettingsResponse
-	108, // 172: aperio.v1.AperioService.UpdateTenantSettings:output_type -> aperio.v1.UpdateTenantSettingsResponse
-	111, // 173: aperio.v1.AperioService.ListTenantMembers:output_type -> aperio.v1.ListTenantMembersResponse
-	113, // 174: aperio.v1.AperioService.CreateTenantMember:output_type -> aperio.v1.CreateTenantMemberResponse
-	115, // 175: aperio.v1.AperioService.CreateMemberResetLink:output_type -> aperio.v1.CreateMemberResetLinkResponse
-	117, // 176: aperio.v1.AperioService.UpdateMemberRole:output_type -> aperio.v1.UpdateMemberRoleResponse
-	121, // 177: aperio.v1.AperioService.ListAuditLogs:output_type -> aperio.v1.ListAuditLogsResponse
-	124, // 178: aperio.v1.AperioService.GetSecurityOverview:output_type -> aperio.v1.GetSecurityOverviewResponse
-	134, // 179: aperio.v1.AperioService.ListSecurityAssets:output_type -> aperio.v1.ListSecurityAssetsResponse
-	138, // 180: aperio.v1.AperioService.CreateSecurityAsset:output_type -> aperio.v1.CreateSecurityAssetResponse
-	140, // 181: aperio.v1.AperioService.UpdateSecurityAsset:output_type -> aperio.v1.UpdateSecurityAssetResponse
-	142, // 182: aperio.v1.AperioService.ListRiskExceptions:output_type -> aperio.v1.ListRiskExceptionsResponse
-	147, // 183: aperio.v1.AperioService.CreateRiskException:output_type -> aperio.v1.CreateRiskExceptionResponse
-	149, // 184: aperio.v1.AperioService.UpdateRiskException:output_type -> aperio.v1.UpdateRiskExceptionResponse
-	135, // [135:185] is the sub-list for method output_type
-	85,  // [85:135] is the sub-list for method input_type
-	85,  // [85:85] is the sub-list for extension type_name
-	85,  // [85:85] is the sub-list for extension extendee
-	0,   // [0:85] is the sub-list for field type_name
+	150, // 85: aperio.v1.ListExecutiveReportsResponse.data:type_name -> aperio.v1.ExecutiveReport
+	150, // 86: aperio.v1.GetExecutiveReportResponse.data:type_name -> aperio.v1.ExecutiveReport
+	150, // 87: aperio.v1.CreateExecutiveReportResponse.data:type_name -> aperio.v1.ExecutiveReport
+	0,   // 88: aperio.v1.AperioService.CallApi:input_type -> aperio.v1.CallApiRequest
+	2,   // 89: aperio.v1.AperioService.Signup:input_type -> aperio.v1.SignupRequest
+	4,   // 90: aperio.v1.AperioService.Login:input_type -> aperio.v1.LoginRequest
+	6,   // 91: aperio.v1.AperioService.GetCurrentSession:input_type -> aperio.v1.GetCurrentSessionRequest
+	8,   // 92: aperio.v1.AperioService.LogoutCurrentSession:input_type -> aperio.v1.LogoutCurrentSessionRequest
+	10,  // 93: aperio.v1.AperioService.ListWorkspaces:input_type -> aperio.v1.ListWorkspacesRequest
+	12,  // 94: aperio.v1.AperioService.SwitchWorkspace:input_type -> aperio.v1.SwitchWorkspaceRequest
+	14,  // 95: aperio.v1.AperioService.RequestPasswordReset:input_type -> aperio.v1.RequestPasswordResetRequest
+	16,  // 96: aperio.v1.AperioService.ResetPassword:input_type -> aperio.v1.ResetPasswordRequest
+	18,  // 97: aperio.v1.AperioService.AcceptInvite:input_type -> aperio.v1.AcceptInviteRequest
+	20,  // 98: aperio.v1.AperioService.BeginMfaEnrollment:input_type -> aperio.v1.BeginMfaEnrollmentRequest
+	22,  // 99: aperio.v1.AperioService.EnableMfa:input_type -> aperio.v1.EnableMfaRequest
+	24,  // 100: aperio.v1.AperioService.DisableMfa:input_type -> aperio.v1.DisableMfaRequest
+	32,  // 101: aperio.v1.AperioService.CheckHealth:input_type -> aperio.v1.CheckHealthRequest
+	35,  // 102: aperio.v1.AperioService.GetDashboardMetrics:input_type -> aperio.v1.GetDashboardMetricsRequest
+	38,  // 103: aperio.v1.AperioService.ListFindings:input_type -> aperio.v1.ListFindingsRequest
+	40,  // 104: aperio.v1.AperioService.GetFinding:input_type -> aperio.v1.GetFindingRequest
+	42,  // 105: aperio.v1.AperioService.UpdateFindingStatus:input_type -> aperio.v1.UpdateFindingStatusRequest
+	45,  // 106: aperio.v1.AperioService.RemediateFinding:input_type -> aperio.v1.RemediateFindingRequest
+	51,  // 107: aperio.v1.AperioService.ListConnectorCatalog:input_type -> aperio.v1.ListConnectorCatalogRequest
+	57,  // 108: aperio.v1.AperioService.ListIntegrations:input_type -> aperio.v1.ListIntegrationsRequest
+	60,  // 109: aperio.v1.AperioService.CreateIntegration:input_type -> aperio.v1.CreateIntegrationRequest
+	63,  // 110: aperio.v1.AperioService.DeleteIntegration:input_type -> aperio.v1.DeleteIntegrationRequest
+	66,  // 111: aperio.v1.AperioService.GetIntegrationChecks:input_type -> aperio.v1.GetIntegrationChecksRequest
+	68,  // 112: aperio.v1.AperioService.UpdateIntegrationChecks:input_type -> aperio.v1.UpdateIntegrationChecksRequest
+	72,  // 113: aperio.v1.AperioService.GetGoogleMailboxScanConfig:input_type -> aperio.v1.GetGoogleMailboxScanConfigRequest
+	74,  // 114: aperio.v1.AperioService.UpdateGoogleMailboxScanConfig:input_type -> aperio.v1.UpdateGoogleMailboxScanConfigRequest
+	77,  // 115: aperio.v1.AperioService.StartGoogleWorkspaceOAuth:input_type -> aperio.v1.StartGoogleWorkspaceOAuthRequest
+	80,  // 116: aperio.v1.AperioService.ForceSyncIntegration:input_type -> aperio.v1.ForceSyncIntegrationRequest
+	83,  // 117: aperio.v1.AperioService.ListSiemCatalog:input_type -> aperio.v1.ListSiemCatalogRequest
+	87,  // 118: aperio.v1.AperioService.ListSiemDestinations:input_type -> aperio.v1.ListSiemDestinationsRequest
+	90,  // 119: aperio.v1.AperioService.CreateSiemDestination:input_type -> aperio.v1.CreateSiemDestinationRequest
+	92,  // 120: aperio.v1.AperioService.DeleteSiemDestination:input_type -> aperio.v1.DeleteSiemDestinationRequest
+	94,  // 121: aperio.v1.AperioService.TestSiemDestination:input_type -> aperio.v1.TestSiemDestinationRequest
+	97,  // 122: aperio.v1.AperioService.ListShadowItOauthApps:input_type -> aperio.v1.ListShadowItOauthAppsRequest
+	100, // 123: aperio.v1.AperioService.ListShadowItOauthAppGrants:input_type -> aperio.v1.ListShadowItOauthAppGrantsRequest
+	105, // 124: aperio.v1.AperioService.GetTenantSettings:input_type -> aperio.v1.GetTenantSettingsRequest
+	107, // 125: aperio.v1.AperioService.UpdateTenantSettings:input_type -> aperio.v1.UpdateTenantSettingsRequest
+	110, // 126: aperio.v1.AperioService.ListTenantMembers:input_type -> aperio.v1.ListTenantMembersRequest
+	112, // 127: aperio.v1.AperioService.CreateTenantMember:input_type -> aperio.v1.CreateTenantMemberRequest
+	114, // 128: aperio.v1.AperioService.CreateMemberResetLink:input_type -> aperio.v1.CreateMemberResetLinkRequest
+	116, // 129: aperio.v1.AperioService.UpdateMemberRole:input_type -> aperio.v1.UpdateMemberRoleRequest
+	120, // 130: aperio.v1.AperioService.ListAuditLogs:input_type -> aperio.v1.ListAuditLogsRequest
+	123, // 131: aperio.v1.AperioService.GetSecurityOverview:input_type -> aperio.v1.GetSecurityOverviewRequest
+	133, // 132: aperio.v1.AperioService.ListSecurityAssets:input_type -> aperio.v1.ListSecurityAssetsRequest
+	137, // 133: aperio.v1.AperioService.CreateSecurityAsset:input_type -> aperio.v1.CreateSecurityAssetRequest
+	139, // 134: aperio.v1.AperioService.UpdateSecurityAsset:input_type -> aperio.v1.UpdateSecurityAssetRequest
+	141, // 135: aperio.v1.AperioService.ListRiskExceptions:input_type -> aperio.v1.ListRiskExceptionsRequest
+	146, // 136: aperio.v1.AperioService.CreateRiskException:input_type -> aperio.v1.CreateRiskExceptionRequest
+	148, // 137: aperio.v1.AperioService.UpdateRiskException:input_type -> aperio.v1.UpdateRiskExceptionRequest
+	151, // 138: aperio.v1.AperioService.ListExecutiveReports:input_type -> aperio.v1.ListExecutiveReportsRequest
+	153, // 139: aperio.v1.AperioService.GetExecutiveReport:input_type -> aperio.v1.GetExecutiveReportRequest
+	155, // 140: aperio.v1.AperioService.CreateExecutiveReport:input_type -> aperio.v1.CreateExecutiveReportRequest
+	157, // 141: aperio.v1.AperioService.DeleteExecutiveReport:input_type -> aperio.v1.DeleteExecutiveReportRequest
+	1,   // 142: aperio.v1.AperioService.CallApi:output_type -> aperio.v1.CallApiResponse
+	3,   // 143: aperio.v1.AperioService.Signup:output_type -> aperio.v1.SignupResponse
+	5,   // 144: aperio.v1.AperioService.Login:output_type -> aperio.v1.LoginResponse
+	7,   // 145: aperio.v1.AperioService.GetCurrentSession:output_type -> aperio.v1.GetCurrentSessionResponse
+	9,   // 146: aperio.v1.AperioService.LogoutCurrentSession:output_type -> aperio.v1.LogoutCurrentSessionResponse
+	11,  // 147: aperio.v1.AperioService.ListWorkspaces:output_type -> aperio.v1.ListWorkspacesResponse
+	13,  // 148: aperio.v1.AperioService.SwitchWorkspace:output_type -> aperio.v1.SwitchWorkspaceResponse
+	15,  // 149: aperio.v1.AperioService.RequestPasswordReset:output_type -> aperio.v1.RequestPasswordResetResponse
+	17,  // 150: aperio.v1.AperioService.ResetPassword:output_type -> aperio.v1.ResetPasswordResponse
+	19,  // 151: aperio.v1.AperioService.AcceptInvite:output_type -> aperio.v1.AcceptInviteResponse
+	21,  // 152: aperio.v1.AperioService.BeginMfaEnrollment:output_type -> aperio.v1.BeginMfaEnrollmentResponse
+	23,  // 153: aperio.v1.AperioService.EnableMfa:output_type -> aperio.v1.EnableMfaResponse
+	25,  // 154: aperio.v1.AperioService.DisableMfa:output_type -> aperio.v1.DisableMfaResponse
+	33,  // 155: aperio.v1.AperioService.CheckHealth:output_type -> aperio.v1.CheckHealthResponse
+	36,  // 156: aperio.v1.AperioService.GetDashboardMetrics:output_type -> aperio.v1.GetDashboardMetricsResponse
+	39,  // 157: aperio.v1.AperioService.ListFindings:output_type -> aperio.v1.ListFindingsResponse
+	41,  // 158: aperio.v1.AperioService.GetFinding:output_type -> aperio.v1.GetFindingResponse
+	43,  // 159: aperio.v1.AperioService.UpdateFindingStatus:output_type -> aperio.v1.UpdateFindingStatusResponse
+	46,  // 160: aperio.v1.AperioService.RemediateFinding:output_type -> aperio.v1.RemediateFindingResponse
+	52,  // 161: aperio.v1.AperioService.ListConnectorCatalog:output_type -> aperio.v1.ListConnectorCatalogResponse
+	58,  // 162: aperio.v1.AperioService.ListIntegrations:output_type -> aperio.v1.ListIntegrationsResponse
+	62,  // 163: aperio.v1.AperioService.CreateIntegration:output_type -> aperio.v1.CreateIntegrationResponse
+	64,  // 164: aperio.v1.AperioService.DeleteIntegration:output_type -> aperio.v1.DeleteIntegrationResponse
+	67,  // 165: aperio.v1.AperioService.GetIntegrationChecks:output_type -> aperio.v1.GetIntegrationChecksResponse
+	69,  // 166: aperio.v1.AperioService.UpdateIntegrationChecks:output_type -> aperio.v1.UpdateIntegrationChecksResponse
+	73,  // 167: aperio.v1.AperioService.GetGoogleMailboxScanConfig:output_type -> aperio.v1.GetGoogleMailboxScanConfigResponse
+	75,  // 168: aperio.v1.AperioService.UpdateGoogleMailboxScanConfig:output_type -> aperio.v1.UpdateGoogleMailboxScanConfigResponse
+	78,  // 169: aperio.v1.AperioService.StartGoogleWorkspaceOAuth:output_type -> aperio.v1.StartGoogleWorkspaceOAuthResponse
+	81,  // 170: aperio.v1.AperioService.ForceSyncIntegration:output_type -> aperio.v1.ForceSyncIntegrationResponse
+	84,  // 171: aperio.v1.AperioService.ListSiemCatalog:output_type -> aperio.v1.ListSiemCatalogResponse
+	88,  // 172: aperio.v1.AperioService.ListSiemDestinations:output_type -> aperio.v1.ListSiemDestinationsResponse
+	91,  // 173: aperio.v1.AperioService.CreateSiemDestination:output_type -> aperio.v1.CreateSiemDestinationResponse
+	93,  // 174: aperio.v1.AperioService.DeleteSiemDestination:output_type -> aperio.v1.DeleteSiemDestinationResponse
+	95,  // 175: aperio.v1.AperioService.TestSiemDestination:output_type -> aperio.v1.TestSiemDestinationResponse
+	98,  // 176: aperio.v1.AperioService.ListShadowItOauthApps:output_type -> aperio.v1.ListShadowItOauthAppsResponse
+	101, // 177: aperio.v1.AperioService.ListShadowItOauthAppGrants:output_type -> aperio.v1.ListShadowItOauthAppGrantsResponse
+	106, // 178: aperio.v1.AperioService.GetTenantSettings:output_type -> aperio.v1.GetTenantSettingsResponse
+	108, // 179: aperio.v1.AperioService.UpdateTenantSettings:output_type -> aperio.v1.UpdateTenantSettingsResponse
+	111, // 180: aperio.v1.AperioService.ListTenantMembers:output_type -> aperio.v1.ListTenantMembersResponse
+	113, // 181: aperio.v1.AperioService.CreateTenantMember:output_type -> aperio.v1.CreateTenantMemberResponse
+	115, // 182: aperio.v1.AperioService.CreateMemberResetLink:output_type -> aperio.v1.CreateMemberResetLinkResponse
+	117, // 183: aperio.v1.AperioService.UpdateMemberRole:output_type -> aperio.v1.UpdateMemberRoleResponse
+	121, // 184: aperio.v1.AperioService.ListAuditLogs:output_type -> aperio.v1.ListAuditLogsResponse
+	124, // 185: aperio.v1.AperioService.GetSecurityOverview:output_type -> aperio.v1.GetSecurityOverviewResponse
+	134, // 186: aperio.v1.AperioService.ListSecurityAssets:output_type -> aperio.v1.ListSecurityAssetsResponse
+	138, // 187: aperio.v1.AperioService.CreateSecurityAsset:output_type -> aperio.v1.CreateSecurityAssetResponse
+	140, // 188: aperio.v1.AperioService.UpdateSecurityAsset:output_type -> aperio.v1.UpdateSecurityAssetResponse
+	142, // 189: aperio.v1.AperioService.ListRiskExceptions:output_type -> aperio.v1.ListRiskExceptionsResponse
+	147, // 190: aperio.v1.AperioService.CreateRiskException:output_type -> aperio.v1.CreateRiskExceptionResponse
+	149, // 191: aperio.v1.AperioService.UpdateRiskException:output_type -> aperio.v1.UpdateRiskExceptionResponse
+	152, // 192: aperio.v1.AperioService.ListExecutiveReports:output_type -> aperio.v1.ListExecutiveReportsResponse
+	154, // 193: aperio.v1.AperioService.GetExecutiveReport:output_type -> aperio.v1.GetExecutiveReportResponse
+	156, // 194: aperio.v1.AperioService.CreateExecutiveReport:output_type -> aperio.v1.CreateExecutiveReportResponse
+	158, // 195: aperio.v1.AperioService.DeleteExecutiveReport:output_type -> aperio.v1.DeleteExecutiveReportResponse
+	142, // [142:196] is the sub-list for method output_type
+	88,  // [88:142] is the sub-list for method input_type
+	88,  // [88:88] is the sub-list for extension type_name
+	88,  // [88:88] is the sub-list for extension extendee
+	0,   // [0:88] is the sub-list for field type_name
 }
 
 func init() { file_aperio_v1_api_proto_init() }
@@ -10656,7 +11279,7 @@ func file_aperio_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aperio_v1_api_proto_rawDesc), len(file_aperio_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   150,
+			NumMessages:   159,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

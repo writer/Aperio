@@ -293,12 +293,20 @@ export function TopNav() {
                 </Link>
               </DropdownMenuItem>
               {canManageOrg ? (
-                <DropdownMenuItem asChild>
-                  <Link href="/settings/organization">
-                    <Settings className="h-4 w-4" aria-hidden />
-                    Organization settings
-                  </Link>
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings/organization">
+                      <Settings className="h-4 w-4" aria-hidden />
+                      Organization settings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/reports">
+                      <Settings className="h-4 w-4" aria-hidden />
+                      Executive reports
+                    </Link>
+                  </DropdownMenuItem>
+                </>
               ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => logout()}>
