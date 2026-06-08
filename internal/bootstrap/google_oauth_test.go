@@ -137,12 +137,48 @@ func TestDefaultGoogleOAuthRedirectURIFromEnv(t *testing.T) {
 	}
 }
 
+// TestDefaultGoogleOAuthRedirectURIFallsBackToConnectAddr pins the
+// localhost-not-127.0.0.1 default so a future regression that flips the host
+// breaks loud. The browser stores the session cookie against the host the web
+// UI talked to (localhost), and the callback must arrive at that same host or
+// the cookie is missing and compatAuthFromSession returns "missing session".
 func TestDefaultGoogleOAuthRedirectURIFallsBackToConnectAddr(t *testing.T) {
 	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+	t.Setenv("APERIO_PUBLIC_API_ORIGIN", "")
 	t.Setenv("APERIO_CONNECT_ADDR", ":4100")
 	got := defaultGoogleOAuthRedirectURI()
-	if got != "http://127.0.0.1:4100/api/v1/integrations/google-workspace/oauth/callback" {
+	if got != "http://localhost:4100/api/v1/integrations/google-workspace/oauth/callback" {
 		t.Fatalf("unexpected redirect uri: %s", got)
+	}
+}
+
+func TestDefaultGoogleOAuthRedirectURIPrefersPublicAPIOrigin(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+	t.Setenv("APERIO_PUBLIC_API_ORIGIN", "https://api.example.com")
+	t.Setenv("APERIO_CONNECT_ADDR", ":4100")
+	got := defaultGoogleOAuthRedirectURI()
+	if got != "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("APERIO_PUBLIC_API_ORIGIN should win: %s", got)
+	}
+}
+
+func TestDefaultGoogleOAuthRedirectURIWithoutConnectAddr(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+	t.Setenv("APERIO_PUBLIC_API_ORIGIN", "")
+	t.Setenv("APERIO_CONNECT_ADDR", "")
+	got := defaultGoogleOAuthRedirectURI()
+	if got != "http://localhost:4100/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("unset addr should default to localhost:4100, got %s", got)
+	}
+}
+
+func TestDefaultGoogleOAuthRedirectURINormalizesScheme(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+	t.Setenv("APERIO_PUBLIC_API_ORIGIN", "")
+	t.Setenv("APERIO_CONNECT_ADDR", "https://api.example.com:443")
+	got := defaultGoogleOAuthRedirectURI()
+	if got != "https://api.example.com:443/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("https addr not honored: %s", got)
 	}
 }
 

@@ -119,23 +119,52 @@ func oauthClientSecretAAD(organizationID string, provider string) string {
 // tenant hasn't configured a custom redirect_uri. It points at the Go API
 // callback handler so the operator's Google Cloud OAuth app only needs one
 // authorised redirect entry per Aperio deployment.
+//
+// The default deliberately uses host "localhost" instead of "127.0.0.1" so it
+// matches the host the session cookie is bound to: the web UI talks to
+// http://localhost:4100 in dev (see scripts/dev-env.mjs), so the session
+// cookie's host is "localhost". Browsers scope cookies by host (not just
+// port), and "127.0.0.1" is a different host — so a 127.0.0.1 callback would
+// arrive at the API with no session cookie, fail compatAuthFromSession, and
+// surface as "OAuth session expired" in the UI even though OAuth completed
+// successfully at Google. Resolution order:
+//  1. GOOGLE_WORKSPACE_REDIRECT_URI (explicit operator override).
+//  2. APERIO_PUBLIC_API_ORIGIN + "/api/v1/integrations/google-workspace/oauth/callback".
+//     Use this in deployments where the API is reached at a stable public origin
+//     (eg https://api.example.com).
+//  3. APERIO_CONNECT_ADDR, normalized so a bare port like ":4100" becomes
+//     "http://localhost:4100" rather than "http://127.0.0.1:4100".
+//  4. http://localhost:4100/api/v1/integrations/google-workspace/oauth/callback.
 func defaultGoogleOAuthRedirectURI() string {
+	const callbackPath = "/api/v1/integrations/google-workspace/oauth/callback"
 	if env := strings.TrimSpace(os.Getenv("GOOGLE_WORKSPACE_REDIRECT_URI")); env != "" {
 		return env
 	}
+	if origin := strings.TrimSpace(os.Getenv("APERIO_PUBLIC_API_ORIGIN")); origin != "" {
+		return strings.TrimRight(origin, "/") + callbackPath
+	}
 	addr := strings.TrimSpace(os.Getenv("APERIO_CONNECT_ADDR"))
 	if addr == "" {
-		addr = "127.0.0.1:4100"
-	}
-	if strings.HasPrefix(addr, ":") {
-		addr = "127.0.0.1" + addr
+		return "http://localhost:4100" + callbackPath
 	}
 	scheme := "http"
-	if strings.HasPrefix(strings.ToLower(addr), "https://") {
+	lower := strings.ToLower(addr)
+	switch {
+	case strings.HasPrefix(lower, "https://"):
 		scheme = "https"
-		addr = strings.TrimPrefix(strings.TrimPrefix(addr, "https://"), "http://")
+		addr = addr[len("https://"):]
+	case strings.HasPrefix(lower, "http://"):
+		addr = addr[len("http://"):]
 	}
-	return scheme + "://" + addr + "/api/v1/integrations/google-workspace/oauth/callback"
+	if strings.HasPrefix(addr, ":") {
+		addr = "localhost" + addr
+	} else if host, _, err := net.SplitHostPort(addr); err == nil && host == "0.0.0.0" {
+		// 0.0.0.0 is a bind-all sentinel, not a routable host. Browsers must
+		// hit a real loopback name; localhost matches the cookie host.
+		_, port, _ := net.SplitHostPort(addr)
+		addr = net.JoinHostPort("localhost", port)
+	}
+	return scheme + "://" + addr + callbackPath
 }
 
 func firstConfiguredWebOrigin(raw string) string {

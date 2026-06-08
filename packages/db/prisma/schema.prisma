@@ -345,11 +345,32 @@ model IntegrationConnection {
   saasIdentities         SaasIdentity[]
   oauthAppGrants         OauthAppGrant[]
   ingestionJobs          IngestionJob[]
+  googleWorkspaceSyncCursors GoogleWorkspaceSyncCursor[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId])
   @@index([organizationId, provider, status])
   @@map("integration_connections")
+}
+
+// Per-integration, per-application cursor for the Google Workspace Reports
+// API poller. Google returns activity events ordered by id.time DESC with a
+// unique id.uniqueQualifier as a tiebreaker, so both values are persisted
+// and the poller only enqueues activities strictly newer than the cursor.
+// last_polled_at surfaces in the connectors UI as "last sync"; last_error
+// captures the most recent failure for operator debugging without crashing
+// the whole sweep.
+model GoogleWorkspaceSyncCursor {
+  integrationId       String                @map("integration_id")
+  application         String                @db.VarChar(64)
+  lastEventTime       DateTime              @map("last_event_time")
+  lastUniqueQualifier String                @default("") @map("last_unique_qualifier") @db.VarChar(64)
+  lastPolledAt        DateTime              @default(now()) @map("last_polled_at")
+  lastError           String?               @map("last_error") @db.VarChar(500)
+  integration         IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@id([integrationId, application])
+  @@map("google_workspace_sync_cursors")
 }
 
 // Per-organization OAuth client credentials for SaaS connectors. Lets each

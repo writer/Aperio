@@ -95,6 +95,35 @@ export function ConnectorsPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("google_connect");
+    if (outcome !== "success" && outcome !== "error") return;
+    const providerName = providerLabel(params.get("provider") || "GOOGLE_WORKSPACE");
+    if (outcome === "success") {
+      toast({
+        title: `${providerName} connected`,
+        description: "Your workspace is now linked. Audit log ingestion will begin shortly.",
+        tone: "success"
+      });
+      void load();
+    } else {
+      const message = params.get("message") || "We could not finish connecting Google Workspace.";
+      toast({
+        title: `${providerName} connection failed`,
+        description: message,
+        tone: "error"
+      });
+    }
+    params.delete("google_connect");
+    params.delete("provider");
+    params.delete("message");
+    const next = params.toString();
+    const cleanUrl = window.location.pathname + (next ? `?${next}` : "");
+    window.history.replaceState({}, "", cleanUrl);
+  }, [load, toast]);
+
   async function handleDisconnect(id: string) {
     try {
       await disconnectIntegration(id);
