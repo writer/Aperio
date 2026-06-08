@@ -114,13 +114,19 @@ export function ExecutiveReportDetailPage({ reportId }: { reportId: string }) {
     );
   }
 
-  if (error || !report) {
+  if (!report) {
     return (
       <div className="flex flex-col gap-4">
         <PageHeader
           eyebrow="Admin"
           title="Executive report"
           description="Unable to load this report."
+          actions={
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry
+            </Button>
+          }
         />
         <Card>
           <CardContent className="p-6 text-sm text-destructive">
@@ -133,9 +139,18 @@ export function ExecutiveReportDetailPage({ reportId }: { reportId: string }) {
 
   const kpiRaw = (report.kpiSnapshot ?? {}) as Record<string, unknown>;
   const kpi = kpiRaw as Kpi;
-  const assessment =
+  const assessmentRaw =
     report.template === "GOOGLE_WORKSPACE_ASSESSMENT"
       ? (kpiRaw as AssessmentKpi)
+      : null;
+  // An empty `{}` snapshot is truthy but renders as a misleading 0/100 FAIL
+  // while the report is still GENERATING. Only render the assessment view
+  // when the snapshot has real data.
+  const assessment =
+    assessmentRaw &&
+    (assessmentRaw.overallScore != null ||
+      (assessmentRaw.categories?.length ?? 0) > 0)
+      ? assessmentRaw
       : null;
   const htmlUrl = resolveReportArtifactUrl(report, "html");
   const pdfUrl = resolveReportArtifactUrl(report, "pdf");
@@ -213,6 +228,18 @@ export function ExecutiveReportDetailPage({ reportId }: { reportId: string }) {
           <span>· generated {formatDateTime(report.generatedAt)}</span>
         ) : null}
       </div>
+
+      {error ? (
+        <Card>
+          <CardContent className="flex items-center justify-between gap-3 p-4 text-sm text-destructive">
+            <span>Failed to refresh: {error}</span>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {report.status === "GENERATING" ? (
         <Card>

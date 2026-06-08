@@ -96,8 +96,8 @@ async function gatherWorkspaceData(report) {
       externalAccountId: true,
       status: true,
       mode: true,
-      googleMailboxScanEnabled: true,
       googleMailboxScanClientEmail: true,
+      encryptedGoogleMailboxScanPrivateKey: true,
       lastSyncAt: true,
       createdAt: true
     }
@@ -112,16 +112,21 @@ async function gatherWorkspaceData(report) {
 
   const integrationIds = integrations.map((i) => i.id);
 
+  // SecurityFinding has no `ruleId` column — the worker stores it inside the
+  // `evidence` JSON blob. We can't reliably filter on a JSON path across
+  // Postgres + Prisma without raw SQL, so we scope by integrationId (the only
+  // GWS integrations the org has) and partition by `evidence.ruleId` in code.
+  const findingScope = integrationIds.length
+    ? { integrationId: { in: integrationIds } }
+    : { id: "__never__" };
+
   const [openFindings, periodFindings, identities, oauthAssets, sensitiveAssets, auditCount] =
     await Promise.all([
       prisma.securityFinding.findMany({
         where: {
           organizationId,
           status: "OPEN",
-          OR: [
-            { ruleId: { in: ALL_GWS_RULE_IDS } },
-            integrationIds.length ? { integrationId: { in: integrationIds } } : { id: "__never__" }
-          ]
+          ...findingScope
         },
         select: {
           id: true,
@@ -129,7 +134,7 @@ async function gatherWorkspaceData(report) {
           description: true,
           severity: true,
           riskScore: true,
-          ruleId: true,
+          evidence: true,
           detectedAt: true,
           integrationId: true,
           integration: { select: { provider: true, displayName: true } }
@@ -141,12 +146,9 @@ async function gatherWorkspaceData(report) {
         where: {
           organizationId,
           detectedAt: { gte: periodStart, lte: periodEnd },
-          OR: [
-            { ruleId: { in: ALL_GWS_RULE_IDS } },
-            integrationIds.length ? { integrationId: { in: integrationIds } } : { id: "__never__" }
-          ]
+          ...findingScope
         },
-        select: { id: true, severity: true, status: true, ruleId: true }
+        select: { id: true, severity: true, status: true, evidence: true }
       }),
       integrationIds.length
         ? prisma.saasIdentity.findMany({
@@ -213,9 +215,19 @@ async function gatherWorkspaceData(report) {
   };
 }
 
+function findingRuleId(finding) {
+  const ev = finding.evidence;
+  if (!ev || typeof ev !== "object") return null;
+  const value = ev.ruleId;
+  return typeof value === "string" ? value : null;
+}
+
 function partitionFindings(openFindings, ruleIds) {
   const set = new Set(ruleIds);
-  return openFindings.filter((f) => set.has(f.ruleId));
+  return openFindings.filter((f) => {
+    const ruleId = findingRuleId(f);
+    return ruleId !== null && set.has(ruleId);
+  });
 }
 
 function describeFindings(findings, fallback) {
@@ -403,8 +415,11 @@ function buildCategories(data) {
   };
 
   // ─── Domain-Wide Delegation ────────────────────────────────────────────
+  // The Prisma model has no `googleMailboxScanEnabled` flag; DWD is configured
+  // when both the service-account client email and the encrypted private key
+  // are present on the integration.
   const dwdConfigured = integrations.filter(
-    (i) => !!(i.googleMailboxScanEnabled && i.googleMailboxScanClientEmail)
+    (i) => !!(i.googleMailboxScanClientEmail && i.encryptedGoogleMailboxScanPrivateKey)
   );
   // DWD is a powerful capability with broad mailbox scopes; confirmed
   // configuration is fine, but operators should be aware it exists.

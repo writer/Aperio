@@ -264,6 +264,7 @@ model ExecutiveReport {
 
   @@index([organizationId, periodEnd])
   @@index([organizationId, status, createdAt])
+  @@index([organizationId, template, createdAt])
   @@map("executive_reports")
 }
 
