@@ -13,11 +13,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +42,86 @@ func isUniqueViolation(err error) bool {
 		return false
 	}
 	return pgErr.Code == "23505"
+}
+
+// internalServerError is the public-surface error wrapper for unexpected
+// failures. The underlying err is logged server-side (so engineers can debug
+// from logs) but the response sent to the client carries only a generic
+// message so we never leak raw database error text (column names, constraint
+// SQLSTATEs, vendor product banners, etc.) to unauthenticated callers.
+func internalServerError(op string, err error) *connect.Error {
+	if err != nil {
+		log.Printf("aperio: %s: %v", op, err)
+	}
+	return connect.NewError(connect.CodeInternal, errors.New("internal server error"))
+}
+
+// Schema-driven length caps for the public signup surface. Keeping them
+// aligned with packages/db/prisma/schema.prisma stops oversized values from
+// reaching Postgres (where the constraint text would leak through err.Error).
+const (
+	maxOrgNameLength     = 160
+	maxOrgSlugLength     = 120
+	maxEmailLength       = 255
+	maxDisplayNameLength = 160
+	minOrgNameLength     = 1
+	minOrgSlugLength     = 2
+	minPasswordLength    = 12
+	maxPasswordLength    = 1024
+)
+
+var (
+	workspaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	signupEmailPattern   = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+)
+
+type signupPayload struct {
+	OrganizationName  string
+	OrganizationSlug  string
+	NotificationEmail *string
+	OwnerEmail        string
+	OwnerDisplayName  *string
+	Password          string
+}
+
+// validateSignupPayload enforces shape and length on signup inputs so the
+// public surface never returns raw Postgres constraint text. Every rejection
+// path returns CodeInvalidArgument with a stable, generic message; we do not
+// echo the offending value back because the signup endpoint is unauthenticated.
+func validateSignupPayload(body map[string]any) (signupPayload, *connect.Error) {
+	var payload signupPayload
+	payload.OrganizationName = requiredString(body, "organizationName")
+	payload.OrganizationSlug = requiredString(body, "organizationSlug")
+	payload.OwnerEmail = strings.ToLower(requiredString(body, "ownerEmail"))
+	payload.OwnerDisplayName = optionalStringPtr(body, "ownerDisplayName")
+	payload.NotificationEmail = optionalStringPtr(body, "notificationEmail")
+	payload.Password = requiredString(body, "password")
+
+	if len(payload.OrganizationName) < minOrgNameLength || len(payload.OrganizationName) > maxOrgNameLength {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace name must be 1-160 characters"))
+	}
+	if len(payload.OrganizationSlug) < minOrgSlugLength || len(payload.OrganizationSlug) > maxOrgSlugLength {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace slug must be 2-120 characters"))
+	}
+	if !workspaceSlugPattern.MatchString(payload.OrganizationSlug) {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("workspace slug must use lowercase letters, digits, and dashes"))
+	}
+	if len(payload.OwnerEmail) == 0 || len(payload.OwnerEmail) > maxEmailLength || !signupEmailPattern.MatchString(payload.OwnerEmail) {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("owner email is not a valid address"))
+	}
+	if payload.NotificationEmail != nil {
+		value := *payload.NotificationEmail
+		if len(value) > maxEmailLength || !signupEmailPattern.MatchString(value) {
+			return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("notification email is not a valid address"))
+		}
+	}
+	if payload.OwnerDisplayName != nil && len(*payload.OwnerDisplayName) > maxDisplayNameLength {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("display name must be 160 characters or fewer"))
+	}
+	if len(payload.Password) < minPasswordLength || len(payload.Password) > maxPasswordLength {
+		return payload, connect.NewError(connect.CodeInvalidArgument, errors.New("password must be at least 12 characters"))
+	}
+	return payload, nil
 }
 
 const (
@@ -586,25 +668,26 @@ func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (co
 }
 
 func (a *App) compatSignup(ctx context.Context, body map[string]any, headers http.Header) (any, error) {
-	orgName := requiredString(body, "organizationName")
-	orgSlug := requiredString(body, "organizationSlug")
-	email := strings.ToLower(requiredString(body, "ownerEmail"))
-	password := requiredString(body, "password")
-	displayName := optionalStringPtr(body, "ownerDisplayName")
-	if orgName == "" || orgSlug == "" || email == "" || len(password) < 12 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid signup payload"))
+	payload, validationErr := validateSignupPayload(body)
+	if validationErr != nil {
+		return nil, validationErr
 	}
+	orgName := payload.OrganizationName
+	orgSlug := payload.OrganizationSlug
+	email := payload.OwnerEmail
+	password := payload.Password
+	displayName := payload.OwnerDisplayName
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.begin_tx", err)
 	}
 	defer tx.Rollback()
 	orgID, roleID, userID := compatID("org"), compatID("role"), compatID("usr")
-	if _, err := tx.ExecContext(ctx, `INSERT INTO organizations (id, name, slug, notification_email, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW())`, orgID, orgName, orgSlug, optionalStringPtr(body, "notificationEmail")); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO organizations (id, name, slug, notification_email, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW())`, orgID, orgName, orgSlug, payload.NotificationEmail); err != nil {
 		if isUniqueViolation(err) {
 			return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("workspace slug is already in use"))
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.insert_organization", err)
 	}
 	for _, role := range []string{"OWNER", "ADMIN", "SECURITY_ANALYST", "VIEWER"} {
 		id := compatID("role")
@@ -618,11 +701,11 @@ func (a *App) compatSignup(ctx context.Context, body map[string]any, headers htt
 			perms = "ARRAY['read','triage','remediate']::text[]"
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO roles (id, organization_id, name, permissions, created_at, updated_at) VALUES ($1,$2,$3,`+perms+`,NOW(),NOW())`, id, orgID, role); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, internalServerError("signup.insert_role", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, password_hash, display_name, mfa_enabled, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,FALSE,TRUE,NOW(),NOW())`, userID, orgID, roleID, email, compatHashPassword(password), displayName); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.insert_user", err)
 	}
 	// The audit log INSERT used to swallow its error, which poisoned the
 	// surrounding transaction and surfaced the real failure as a misleading
@@ -632,14 +715,14 @@ func (a *App) compatSignup(ctx context.Context, body map[string]any, headers htt
 	// organization_id column; VARCHAR(180) for $4, the target_id column).
 	// Reusing $2 here triggers SQLSTATE 42P08 inconsistent type deduction.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, created_at) VALUES ($1,$2,$3,'auth.signup','organization',$4,NOW())`, compatID("aud"), orgID, userID, orgID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.insert_audit", err)
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.issue_session", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("signup.commit", err)
 	}
 	headers.Add("Set-Cookie", compatSessionCookie(session))
 	return map[string]any{"data": map[string]any{"token": session, "user": map[string]any{"id": userID, "email": email, "displayName": displayName, "mfaEnabled": false, "role": "OWNER"}, "organization": map[string]any{"id": orgID, "name": orgName, "slug": orgSlug}}}, nil
@@ -673,24 +756,24 @@ func (a *App) compatLogin(ctx context.Context, body map[string]any, headers http
 	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("login.begin_tx", err)
 	}
 	defer tx.Rollback()
 	if mfaEnabled {
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), mfa_last_counter = $2, updated_at = NOW() WHERE id = $1`, userID, mfaCounter); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, internalServerError("login.update_user_mfa", err)
 		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, userID); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, internalServerError("login.update_user", err)
 		}
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, !mfaEnabled || requiredString(body, "totpCode") != "")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("login.issue_session", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("login.commit", err)
 	}
 	headers.Add("Set-Cookie", compatSessionCookie(session))
 	return map[string]any{"data": compatSessionPayload(session, compatSessionUser{ID: userID, Email: email, DisplayName: nullStringPtr(displayName), MFAEnabled: mfaEnabled, Role: role}, compatSessionOrg{ID: orgID, Name: orgName, Slug: orgSlug})}, nil
@@ -820,24 +903,24 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.begin_tx", err)
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.update_user", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token)); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.mark_consumed", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.revoke_sessions", err)
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.issue_session", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, internalServerError("consume_token.commit", err)
 	}
 	headers.Add("Set-Cookie", compatSessionCookie(session))
 	return map[string]any{"data": compatSessionPayload(session, compatSessionUser{ID: userID, Email: email, DisplayName: nullStringPtr(displayName), MFAEnabled: false, Role: role}, compatSessionOrg{ID: orgID, Name: orgName, Slug: orgSlug})}, nil

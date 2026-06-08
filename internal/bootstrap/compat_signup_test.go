@@ -100,3 +100,97 @@ func TestCompatSignupReturnsAlreadyExistsForDuplicateSlug(t *testing.T) {
 		t.Fatalf("signup leaked the SQLSTATE 25P02 footgun: %v", err)
 	}
 }
+
+// TestCompatSignupValidation pins down the public-surface validation contract
+// so we never echo a raw Postgres constraint message (e.g. "value too long for
+// type character varying(120)") to unauthenticated callers. Each case must:
+//   - return CodeInvalidArgument
+//   - return a stable, human-readable message
+//   - not contain any SQLSTATE codes, the words "postgres"/"varchar", or any
+//     of the offending raw input
+func TestCompatSignupValidation(t *testing.T) {
+	app := &App{}
+	base := func() map[string]any {
+		return map[string]any{
+			"organizationName": "Valid Co",
+			"organizationSlug": "valid-co",
+			"ownerEmail":       "owner@example.com",
+			"password":         "Sup3rSecretPassphrase!",
+		}
+	}
+
+	cases := []struct {
+		name       string
+		mutate     func(map[string]any)
+		wantPhrase string
+	}{
+		{
+			name:       "oversized workspace name",
+			mutate:     func(b map[string]any) { b["organizationName"] = strings.Repeat("a", 161) },
+			wantPhrase: "workspace name",
+		},
+		{
+			name:       "oversized workspace slug",
+			mutate:     func(b map[string]any) { b["organizationSlug"] = strings.Repeat("a", 121) },
+			wantPhrase: "workspace slug",
+		},
+		{
+			name:       "invalid workspace slug characters",
+			mutate:     func(b map[string]any) { b["organizationSlug"] = "Bad Slug!" },
+			wantPhrase: "lowercase",
+		},
+		{
+			name:       "missing workspace slug",
+			mutate:     func(b map[string]any) { b["organizationSlug"] = " " },
+			wantPhrase: "workspace slug",
+		},
+		{
+			name:       "owner email missing @",
+			mutate:     func(b map[string]any) { b["ownerEmail"] = "notanemail" },
+			wantPhrase: "owner email",
+		},
+		{
+			name:       "oversized owner email",
+			mutate:     func(b map[string]any) { b["ownerEmail"] = strings.Repeat("a", 250) + "@example.com" },
+			wantPhrase: "owner email",
+		},
+		{
+			name:       "oversized display name",
+			mutate:     func(b map[string]any) { b["ownerDisplayName"] = strings.Repeat("a", 161) },
+			wantPhrase: "display name",
+		},
+		{
+			name:       "invalid notification email",
+			mutate:     func(b map[string]any) { b["notificationEmail"] = "no-at-symbol" },
+			wantPhrase: "notification email",
+		},
+		{
+			name:       "short password",
+			mutate:     func(b map[string]any) { b["password"] = "tooShort" },
+			wantPhrase: "password",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := base()
+			tc.mutate(body)
+			_, err := app.compatSignup(context.Background(), body, http.Header{})
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+				t.Fatalf("expected CodeInvalidArgument, got %v (%v)", code, err)
+			}
+			msg := strings.ToLower(err.Error())
+			if !strings.Contains(msg, tc.wantPhrase) {
+				t.Fatalf("expected message to mention %q, got %q", tc.wantPhrase, err.Error())
+			}
+			for _, leak := range []string{"sqlstate", "varchar", "postgres", "pgx", "value too long", "25p02", "42p08", "internal server error"} {
+				if strings.Contains(msg, leak) {
+					t.Fatalf("validation error leaked %q to client: %v", leak, err)
+				}
+			}
+		})
+	}
+}
