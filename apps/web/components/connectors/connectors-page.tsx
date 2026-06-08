@@ -749,8 +749,8 @@ function GoogleOAuthClientPanel({
           type="password"
           value={clientSecretInput}
           onChange={(event) => setClientSecretInput(event.target.value)}
-          placeholder={client.configured ? "Leave blank to keep existing secret" : ""}
-          required={!client.configured}
+          placeholder={client.configured ? "Re-enter the client secret to update" : ""}
+          required
         />
       </Field>
       <Field
