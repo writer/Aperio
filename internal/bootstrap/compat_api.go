@@ -79,10 +79,10 @@ var (
 	// cap is enforced via len() — so any multibyte character would either be
 	// silently rejected by the byte count even when it fits the VARCHAR(255)
 	// column, or worse, would let an attacker register near-lookalike accounts
-	// that compare equal under naive lowercasing. The character class below is
-	// a practical subset of RFC 5321 atext for the local part plus a
-	// conventional domain pattern.
-	signupEmailPattern = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+$`)
+	// that compare equal under naive lowercasing. The local-part class is the
+	// full RFC 5321 atext set so common real-world addresses like o'hara@...,
+	// alex+filter@..., and !#$%&'*+-/=?^_`{|}~ atoms continue to work.
+	signupEmailPattern = regexp.MustCompile("^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 )
 
 type signupPayload struct {

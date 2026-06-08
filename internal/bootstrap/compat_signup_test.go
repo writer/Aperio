@@ -278,6 +278,23 @@ func TestCompatSignupAcceptsCommonAsciiEmails(t *testing.T) {
 		"o@subdomain.example.co.uk",
 		"plus_underscore-dash@example-domain.io",
 		"a@b.cd",
+		// RFC 5321 atext characters that real-world addresses use.
+		"o'hara@example.com",
+		"d'angelo@example.com",
+		"alex!@example.com",
+		"alex#tag@example.com",
+		"a$ap@example.com",
+		"a%b@example.com",
+		"a&b@example.com",
+		"alex*@example.com",
+		"alex=tag@example.com",
+		"alex?@example.com",
+		"alex^@example.com",
+		"alex`tag@example.com",
+		"alex{tag}@example.com",
+		"alex|tag@example.com",
+		"alex~@example.com",
+		"alex/tag@example.com",
 	}
 	for _, addr := range addresses {
 		t.Run(addr, func(t *testing.T) {
