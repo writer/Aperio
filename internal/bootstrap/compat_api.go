@@ -73,7 +73,16 @@ const (
 
 var (
 	workspaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-	signupEmailPattern   = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+	// ASCII-only email shape. We intentionally do NOT accept Unicode (IDN /
+	// EAI) addresses because the rest of the auth flow only lowercases and
+	// does a plain SQL lookup against the stored string, and the maxEmailLength
+	// cap is enforced via len() — so any multibyte character would either be
+	// silently rejected by the byte count even when it fits the VARCHAR(255)
+	// column, or worse, would let an attacker register near-lookalike accounts
+	// that compare equal under naive lowercasing. The character class below is
+	// a practical subset of RFC 5321 atext for the local part plus a
+	// conventional domain pattern.
+	signupEmailPattern = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+$`)
 )
 
 type signupPayload struct {

@@ -228,6 +228,71 @@ func TestCompatSignupAcceptsMultibyteNames(t *testing.T) {
 	}
 }
 
+// TestCompatSignupRejectsUnicodeEmails pins the ASCII-only email shape so a
+// future regression that loosens signupEmailPattern back to "any non-whitespace
+// rune" cannot reintroduce the byte-vs-character footgun where an email like
+// 'éééé...@ex.co' fits VARCHAR(255) by character count but trips the byte cap.
+func TestCompatSignupRejectsUnicodeEmails(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{"owner email with accents", "ownerEmail", "éé@example.com"},
+		{"owner email with CJK", "ownerEmail", "用户@example.com"},
+		{"notification email with accents", "notificationEmail", "café@example.com"},
+		{"notification email with CJK", "notificationEmail", "用户@example.com"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{
+				"organizationName": "Valid Co",
+				"organizationSlug": "valid-co",
+				"ownerEmail":       "owner@example.com",
+				"password":         "Sup3rSecretPassphrase!",
+			}
+			body[tc.field] = tc.value
+			_, err := validateSignupPayload(body)
+			if err == nil {
+				t.Fatal("expected unicode email to be rejected")
+			}
+			if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+				t.Fatalf("expected CodeInvalidArgument, got %v (%v)", code, err)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "email") {
+				t.Fatalf("expected error to mention 'email', got %v", err)
+			}
+		})
+	}
+}
+
+// TestCompatSignupAcceptsCommonAsciiEmails guards against an over-tight regex
+// regression. Anything in the table below is a real-world address shape that
+// admins legitimately use; tightening the pattern further must not break them.
+func TestCompatSignupAcceptsCommonAsciiEmails(t *testing.T) {
+	addresses := []string{
+		"owner@example.com",
+		"owner.with.dots@example.com",
+		"owner+filter@example.com",
+		"OWNER@example.com",
+		"o@subdomain.example.co.uk",
+		"plus_underscore-dash@example-domain.io",
+		"a@b.cd",
+	}
+	for _, addr := range addresses {
+		t.Run(addr, func(t *testing.T) {
+			if _, err := validateSignupPayload(map[string]any{
+				"organizationName": "Valid Co",
+				"organizationSlug": "valid-co",
+				"ownerEmail":       addr,
+				"password":         "Sup3rSecretPassphrase!",
+			}); err != nil {
+				t.Fatalf("legitimate address rejected: %v", err)
+			}
+		})
+	}
+}
+
 func TestCompatSignupRejectsOverMultibyteNames(t *testing.T) {
 	cases := []struct {
 		name  string
