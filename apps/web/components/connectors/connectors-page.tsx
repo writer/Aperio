@@ -596,7 +596,10 @@ function ConnectDialog({
               }
               disabled={
                 isGoogleWorkspace &&
-                (oauthClientLoading || !oauthClient || oauthClient.source === "")
+                (oauthClientLoading ||
+                  !oauthClient ||
+                  oauthClient.source === "" ||
+                  showOauthSetup)
               }
             >
               <CheckCircle2 className="h-4 w-4" />
@@ -773,13 +776,20 @@ function GoogleOAuthClientPanel({
           and secret here.
         </p>
       </div>
+      {/*
+        The editor lives inside the outer connect <form>, so we deliberately
+        skip the native `required` attribute on these inputs. handleSave runs
+        the equivalent presence check before calling the RPC, which avoids
+        HTML5 validation bubbles firing on a blank credential secret when the
+        user submits the outer form to start OAuth with existing credentials.
+      */}
       <Field label="Client ID" htmlFor={clientIdInputId} required>
         <Input
           id={clientIdInputId}
           value={clientIdInput}
           onChange={(event) => setClientIdInput(event.target.value)}
           placeholder="...apps.googleusercontent.com"
-          required
+          aria-required="true"
         />
       </Field>
       <Field label="Client secret" htmlFor={clientSecretInputId} required>
@@ -789,7 +799,7 @@ function GoogleOAuthClientPanel({
           value={clientSecretInput}
           onChange={(event) => setClientSecretInput(event.target.value)}
           placeholder={isTenantConfigured ? "Re-enter the client secret to update" : ""}
-          required
+          aria-required="true"
         />
       </Field>
       <Field
@@ -802,7 +812,7 @@ function GoogleOAuthClientPanel({
           id={redirectInputId}
           value={redirectInput}
           onChange={(event) => setRedirectInput(event.target.value)}
-          required
+          aria-required="true"
         />
       </Field>
       <div className="flex flex-wrap justify-end gap-2">
