@@ -222,6 +222,7 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/healthz", a.handleHealthz)
 	a.mux.HandleFunc("/readyz", a.handleReadyz)
 	a.mux.HandleFunc("/api/v1/integrations/google-workspace/oauth/callback", a.handleGoogleOAuthCallback)
+	a.mux.HandleFunc("/api/v1/admin/reports/", a.handleExecutiveReportArtifact)
 	path, handler := aperiov1connect.NewAperioServiceHandler(
 		a,
 		connect.WithInterceptors(a.wideEventInterceptor()),

@@ -186,6 +186,24 @@ enum AuthTokenPurpose {
   PASSWORD_RESET
 }
 
+enum ReportPeriod {
+  WEEK
+  MONTH
+  QUARTER
+  CUSTOM
+}
+
+enum ExecutiveReportStatus {
+  GENERATING
+  READY
+  FAILED
+}
+
+enum ReportTemplate {
+  EXECUTIVE_SUMMARY
+  GOOGLE_WORKSPACE_ASSESSMENT
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String   @db.VarChar(160)
@@ -219,8 +237,35 @@ model Organization {
   sessions          UserSession[]
   oauthAppGrants    OauthAppGrant[]
   ingestionJobs      IngestionJob[]
+  executiveReports  ExecutiveReport[]
 
   @@map("organizations")
+}
+
+model ExecutiveReport {
+  id                String                @id @default(cuid())
+  organizationId    String                @map("organization_id")
+  requestedByUserId String?               @map("requested_by_user_id")
+  template          ReportTemplate        @default(EXECUTIVE_SUMMARY)
+  period            ReportPeriod
+  periodStart       DateTime              @map("period_start")
+  periodEnd         DateTime              @map("period_end")
+  title             String                @db.VarChar(220)
+  summary           String?               @db.Text
+  status            ExecutiveReportStatus @default(GENERATING)
+  htmlPath          String?               @map("html_path") @db.VarChar(500)
+  pdfPath           String?               @map("pdf_path") @db.VarChar(500)
+  kpiSnapshot       Json                  @default("{}") @map("kpi_snapshot")
+  errorMessage      String?               @map("error_message") @db.VarChar(1000)
+  generatedAt       DateTime?             @map("generated_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, periodEnd])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, template, createdAt])
+  @@map("executive_reports")
 }
 
 model Role {

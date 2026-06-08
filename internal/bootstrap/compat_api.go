@@ -125,6 +125,8 @@ var compatRouteTemplates = map[string]struct{}{
 	"/api/v1/security/assets/:id":                       {},
 	"/api/v1/security/exceptions":                       {},
 	"/api/v1/security/exceptions/:id":                   {},
+	"/api/v1/admin/reports":                             {},
+	"/api/v1/admin/reports/:id":                         {},
 }
 
 // compatRouteLabel returns the bounded http.tunnel.route value for a tunneled
@@ -378,6 +380,14 @@ func (a *App) dispatchCompatAPI(
 		return a.compatCreateRiskException(ctx, body, auth)
 	case method == http.MethodPatch && len(segments) == 5 && segments[2] == "security" && segments[3] == "exceptions":
 		return a.compatUpdateRiskException(ctx, segments[4], body, auth)
+	case method == http.MethodGet && path == "/api/v1/admin/reports":
+		return a.compatListExecutiveReports(ctx, auth)
+	case method == http.MethodPost && path == "/api/v1/admin/reports":
+		return a.compatCreateExecutiveReport(ctx, body, auth)
+	case method == http.MethodGet && len(segments) == 5 && segments[2] == "admin" && segments[3] == "reports":
+		return a.compatGetExecutiveReport(ctx, segments[4], auth)
+	case method == http.MethodDelete && len(segments) == 5 && segments[2] == "admin" && segments[3] == "reports":
+		return a.compatDeleteExecutiveReport(ctx, segments[4], auth)
 	default:
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("unknown Go API route %s %s", method, path))
 	}

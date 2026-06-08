@@ -1691,5 +1691,125 @@ export const aperioConnectClient = {
       throw new Error("Risk exception update failed");
     }
     return { data: riskExceptionFromProto(response.data) };
+  },
+  async listExecutiveReports(): Promise<{
+    data: ConnectExecutiveReport[];
+  }> {
+    const response = await client.listExecutiveReports({});
+    return { data: response.data.map(executiveReportFromProto) };
+  },
+  async getExecutiveReport(
+    id: string
+  ): Promise<{ data: ConnectExecutiveReport }> {
+    const response = await client.getExecutiveReport({ id });
+    if (!response.data) {
+      throw new Error("Executive report not found");
+    }
+    return { data: executiveReportFromProto(response.data) };
+  },
+  async createExecutiveReport(payload: {
+    period: ExecutiveReportPeriod;
+    title?: string;
+    periodStart?: string;
+    periodEnd?: string;
+    template?: ExecutiveReportTemplate;
+  }): Promise<{ data: ConnectExecutiveReport }> {
+    const response = await client.createExecutiveReport({
+      period: payload.period,
+      title: payload.title ?? "",
+      periodStart: payload.periodStart ?? "",
+      periodEnd: payload.periodEnd ?? "",
+      template: payload.template ?? "EXECUTIVE_SUMMARY"
+    });
+    if (!response.data) {
+      throw new Error("Executive report create failed");
+    }
+    return { data: executiveReportFromProto(response.data) };
+  },
+  async deleteExecutiveReport(
+    id: string
+  ): Promise<{ data: { deleted: boolean } }> {
+    const response = await client.deleteExecutiveReport({ id });
+    return { data: { deleted: response.deleted } };
   }
 };
+
+export type ExecutiveReportPeriod = "WEEK" | "MONTH" | "QUARTER" | "CUSTOM";
+export type ExecutiveReportStatus = "GENERATING" | "READY" | "FAILED";
+export type ExecutiveReportTemplate =
+  | "EXECUTIVE_SUMMARY"
+  | "GOOGLE_WORKSPACE_ASSESSMENT";
+
+export type ConnectExecutiveReport = {
+  id: string;
+  template: ExecutiveReportTemplate;
+  period: ExecutiveReportPeriod;
+  periodStart: string;
+  periodEnd: string;
+  title: string;
+  summary?: string;
+  status: ExecutiveReportStatus;
+  kpiSnapshot: Record<string, unknown>;
+  hasHtml: boolean;
+  hasPdf: boolean;
+  htmlUrl?: string;
+  pdfUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  generatedAt?: string;
+  errorMessage?: string;
+  requestedByUser?: string | null;
+};
+
+function parsePeriodValue(value: string): ExecutiveReportPeriod {
+  if (value === "WEEK" || value === "MONTH" || value === "QUARTER" || value === "CUSTOM") {
+    return value;
+  }
+  return "MONTH";
+}
+
+function parseStatusValue(value: string): ExecutiveReportStatus {
+  if (value === "READY" || value === "FAILED") return value;
+  return "GENERATING";
+}
+
+function parseTemplateValue(value: string): ExecutiveReportTemplate {
+  if (value === "GOOGLE_WORKSPACE_ASSESSMENT") return value;
+  return "EXECUTIVE_SUMMARY";
+}
+
+function executiveReportFromProto(
+  proto: import("./gen/aperio/v1/api_pb").ExecutiveReport
+): ConnectExecutiveReport {
+  let kpiSnapshot: Record<string, unknown> = {};
+  if (proto.kpiSnapshotJson) {
+    try {
+      const parsed = JSON.parse(proto.kpiSnapshotJson);
+      if (parsed && typeof parsed === "object") {
+        kpiSnapshot = parsed as Record<string, unknown>;
+      }
+    } catch {
+      kpiSnapshot = {};
+    }
+  }
+  return {
+    id: proto.id,
+    template: parseTemplateValue(proto.template),
+    period: parsePeriodValue(proto.period),
+    periodStart: proto.periodStart,
+    periodEnd: proto.periodEnd,
+    title: proto.title,
+    summary: proto.summary || undefined,
+    status: parseStatusValue(proto.status),
+    kpiSnapshot,
+    hasHtml: proto.hasHtml,
+    hasPdf: proto.hasPdf,
+    htmlUrl: proto.htmlUrl || undefined,
+    pdfUrl: proto.pdfUrl || undefined,
+    createdAt: proto.createdAt,
+    updatedAt: proto.updatedAt,
+    generatedAt: proto.generatedAt || undefined,
+    errorMessage: proto.errorMessage || undefined,
+    requestedByUser: proto.requestedByUserId || null
+  };
+}

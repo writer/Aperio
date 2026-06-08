@@ -903,3 +903,70 @@ export async function fetchShadowItOauthAppGrants(assetId: string) {
     data: ShadowItOauthAppDetail;
   }>;
 }
+
+export type ExecutiveReportPeriod = "WEEK" | "MONTH" | "QUARTER" | "CUSTOM";
+export type ExecutiveReportStatus = "GENERATING" | "READY" | "FAILED";
+export type ExecutiveReportTemplate =
+  | "EXECUTIVE_SUMMARY"
+  | "GOOGLE_WORKSPACE_ASSESSMENT";
+
+export type ExecutiveReportSummary = {
+  id: string;
+  template: ExecutiveReportTemplate;
+  period: ExecutiveReportPeriod;
+  periodStart: string;
+  periodEnd: string;
+  title: string;
+  summary?: string;
+  status: ExecutiveReportStatus;
+  hasHtml: boolean;
+  hasPdf: boolean;
+  htmlUrl?: string;
+  pdfUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  generatedAt?: string;
+  errorMessage?: string;
+  kpiSnapshot: Record<string, unknown>;
+};
+
+export async function fetchExecutiveReports() {
+  return aperioConnectClient.listExecutiveReports() as Promise<{
+    data: ExecutiveReportSummary[];
+  }>;
+}
+
+export async function fetchExecutiveReport(id: string) {
+  return aperioConnectClient.getExecutiveReport(id) as Promise<{
+    data: ExecutiveReportSummary;
+  }>;
+}
+
+export async function createExecutiveReport(payload: {
+  period: ExecutiveReportPeriod;
+  title?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  template?: ExecutiveReportTemplate;
+}) {
+  return aperioConnectClient.createExecutiveReport(payload) as Promise<{
+    data: ExecutiveReportSummary;
+  }>;
+}
+
+export async function deleteExecutiveReport(id: string) {
+  return aperioConnectClient.deleteExecutiveReport(id) as Promise<{
+    data: { deleted: boolean };
+  }>;
+}
+
+// Reports' HTML and PDF artifacts are streamed out of band as static files
+// rather than over Connect-RPC; the server returns the canonical URL on the
+// report payload so clients never construct API paths themselves.
+export function resolveReportArtifactUrl(
+  report: ExecutiveReportSummary,
+  kind: "html" | "pdf"
+): string | null {
+  if (kind === "html") return report.htmlUrl ?? null;
+  return report.pdfUrl ?? null;
+}
