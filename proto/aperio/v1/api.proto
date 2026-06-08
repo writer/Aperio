@@ -498,6 +498,12 @@ message IntegrationOAuthClient {
   bool configured = 4;
   string default_redirect_uri = 5;
   string updated_at = 6;
+  // "tenant" when the org has saved their own credentials, "env" when the
+  // active config comes from the operator-wide GOOGLE_WORKSPACE_* env vars,
+  // empty string when no OAuth client is available. The UI uses this to
+  // decide whether to render the setup form vs. an in-use banner, and to
+  // keep the Continue button enabled whenever the server can start OAuth.
+  string source = 7;
 }
 
 message GetIntegrationOAuthClientRequest {

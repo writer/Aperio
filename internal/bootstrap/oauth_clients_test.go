@@ -68,14 +68,56 @@ func TestSetIntegrationOAuthClientValidation(t *testing.T) {
 }
 
 func TestOAuthClientResponseShape(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_ID", "")
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_SECRET", "")
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "")
+
 	got := oauthClientResponse("GOOGLE_WORKSPACE", nil)
 	if got.Configured {
-		t.Fatal("nil record should report configured=false")
+		t.Fatal("nil record with no env fallback should report configured=false")
+	}
+	if got.Source != "" {
+		t.Fatalf("expected empty source, got %q", got.Source)
 	}
 	if got.Provider != "GOOGLE_WORKSPACE" {
 		t.Fatalf("provider mismatch: %q", got.Provider)
 	}
 	if got.DefaultRedirectUri == "" {
 		t.Fatal("default redirect URI should be populated")
+	}
+}
+
+func TestOAuthClientResponseUsesEnvFallback(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_ID", "env-client.apps.googleusercontent.com")
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_SECRET", "env-secret")
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback")
+
+	got := oauthClientResponse("GOOGLE_WORKSPACE", nil)
+	if !got.Configured {
+		t.Fatal("env fallback should be reported as configured so the UI doesn't block OAuth")
+	}
+	if got.Source != "env" {
+		t.Fatalf("expected source=env, got %q", got.Source)
+	}
+	if got.ClientId != "env-client.apps.googleusercontent.com" {
+		t.Fatalf("client id should mirror env fallback, got %q", got.ClientId)
+	}
+	if got.RedirectUri != "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback" {
+		t.Fatalf("redirect uri should mirror env fallback, got %q", got.RedirectUri)
+	}
+}
+
+func TestOAuthClientResponseTenantTakesPrecedence(t *testing.T) {
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_ID", "env-client.apps.googleusercontent.com")
+	t.Setenv("GOOGLE_WORKSPACE_CLIENT_SECRET", "env-secret")
+	t.Setenv("GOOGLE_WORKSPACE_REDIRECT_URI", "https://api.example.com/api/v1/integrations/google-workspace/oauth/callback")
+
+	rec := &oauthClientRecord{provider: "GOOGLE_WORKSPACE", clientID: "tenant-client", redirectURI: "https://tenant.example.com/cb"}
+	got := oauthClientResponse("GOOGLE_WORKSPACE", rec)
+	if got.Source != "tenant" {
+		t.Fatalf("expected source=tenant, got %q", got.Source)
+	}
+	if got.ClientId != "tenant-client" {
+		t.Fatalf("tenant client id should take precedence, got %q", got.ClientId)
 	}
 }

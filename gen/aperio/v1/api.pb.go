@@ -4442,8 +4442,14 @@ type IntegrationOAuthClient struct {
 	Configured         bool                   `protobuf:"varint,4,opt,name=configured,proto3" json:"configured,omitempty"`
 	DefaultRedirectUri string                 `protobuf:"bytes,5,opt,name=default_redirect_uri,json=defaultRedirectUri,proto3" json:"default_redirect_uri,omitempty"`
 	UpdatedAt          string                 `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// "tenant" when the org has saved their own credentials, "env" when the
+	// active config comes from the operator-wide GOOGLE_WORKSPACE_* env vars,
+	// empty string when no OAuth client is available. The UI uses this to
+	// decide whether to render the setup form vs. an in-use banner, and to
+	// keep the Continue button enabled whenever the server can start OAuth.
+	Source        string `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IntegrationOAuthClient) Reset() {
@@ -4514,6 +4520,13 @@ func (x *IntegrationOAuthClient) GetDefaultRedirectUri() string {
 func (x *IntegrationOAuthClient) GetUpdatedAt() string {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *IntegrationOAuthClient) GetSource() string {
+	if x != nil {
+		return x.Source
 	}
 	return ""
 }
@@ -10681,7 +10694,7 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	" StartGoogleWorkspaceOAuthRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\"N\n" +
 	"!StartGoogleWorkspaceOAuthResponse\x12)\n" +
-	"\x04data\x18\x01 \x01(\v2\x15.aperio.v1.OAuthStartR\x04data\"\xe5\x01\n" +
+	"\x04data\x18\x01 \x01(\v2\x15.aperio.v1.OAuthStartR\x04data\"\xfd\x01\n" +
 	"\x16IntegrationOAuthClient\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1b\n" +
 	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12!\n" +
@@ -10691,7 +10704,8 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"configured\x120\n" +
 	"\x14default_redirect_uri\x18\x05 \x01(\tR\x12defaultRedirectUri\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\tR\tupdatedAt\">\n" +
+	"updated_at\x18\x06 \x01(\tR\tupdatedAt\x12\x16\n" +
+	"\x06source\x18\a \x01(\tR\x06source\">\n" +
 	" GetIntegrationOAuthClientRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\"Z\n" +
 	"!GetIntegrationOAuthClientResponse\x125\n" +

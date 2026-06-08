@@ -396,7 +396,7 @@ function ConnectDialog({
       .then(({ data }) => {
         if (cancelled) return;
         setOauthClient(data);
-        setShowOauthSetup(!data.configured);
+        setShowOauthSetup(data.source === "");
       })
       .catch(() => {
         if (cancelled) return;
@@ -406,6 +406,7 @@ function ConnectDialog({
           redirectUri: "",
           defaultRedirectUri: "",
           configured: false,
+          source: "",
           updatedAt: null
         });
         setShowOauthSetup(true);
@@ -429,7 +430,7 @@ function ConnectDialog({
     if (isGoogleWorkspace) {
       // Google Workspace captures the workspace domain and refresh token through
       // OAuth callback state, so manual credential fields are deliberately hidden.
-      if (!oauthClient?.configured) {
+      if (!oauthClient || oauthClient.source === "") {
         setShowOauthSetup(true);
         setError(
           "Add your Google Cloud OAuth client credentials below before continuing."
@@ -549,7 +550,7 @@ function ConnectDialog({
               showSetup={showOauthSetup}
               onChange={(next) => {
                 setOauthClient(next);
-                setShowOauthSetup(!next.configured);
+                setShowOauthSetup(next.source === "");
               }}
               onRequestEdit={() => setShowOauthSetup(true)}
               onCancelEdit={() => setShowOauthSetup(false)}
@@ -595,7 +596,7 @@ function ConnectDialog({
               }
               disabled={
                 isGoogleWorkspace &&
-                (oauthClientLoading || !oauthClient?.configured)
+                (oauthClientLoading || !oauthClient || oauthClient.source === "")
               }
             >
               <CheckCircle2 className="h-4 w-4" />
@@ -636,8 +637,15 @@ function GoogleOAuthClientPanel({
 
   useEffect(() => {
     if (!client) return;
-    setClientIdInput(client.clientId);
-    setRedirectInput(client.redirectUri || client.defaultRedirectUri);
+    if (client.source === "tenant") {
+      setClientIdInput(client.clientId);
+      setRedirectInput(client.redirectUri || client.defaultRedirectUri);
+    } else {
+      // env or unconfigured: start the setup form blank so admins don't
+      // accidentally save the operator-wide values as their tenant secret.
+      setClientIdInput("");
+      setRedirectInput(client.defaultRedirectUri);
+    }
     setClientSecretInput("");
   }, [client]);
 
@@ -650,6 +658,8 @@ function GoogleOAuthClientPanel({
   }
 
   if (!client) return null;
+
+  const isTenantConfigured = client.source === "tenant";
 
   async function handleSave() {
     if (!clientIdInput.trim() || !clientSecretInput.trim() || !redirectInput.trim()) {
@@ -681,6 +691,9 @@ function GoogleOAuthClientPanel({
     setClearing(true);
     try {
       const { data } = await clearIntegrationOAuthClient("GOOGLE_WORKSPACE");
+      // onChange flips back into summary mode when the response still has a
+      // usable source (e.g. env fallback). When neither tenant nor env is set
+      // it shows the setup form.
       onChange(data);
       setClientIdInput("");
       setClientSecretInput("");
@@ -697,17 +710,26 @@ function GoogleOAuthClientPanel({
     }
   }
 
-  if (client.configured && !showSetup) {
+  if (client.source !== "" && !showSetup) {
     return (
       <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
         <div className="space-y-0.5">
           <div className="font-medium text-foreground">
-            Using your Google Cloud OAuth app
+            {isTenantConfigured
+              ? "Using your Google Cloud OAuth app"
+              : "Using the operator-configured Google OAuth app"}
           </div>
           <div className="text-muted-foreground">Client ID: {client.clientId}</div>
           <div className="text-muted-foreground">
             Redirect URI: {client.redirectUri}
           </div>
+          {!isTenantConfigured ? (
+            <div className="text-muted-foreground">
+              These credentials come from the Aperio deployment&apos;s
+              environment variables. You can override them for this workspace
+              by registering your own OAuth app.
+            </div>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -715,14 +737,31 @@ function GoogleOAuthClientPanel({
           size="sm"
           onClick={onRequestEdit}
         >
-          Edit
+          {isTenantConfigured ? "Edit" : "Use your own app"}
         </Button>
       </div>
     );
   }
 
+  function handlePanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    // The credential editor is nested inside the outer connect form. Without
+    // this guard, pressing Enter in a field would submit the outer form and
+    // start OAuth with the old saved credentials before the edits are saved.
+    if (event.key !== "Enter" || event.shiftKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.tagName !== "INPUT") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!saving) {
+      void handleSave();
+    }
+  }
+
   return (
-    <div className="space-y-3 rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs">
+    <div
+      className="space-y-3 rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs"
+      onKeyDown={handlePanelKeyDown}
+    >
       <div className="space-y-1">
         <div className="text-sm font-medium text-foreground">
           Google Cloud OAuth client
@@ -749,7 +788,7 @@ function GoogleOAuthClientPanel({
           type="password"
           value={clientSecretInput}
           onChange={(event) => setClientSecretInput(event.target.value)}
-          placeholder={client.configured ? "Re-enter the client secret to update" : ""}
+          placeholder={isTenantConfigured ? "Re-enter the client secret to update" : ""}
           required
         />
       </Field>
@@ -767,27 +806,27 @@ function GoogleOAuthClientPanel({
         />
       </Field>
       <div className="flex flex-wrap justify-end gap-2">
-        {client.configured ? (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClear}
-              loading={clearing}
-              loadingText="Removing…"
-            >
-              Remove credentials
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onCancelEdit}
-            >
-              Cancel
-            </Button>
-          </>
+        {isTenantConfigured ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleClear}
+            loading={clearing}
+            loadingText="Removing…"
+          >
+            Remove credentials
+          </Button>
+        ) : null}
+        {client.source !== "" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onCancelEdit}
+          >
+            Cancel
+          </Button>
         ) : null}
         <Button
           type="button"

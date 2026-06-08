@@ -62,18 +62,38 @@ func defaultRedirectURIFor(provider string) string {
 	}
 }
 
+// envOAuthFallbackFor returns the operator-wide env-var configuration for a
+// provider, or nil when none is set. Used so the probe RPC can report that
+// OAuth is usable even when the org has not saved their own credentials yet.
+func envOAuthFallbackFor(provider string) *googleOAuthConfig {
+	switch provider {
+	case "GOOGLE_WORKSPACE":
+		return resolveGoogleOAuthConfig()
+	default:
+		return nil
+	}
+}
+
 func oauthClientResponse(provider string, rec *oauthClientRecord) *aperiov1.IntegrationOAuthClient {
 	out := &aperiov1.IntegrationOAuthClient{
 		Provider:           provider,
 		DefaultRedirectUri: defaultRedirectURIFor(provider),
-		Configured:         rec != nil,
 	}
 	if rec != nil {
+		out.Configured = true
+		out.Source = "tenant"
 		out.ClientId = rec.clientID
 		out.RedirectUri = rec.redirectURI
 		if !rec.updatedAt.IsZero() {
 			out.UpdatedAt = rec.updatedAt.UTC().Format(time.RFC3339)
 		}
+		return out
+	}
+	if env := envOAuthFallbackFor(provider); env != nil {
+		out.Configured = true
+		out.Source = "env"
+		out.ClientId = env.clientID
+		out.RedirectUri = env.redirectURI
 	}
 	return out
 }

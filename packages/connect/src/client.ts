@@ -148,6 +148,7 @@ export type ConnectIntegrationOAuthClient = {
   redirectUri: string;
   defaultRedirectUri: string;
   configured: boolean;
+  source: "tenant" | "env" | "";
   updatedAt: string | null;
 };
 
@@ -680,7 +681,7 @@ function findingFromProto(finding: ProtoFinding): ConnectFinding {
 }
 
 function integrationOAuthClientFromProto(
-  proto: { provider: string; clientId: string; redirectUri: string; configured: boolean; defaultRedirectUri: string; updatedAt: string } | undefined,
+  proto: { provider: string; clientId: string; redirectUri: string; configured: boolean; defaultRedirectUri: string; updatedAt: string; source: string } | undefined,
   fallbackProvider: "GOOGLE_WORKSPACE"
 ): ConnectIntegrationOAuthClient {
   if (!proto) {
@@ -690,15 +691,19 @@ function integrationOAuthClientFromProto(
       redirectUri: "",
       defaultRedirectUri: "",
       configured: false,
+      source: "",
       updatedAt: null
     };
   }
+  const source =
+    proto.source === "tenant" || proto.source === "env" ? proto.source : "";
   return {
     provider: (proto.provider || fallbackProvider) as "GOOGLE_WORKSPACE",
     clientId: proto.clientId,
     redirectUri: proto.redirectUri,
     defaultRedirectUri: proto.defaultRedirectUri,
     configured: proto.configured,
+    source,
     updatedAt: proto.updatedAt || null
   };
 }
