@@ -627,7 +627,11 @@ func (a *App) compatSignup(ctx context.Context, body map[string]any, headers htt
 	// The audit log INSERT used to swallow its error, which poisoned the
 	// surrounding transaction and surfaced the real failure as a misleading
 	// SQLSTATE 25P02 "current transaction is aborted" on the next statement.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, created_at) VALUES ($1,$2,$3,'auth.signup','organization',$2,NOW())`, compatID("aud"), orgID, userID); err != nil {
+	// target_id repeats the organization id but uses a distinct $4 placeholder
+	// so pgx can deduce a consistent type per parameter (TEXT for $2, the
+	// organization_id column; VARCHAR(180) for $4, the target_id column).
+	// Reusing $2 here triggers SQLSTATE 42P08 inconsistent type deduction.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, created_at) VALUES ($1,$2,$3,'auth.signup','organization',$4,NOW())`, compatID("aud"), orgID, userID, orgID); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)
