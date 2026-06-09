@@ -132,6 +132,14 @@ worker-google: require-env ## Run the Go Google Workspace audit-log poller
 .PHONY: worker-google-go
 worker-google-go: worker-google ## Alias for the Go Google Workspace poller
 
+.PHONY: worker-google-directory
+worker-google-directory: require-env ## Run the Go Google Workspace directory sync
+	@$(MAKE) --no-print-directory db-up
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/google-workspace-directory-sync $(GO_WORKER_ARGS)
+
+.PHONY: worker-google-directory-go
+worker-google-directory-go: worker-google-directory ## Alias for the Go Google Workspace directory sync
+
 .PHONY: smoke-workers-go
 smoke-workers-go: require-env ## Run bounded Go worker smokes
 	@$(MAKE) --no-print-directory db-up migrate

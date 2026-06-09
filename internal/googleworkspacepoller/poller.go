@@ -428,6 +428,14 @@ func (p *Poller) recordError(ctx context.Context, integrationID, application str
 func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, application string, activity reportsActivity, event reportsEvent) error {
 	ownerDomain := resolveOwnerDomain(integ, activity, event.Parameters)
 	mapped := MapEventType(application, event.Name, event.Parameters, ownerDomain)
+	if mapped == "" {
+		// No rule evaluator exists for this raw Google event, so enqueueing
+		// would only produce DEAD_LETTER noise after retry exhaustion. Drop
+		// silently; if we ever add an evaluator for this event name, the
+		// mapping above will start returning a non-empty type and the poller
+		// will begin enqueueing without any other change.
+		return nil
+	}
 	payload := buildJobPayload(application, activity, event, ownerDomain)
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {

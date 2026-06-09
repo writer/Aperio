@@ -16,9 +16,14 @@ import "strings"
 // signals (visibility-based detection still works).
 //
 // Mapping rules cover the highest-signal events for the rules that exist
-// today. Unknown events fall through with an uppercased version of the raw
-// Google event name so future rule additions can match without a poller
-// change.
+// today. Unknown events return the empty string and the poller MUST skip
+// enqueueing them. The previous uppercased-passthrough behavior dumped
+// every Google event onto the ingestion queue as "DOWNLOAD", "VIEW",
+// "EDIT", etc., and because no rule evaluator existed for those types the
+// ingestion worker exhausted retries and dead-lettered ~84% of the queue
+// for a typical tenant. Returning "" + skipping at the producer means the
+// queue stays as a meaningful signal of "things we believe are findings"
+// instead of a noise channel.
 //
 // The mapping is intentionally narrow: we add a synthesized event type only
 // when there is a clear 1:1 (or parameter-conditioned) correspondence. The
@@ -63,11 +68,17 @@ func MapEventType(application, eventName string, parameters []reportsParameter, 
 		switch raw {
 		case "authorize":
 			return "RISKY_OAUTH_GRANT"
-		case "revoke":
-			return "OAUTH_TOKEN_REVOKED"
 		}
+		// token/revoke intentionally maps to "" (dropped at the producer).
+		// The downstream allowlist in internal/ingestionworker/worker.go
+		// (supportedIngestionEventTypes["GOOGLE_WORKSPACE"]) does not
+		// include OAUTH_TOKEN_REVOKED and no evaluator promotes it to a
+		// finding, so enqueueing the event would only produce DEAD_LETTER
+		// noise after retry exhaustion — the exact regression this file's
+		// "" return contract exists to prevent. Restore the mapping in the
+		// same commit that adds an evaluator + an allowlist entry.
 	}
-	return strings.ToUpper(eventName)
+	return ""
 }
 
 // isExternalSharing returns true when a Drive change_* activity describes

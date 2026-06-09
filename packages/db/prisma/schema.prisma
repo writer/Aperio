@@ -345,6 +345,7 @@ model IntegrationConnection {
   oauthAppGrants         OauthAppGrant[]
   ingestionJobs          IngestionJob[]
   googleWorkspaceSyncCursors GoogleWorkspaceSyncCursor[]
+  googleWorkspaceDirectorySyncCursor GoogleWorkspaceDirectorySyncCursor?
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId])
@@ -370,6 +371,22 @@ model GoogleWorkspaceSyncCursor {
 
   @@id([integrationId, application])
   @@map("google_workspace_sync_cursors")
+}
+
+// Per-integration cursor for the Google Workspace Directory API sync. The
+// Directory API has no streaming "since" filter today, so the sync does a
+// full users.list page-walk on every tick and upserts into saas_identities.
+// The cursor row exists so the connectors UI can surface last_synced_at and
+// last_error per integration, and so a future incremental etag-based sync
+// can persist state here without another migration.
+model GoogleWorkspaceDirectorySyncCursor {
+  integrationId  String                @id @map("integration_id")
+  lastSyncedAt   DateTime              @default(now()) @map("last_synced_at")
+  lastUserCount  Int                   @default(0) @map("last_user_count")
+  lastError      String?               @map("last_error") @db.VarChar(500)
+  integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@map("google_workspace_directory_sync_cursors")
 }
 
 // Per-organization OAuth client credentials for SaaS connectors. Lets each

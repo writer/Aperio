@@ -118,10 +118,38 @@ func TestMapEventTypeTokenAuthorize(t *testing.T) {
 	}
 }
 
-func TestMapEventTypeUnknownPassthrough(t *testing.T) {
-	got := MapEventType("drive", "some_new_event", nil, "")
-	if got != "SOME_NEW_EVENT" {
-		t.Fatalf("expected uppercase passthrough, got %s", got)
+// TestMapEventTypeUnknownReturnsEmpty pins the dead-letter fix. The old
+// passthrough behavior uppercased every raw Google event name (DOWNLOAD,
+// VIEW, EDIT, SEARCH, ...) and the poller dutifully enqueued them as
+// ingestion jobs. The ingestion worker has no evaluator for those, so
+// ~84% of the Google queue ended up in DEAD_LETTER on a real tenant. The
+// fix: return "" for unknown events and gate enqueueEvent on a non-empty
+// mapping so the queue stays a meaningful signal instead of a noise
+// channel. The mapping is the SOLE source of truth — adding a new
+// evaluator just means adding a case in MapEventType.
+func TestMapEventTypeUnknownReturnsEmpty(t *testing.T) {
+	for _, app := range []string{"drive", "admin", "token", "login", "groups", "meet", "chat"} {
+		got := MapEventType(app, "some_new_event_we_dont_evaluate", nil, "")
+		if got != "" {
+			t.Fatalf("application=%s unknown event must return \"\" (would otherwise dead-letter), got %q", app, got)
+		}
+	}
+	// And the noisy real-world Drive events that triggered the bug:
+	for _, raw := range []string{"download", "view", "edit", "search", "rename", "move", "create", "delete", "add_to_folder"} {
+		got := MapEventType("drive", raw, nil, "company.com")
+		if got != "" {
+			t.Fatalf("drive event %q must return \"\" to stay out of the dead-letter queue, got %q", raw, got)
+		}
+	}
+	// token/revoke is a real Google event but the ingestion worker has no
+	// OAUTH_TOKEN_REVOKED evaluator and no allowlist entry, so it must drop
+	// at the producer. A reviewer caught this leak in the original PR: the
+	// case used to return "OAUTH_TOKEN_REVOKED" and every revoke was
+	// immediately dead-lettered as unsupported work. Restoring the mapping
+	// is fine but ONLY in the same commit that adds the evaluator and the
+	// supportedIngestionEventTypes entry; this assertion forces that pairing.
+	if got := MapEventType("token", "revoke", nil, ""); got != "" {
+		t.Fatalf("token/revoke must return \"\" until an OAUTH_TOKEN_REVOKED evaluator exists, got %q", got)
 	}
 }
 
