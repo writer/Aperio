@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 // Pure-ESM Prisma client for callers invoked directly by Node (no tsx, no
 // bundler), e.g. the executive-report-cli.mjs subprocess that the Go
@@ -11,10 +12,14 @@ import { PrismaClient } from "@prisma/client";
 // modules construct the same singleton against the same DATABASE_URL.
 
 const globalForPrisma = globalThis;
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL
+});
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
+    adapter,
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "warn", "error"]
