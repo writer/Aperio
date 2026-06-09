@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import readline from "node:readline";
 import { loadDevEnv, root } from "./dev-env.mjs";
@@ -22,8 +22,11 @@ if (setupOnly) {
 }
 
 const children = [
-  start("connect", "go", ["run", "./cmd/aperio"]),
-  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort])
+  start("connect", "go", ["run", "./cmd/aperio"], { essential: true }),
+  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort], { essential: true }),
+  startWorker("ingestion", "./cmd/ingestion-worker"),
+  startWorker("siem", "./cmd/siem-dispatcher"),
+  startWorker("google", "./cmd/google-workspace-poller")
 ];
 
 let shuttingDown = false;
@@ -237,29 +240,109 @@ async function run(command, args) {
   });
 }
 
-function start(label, command, args) {
-  const child = spawn(command, args, {
-    cwd: root,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: process.platform === "win32",
-    detached: process.platform !== "win32"
-  });
-  pipe(label, child.stdout);
-  pipe(label, child.stderr);
-  child.on("exit", (code, signal) => {
-    if (!shuttingDown) {
-      console.error(`[${label}] exited with ${signal ?? code}`);
-      shutdown(code ?? 1);
+function startWorker(label, pkg) {
+  // The workers expect a pgx-safe DATABASE_URL just like their npm scripts.
+  // We resolve it once at orchestrator start so the child inherits the same
+  // override that `npm run worker:*` would compute.
+  let databaseURL = process.env.DATABASE_URL;
+  try {
+    const probe = spawnSync("node", ["scripts/dev-config.mjs", "go-database-url"], {
+      cwd: root,
+      env: process.env,
+      encoding: "utf8"
+    });
+    if (probe.status === 0 && probe.stdout) {
+      const resolved = probe.stdout.trim();
+      if (resolved) {
+        databaseURL = resolved;
+      }
     }
-  });
-  child.on("error", (error) => {
-    if (!shuttingDown) {
-      console.error(`[${label}] ${error.message}`);
-      shutdown(1);
-    }
-  });
-  return child;
+  } catch {
+    // Fall back to whatever DATABASE_URL is already in the environment.
+  }
+  // Auxiliary on purpose: a worker compile error or fatal-on-startup must
+  // never tear down the web/API dev loop. The slot auto-restarts with
+  // capped exponential backoff so the worker recovers as soon as the
+  // developer fixes the underlying issue.
+  return start(label, "go", ["run", pkg], { essential: false, env: { DATABASE_URL: databaseURL } });
+}
+
+// MAX_WORKER_RESTART_DELAY caps the auto-restart backoff so a permanently
+// broken worker doesn't spin tight, but is short enough that recovery
+// after a fix feels instant in the dev loop.
+const MAX_WORKER_RESTART_DELAY = 30_000;
+
+function start(label, command, args, options = {}) {
+  const essential = options.essential ?? true;
+  const env = options.env ? { ...process.env, ...options.env } : process.env;
+  // Slot is what we store in `children` so `terminate()` always sees the
+  // CURRENT child after an auxiliary restart, not a stale handle.
+  const slot = { child: null, restartCount: 0, get pid() { return this.child?.pid; }, kill(sig) { return this.child?.kill(sig); } };
+
+  // scheduleAuxiliaryRestart is shared by both the exit and error handlers
+  // so a transient spawn failure (EAGAIN/EMFILE/ENOENT under load) is
+  // recovered the same way as a fatal-after-spawn. Node emits 'error'
+  // WITHOUT a following 'exit' when the process cannot be spawned at all;
+  // routing the restart through this single helper means the worker comes
+  // back up either way and the helper's contract (auxiliary workers
+  // recover automatically) is preserved on both paths.
+  function scheduleAuxiliaryRestart(reason) {
+    slot.restartCount += 1;
+    const delay = Math.min(MAX_WORKER_RESTART_DELAY, 1_000 * 2 ** Math.min(slot.restartCount - 1, 5));
+    console.error(
+      `[${label}] ${reason} (worker only; web + API unaffected). Restart #${slot.restartCount} in ${delay}ms.`
+    );
+    setTimeout(() => {
+      if (!shuttingDown) {
+        spawnOnce();
+      }
+    }, delay);
+  }
+
+  function spawnOnce() {
+    const child = spawn(command, args, {
+      cwd: root,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      detached: process.platform !== "win32"
+    });
+    slot.child = child;
+    pipe(label, child.stdout);
+    pipe(label, child.stderr);
+    child.on("exit", (code, signal) => {
+      if (shuttingDown) {
+        return;
+      }
+      if (essential) {
+        console.error(`[${label}] exited with ${signal ?? code}; tearing down dev stack`);
+        shutdown(code ?? 1);
+        return;
+      }
+      // Auxiliary worker: keep web + API up. Schedule a backoff restart
+      // so a transient fatal (compile error, missing config, transient
+      // db unavailability) recovers automatically when fixed.
+      scheduleAuxiliaryRestart(`exited with ${signal ?? code}`);
+    });
+    child.on("error", (error) => {
+      if (shuttingDown) {
+        return;
+      }
+      if (essential) {
+        console.error(`[${label}] ${error.message}`);
+        shutdown(1);
+        return;
+      }
+      // Spawn failures (EAGAIN/EMFILE/ENOENT) emit 'error' WITHOUT a
+      // matching 'exit', so the restart must be scheduled here too;
+      // otherwise a single transient spawn failure leaves the worker
+      // permanently dead for the rest of the dev session.
+      scheduleAuxiliaryRestart(`spawn failed: ${error.message}`);
+    });
+  }
+
+  spawnOnce();
+  return slot;
 }
 
 function pipe(label, stream) {
@@ -268,8 +351,11 @@ function pipe(label, stream) {
   });
 }
 
-function terminate(child, signal) {
-  if (!child.pid) {
+function terminate(slot, signal) {
+  // slot may be the bare child (legacy) or a {child, restartCount} bookkeeping
+  // object returned by start(); resolve to the active child either way.
+  const child = slot.child ?? slot;
+  if (!child || !child.pid) {
     return;
   }
   try {

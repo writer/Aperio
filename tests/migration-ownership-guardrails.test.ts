@@ -375,7 +375,7 @@ test("API and dev-stack backend commands are Go-owned", () => {
   assert.equal(stateFor(matrix, "package-script:dev:connect"), "go-default");
   assert.equal(stateFor(matrix, "package-script:dev"), "go-default");
   assert.equal(stateFor(matrix, "package-script:dev:app"), "go-default");
-  assert.match(devScript, /start\("connect", "go", \["run", "\.\/cmd\/aperio"\]\)/);
+  assert.match(devScript, /start\("connect", "go", \["run", "\.\/cmd\/aperio"\](?:, \{[^}]*\})?\)/);
   assert.doesNotMatch(devScript, /\btsx\b[^\n]*(?:server|api)|typescript.*backend/i);
 
   const makeDev = makeTargetBlock(makefile, "dev");
