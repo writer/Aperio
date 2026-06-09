@@ -279,6 +279,26 @@ function start(label, command, args, options = {}) {
   // CURRENT child after an auxiliary restart, not a stale handle.
   const slot = { child: null, restartCount: 0, get pid() { return this.child?.pid; }, kill(sig) { return this.child?.kill(sig); } };
 
+  // scheduleAuxiliaryRestart is shared by both the exit and error handlers
+  // so a transient spawn failure (EAGAIN/EMFILE/ENOENT under load) is
+  // recovered the same way as a fatal-after-spawn. Node emits 'error'
+  // WITHOUT a following 'exit' when the process cannot be spawned at all;
+  // routing the restart through this single helper means the worker comes
+  // back up either way and the helper's contract (auxiliary workers
+  // recover automatically) is preserved on both paths.
+  function scheduleAuxiliaryRestart(reason) {
+    slot.restartCount += 1;
+    const delay = Math.min(MAX_WORKER_RESTART_DELAY, 1_000 * 2 ** Math.min(slot.restartCount - 1, 5));
+    console.error(
+      `[${label}] ${reason} (worker only; web + API unaffected). Restart #${slot.restartCount} in ${delay}ms.`
+    );
+    setTimeout(() => {
+      if (!shuttingDown) {
+        spawnOnce();
+      }
+    }, delay);
+  }
+
   function spawnOnce() {
     const child = spawn(command, args, {
       cwd: root,
@@ -302,16 +322,7 @@ function start(label, command, args, options = {}) {
       // Auxiliary worker: keep web + API up. Schedule a backoff restart
       // so a transient fatal (compile error, missing config, transient
       // db unavailability) recovers automatically when fixed.
-      slot.restartCount += 1;
-      const delay = Math.min(MAX_WORKER_RESTART_DELAY, 1_000 * 2 ** Math.min(slot.restartCount - 1, 5));
-      console.error(
-        `[${label}] exited with ${signal ?? code} (worker only; web + API unaffected). Restart #${slot.restartCount} in ${delay}ms.`
-      );
-      setTimeout(() => {
-        if (!shuttingDown) {
-          spawnOnce();
-        }
-      }, delay);
+      scheduleAuxiliaryRestart(`exited with ${signal ?? code}`);
     });
     child.on("error", (error) => {
       if (shuttingDown) {
@@ -322,7 +333,11 @@ function start(label, command, args, options = {}) {
         shutdown(1);
         return;
       }
-      console.error(`[${label}] ${error.message} (worker only; web + API unaffected)`);
+      // Spawn failures (EAGAIN/EMFILE/ENOENT) emit 'error' WITHOUT a
+      // matching 'exit', so the restart must be scheduled here too;
+      // otherwise a single transient spawn failure leaves the worker
+      // permanently dead for the rest of the dev session.
+      scheduleAuxiliaryRestart(`spawn failed: ${error.message}`);
     });
   }
 

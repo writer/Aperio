@@ -87,3 +87,47 @@ test("dev orchestrator caps auxiliary restart backoff", () => {
     "auxiliary restart delay must be bounded by MAX_WORKER_RESTART_DELAY"
   );
 });
+
+test("dev orchestrator restarts auxiliary worker on both exit and spawn-error paths", () => {
+  const source = readRepoFile("scripts/dev.mjs");
+  // Node emits 'error' WITHOUT a following 'exit' when the process cannot
+  // be spawned (EAGAIN/EMFILE/ENOENT). The restart helper MUST be reachable
+  // from both child.on("exit", ...) and child.on("error", ...) for an
+  // auxiliary child, otherwise a single transient spawn failure silently
+  // leaves the worker permanently dead for the rest of the dev session.
+  // The shared scheduleAuxiliaryRestart helper makes both paths converge,
+  // so we assert (a) it is defined exactly once, (b) it is invoked from
+  // both handler bodies, and (c) the spawn-failure branch is auxiliary-
+  // only (essential children still tear the stack down on spawn error).
+  assert.match(
+    source,
+    /function\s+scheduleAuxiliaryRestart\s*\(/,
+    "auxiliary restart must be a named helper so both event handlers can share it"
+  );
+  // Narrow to the long-lived child handlers inside start() — distinguished
+  // from the throwaway run() handler by their (code, signal) / (error)
+  // signature plus the essential branch — so we don't accidentally match
+  // the helper used for blocking subcommands like prisma migrate.
+  const exitHandler = source.match(/child\.on\("exit",\s*\(code,\s*signal\)[\s\S]*?\}\);/);
+  assert.ok(exitHandler, "expected start()'s child.on(\"exit\", ...) handler");
+  assert.match(
+    exitHandler![0],
+    /scheduleAuxiliaryRestart\(/,
+    "exit handler must call scheduleAuxiliaryRestart for auxiliary children"
+  );
+  const errorHandler = source.match(/child\.on\("error",\s*\(error\)[\s\S]*?\}\);/);
+  assert.ok(errorHandler, "expected start()'s child.on(\"error\", ...) handler");
+  assert.match(
+    errorHandler![0],
+    /scheduleAuxiliaryRestart\(/,
+    "error handler must also call scheduleAuxiliaryRestart so spawn failures recover"
+  );
+  // Belt-and-suspenders: essential children must still take the shutdown
+  // path on a spawn error (the previous behaviour); we are only adding
+  // recovery for the auxiliary branch.
+  assert.match(
+    errorHandler![0],
+    /if\s*\(essential\)\s*\{[\s\S]*?shutdown\(1\)/,
+    "error handler must still tear down the stack for essential children"
+  );
+});
