@@ -13,8 +13,8 @@ const isDev = process.env.NODE_ENV !== "production";
 // proxying also keeps iframes inside the page CSP (default-src 'self')
 // and avoids cross-port cookie surprises.
 const apiProxyTarget = (
-  process.env.APERIO_API_PROXY_TARGET ??
-  process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL ??
+  process.env.APERIO_API_PROXY_TARGET ||
+  process.env.NEXT_PUBLIC_CONNECT_API_BASE_URL ||
   "http://localhost:4100"
 ).replace(/\/$/, "");
 const scriptSrc = isDev
