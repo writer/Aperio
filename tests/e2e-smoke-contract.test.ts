@@ -32,7 +32,8 @@ test("CI e2e-smoke writes local .env before launching the smoke harness", () => 
   assert.notEqual(jobStart, -1, "CI workflow must define the e2e-smoke job");
   const job = ci.slice(jobStart);
 
-  const checkoutIndex = job.indexOf("- uses: actions/checkout@v4");
+  const checkoutMatch = /- uses: actions\/checkout@[^\s]+/.exec(job);
+  const checkoutIndex = checkoutMatch?.index ?? -1;
   const writeEnvStepIndex = job.indexOf("- name: Write local smoke env file");
   const writeEnvCommandIndex = job.indexOf("cat > .env <<EOF");
   const runSmokeStepIndex = job.indexOf("- name: Run Go API and web E2E smoke");
