@@ -238,6 +238,7 @@ model Organization {
   ingestionJobs      IngestionJob[]
   executiveReports  ExecutiveReport[]
   oauthClients      IntegrationOAuthClient[]
+  customFindingRules CustomFindingRule[]
 
   @@map("organizations")
 }
@@ -346,6 +347,8 @@ model IntegrationConnection {
   ingestionJobs          IngestionJob[]
   googleWorkspaceSyncCursors GoogleWorkspaceSyncCursor[]
   googleWorkspaceDirectorySyncCursor GoogleWorkspaceDirectorySyncCursor?
+  googleWorkspaceOauthSyncCursor GoogleWorkspaceOauthSyncCursor?
+  customFindingRules         CustomFindingRule[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId])
@@ -387,6 +390,47 @@ model GoogleWorkspaceDirectorySyncCursor {
   integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@map("google_workspace_directory_sync_cursors")
+}
+
+// Per-integration cursor for the Google Workspace OAuth grant sync. The
+// Admin Directory tokens endpoint is queried per user, so a full sweep
+// iterates saas_identities and calls tokens.list for each user. The
+// cursor row exists so the connectors UI can surface last_synced_at,
+// last_app_count, last_grant_count, and last_error per integration.
+model GoogleWorkspaceOauthSyncCursor {
+  integrationId  String                @id @map("integration_id")
+  lastSyncedAt   DateTime              @default(now()) @map("last_synced_at")
+  lastAppCount   Int                   @default(0) @map("last_app_count")
+  lastGrantCount Int                   @default(0) @map("last_grant_count")
+  lastError      String?               @map("last_error") @db.VarChar(500)
+  integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@map("google_workspace_oauth_sync_cursors")
+}
+
+// Per-integration user-defined finding rule. The operator can author
+// rules from the connector page without writing Go; the predicate is a
+// small JSON expression tree over the ingestion JobPayload that the
+// worker evaluates after the built-in rules. severity uses the same
+// Severity enum the built-in rules use so downstream report rendering
+// and SIEM dispatch logic do not need a special branch.
+model CustomFindingRule {
+  id             String                @id @default(cuid())
+  organizationId String                @map("organization_id")
+  integrationId  String                @map("integration_id")
+  name           String                @db.VarChar(160)
+  severity       Severity              @default(MEDIUM)
+  eventType      String                @map("event_type") @db.VarChar(120)
+  predicate      Json                  @default("{}")
+  enabled        Boolean               @default(true)
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, integrationId])
+  @@index([integrationId, enabled])
+  @@map("custom_finding_rules")
 }
 
 // Per-organization OAuth client credentials for SaaS connectors. Lets each

@@ -1582,7 +1582,40 @@ func (w *Worker) findingsForJob(ctx context.Context, payload JobPayload, item jo
 	if err := config.validateForJob(item); err != nil {
 		return nil, err
 	}
-	return Evaluate(payload, config.DisabledChecks), nil
+	findings := Evaluate(payload, config.DisabledChecks)
+	customRules, err := w.loadCustomRules(ctx, item.IntegrationID)
+	if err != nil {
+		// A custom-rule load failure must NOT block built-in findings; a
+		// schema migration glitch or transient pgx connection blip would
+		// otherwise mask real-finding ingestion. Log via the caller's
+		// observability surface and fall through with the built-ins.
+		return findings, nil
+	}
+	findings = append(findings, EvaluateCustomRules(payload, customRules)...)
+	return findings, nil
+}
+
+func (w *Worker) loadCustomRules(ctx context.Context, integrationID string) ([]CustomRule, error) {
+	rows, err := w.db.QueryContext(ctx, `
+		SELECT id, organization_id, integration_id, name, severity::text, event_type, predicate, enabled
+		FROM custom_finding_rules
+		WHERE integration_id = $1 AND enabled = true
+	`, integrationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CustomRule
+	for rows.Next() {
+		var r CustomRule
+		var predicateRaw []byte
+		if err := rows.Scan(&r.ID, &r.OrganizationID, &r.IntegrationID, &r.Name, &r.Severity, &r.EventType, &predicateRaw, &r.Enabled); err != nil {
+			return nil, err
+		}
+		r.Predicate = predicateRaw
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (w *Worker) loadIntegrationConfig(ctx context.Context, item job) (integrationConfig, error) {

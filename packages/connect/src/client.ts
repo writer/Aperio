@@ -204,6 +204,43 @@ export type ConnectIntegrationCheckState = {
   }[];
 };
 
+export type ConnectConnectorBuiltInRule = {
+  id: string;
+  kind: "built_in";
+  provider: string;
+  title: string;
+  description: string;
+  severity: string;
+  eventTypes: string[];
+  enabled: boolean;
+};
+
+export type ConnectConnectorCustomRule = {
+  id: string;
+  kind: "custom";
+  name: string;
+  severity: string;
+  eventType: string;
+  predicate: unknown;
+  enabled: boolean;
+  updatedAt: string;
+};
+
+export type ConnectConnectorRulesResponse = {
+  integrationId: string;
+  provider: string;
+  builtIn: ConnectConnectorBuiltInRule[];
+  custom: ConnectConnectorCustomRule[];
+};
+
+export type ConnectCustomRuleInput = {
+  name: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  eventType: string;
+  predicate: unknown;
+  enabled: boolean;
+};
+
 export type ConnectSyncSummary = {
   sampleCount: number;
   eventsIngested: number;
@@ -591,6 +628,19 @@ function parseEvidence(evidenceJson: string) {
   return parsed && typeof parsed === "object"
     ? (parsed as Record<string, unknown>)
     : undefined;
+}
+
+function safeParse(json: string): unknown {
+  if (!json) {
+    return {};
+  }
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    // A malformed predicate cannot block the UI from listing the rule;
+    // returning {} keeps the editor usable so the operator can repair it.
+    return {};
+  }
 }
 
 function parseMetadata(metadataJson: string): Record<string, unknown> | null {
@@ -1417,6 +1467,74 @@ export const aperioConnectClient = {
       throw new Error("Integration checks update failed");
     }
     return { data: integrationCheckStateFromProto(response.data) };
+  },
+  async listConnectorRules(
+    integrationId: string
+  ): Promise<{ data: ConnectConnectorRulesResponse }> {
+    const response = await client.listConnectorRules({ integrationId });
+    return {
+      data: {
+        integrationId: response.integrationId,
+        provider: response.provider,
+        builtIn: response.builtIn.map((rule) => ({
+          id: rule.id,
+          kind: "built_in",
+          provider: rule.provider,
+          title: rule.title,
+          description: rule.description,
+          severity: rule.severity,
+          eventTypes: [...rule.eventTypes],
+          enabled: rule.enabled
+        })),
+        custom: response.custom.map((rule) => ({
+          id: rule.id,
+          kind: "custom",
+          name: rule.name,
+          severity: rule.severity,
+          eventType: rule.eventType,
+          predicate: rule.predicateJson ? safeParse(rule.predicateJson) : {},
+          enabled: rule.enabled,
+          updatedAt: rule.updatedAt
+        }))
+      }
+    };
+  },
+  async createCustomRule(
+    integrationId: string,
+    input: ConnectCustomRuleInput
+  ): Promise<{ data: { id: string } }> {
+    const response = await client.createCustomRule({
+      integrationId,
+      name: input.name,
+      severity: input.severity,
+      eventType: input.eventType,
+      predicateJson: JSON.stringify(input.predicate ?? {}),
+      enabled: input.enabled
+    });
+    return { data: { id: response.id } };
+  },
+  async updateCustomRule(
+    integrationId: string,
+    ruleId: string,
+    input: ConnectCustomRuleInput
+  ): Promise<{ data: { id: string } }> {
+    const response = await client.updateCustomRule({
+      integrationId,
+      ruleId,
+      name: input.name,
+      severity: input.severity,
+      eventType: input.eventType,
+      predicateJson: JSON.stringify(input.predicate ?? {}),
+      enabled: input.enabled
+    });
+    return { data: { id: response.id } };
+  },
+  async deleteCustomRule(
+    integrationId: string,
+    ruleId: string
+  ): Promise<{ data: { id: string } }> {
+    const response = await client.deleteCustomRule({ integrationId, ruleId });
+    return { data: { id: response.id } };
   },
   async getGoogleMailboxScanConfig(
     integrationId: string
