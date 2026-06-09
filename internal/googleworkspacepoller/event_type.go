@@ -68,9 +68,15 @@ func MapEventType(application, eventName string, parameters []reportsParameter, 
 		switch raw {
 		case "authorize":
 			return "RISKY_OAUTH_GRANT"
-		case "revoke":
-			return "OAUTH_TOKEN_REVOKED"
 		}
+		// token/revoke intentionally maps to "" (dropped at the producer).
+		// The downstream allowlist in internal/ingestionworker/worker.go
+		// (supportedIngestionEventTypes["GOOGLE_WORKSPACE"]) does not
+		// include OAUTH_TOKEN_REVOKED and no evaluator promotes it to a
+		// finding, so enqueueing the event would only produce DEAD_LETTER
+		// noise after retry exhaustion — the exact regression this file's
+		// "" return contract exists to prevent. Restore the mapping in the
+		// same commit that adds an evaluator + an allowlist entry.
 	}
 	return ""
 }

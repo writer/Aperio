@@ -141,6 +141,16 @@ func TestMapEventTypeUnknownReturnsEmpty(t *testing.T) {
 			t.Fatalf("drive event %q must return \"\" to stay out of the dead-letter queue, got %q", raw, got)
 		}
 	}
+	// token/revoke is a real Google event but the ingestion worker has no
+	// OAUTH_TOKEN_REVOKED evaluator and no allowlist entry, so it must drop
+	// at the producer. A reviewer caught this leak in the original PR: the
+	// case used to return "OAUTH_TOKEN_REVOKED" and every revoke was
+	// immediately dead-lettered as unsupported work. Restoring the mapping
+	// is fine but ONLY in the same commit that adds the evaluator and the
+	// supportedIngestionEventTypes entry; this assertion forces that pairing.
+	if got := MapEventType("token", "revoke", nil, ""); got != "" {
+		t.Fatalf("token/revoke must return \"\" until an OAUTH_TOKEN_REVOKED evaluator exists, got %q", got)
+	}
 }
 
 func TestIsExternalEmailEdgeCases(t *testing.T) {

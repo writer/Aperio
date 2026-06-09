@@ -59,6 +59,34 @@ test("dead-letter fix: MapEventType returns empty for unknown events", () => {
   );
 });
 
+// Cross-package contract: every non-empty value MapEventType can ever return
+// must be in the worker's GOOGLE_WORKSPACE allowlist. Otherwise the producer
+// silently leaks events that the consumer immediately dead-letters — the
+// exact regression a reviewer caught with token/revoke -> OAUTH_TOKEN_REVOKED
+// in the original PR (OAUTH_TOKEN_REVOKED was returned by the mapper but
+// missing from supportedIngestionEventTypes, so every revoke was instantly
+// DEAD_LETTER as unsupported work). Adding a new return value here without
+// a matching allowlist + evaluator must fail this test.
+test("every MapEventType return is in the worker's GOOGLE_WORKSPACE allowlist", () => {
+  const eventType = readRepoFile("internal/googleworkspacepoller/event_type.go");
+  const literalReturns = Array.from(eventType.matchAll(/return\s+"([A-Z_]+)"/g))
+    .map((m) => m[1])
+    .filter((s) => s.length > 0);
+  assert.ok(literalReturns.length > 0, "expected at least one literal return in MapEventType");
+  const worker = readRepoFile("internal/ingestionworker/worker.go");
+  const gwBlock = worker.match(/"GOOGLE_WORKSPACE":\s*\{([\s\S]*?)\}/);
+  assert.ok(gwBlock, "could not locate the GOOGLE_WORKSPACE allowlist block in worker.go");
+  const allowlist = new Set(
+    Array.from(gwBlock![1].matchAll(/"([A-Z_]+)"/g)).map((m) => m[1])
+  );
+  for (const code of literalReturns) {
+    assert.ok(
+      allowlist.has(code),
+      `MapEventType returns ${code} but the worker's GOOGLE_WORKSPACE allowlist does not include it; this would dead-letter every matching event. Add it to supportedIngestionEventTypes and ship an evaluator, or drop the mapping case.`
+    );
+  }
+});
+
 test("directory sync wired into package.json and Makefile", () => {
   const pkg = JSON.parse(readRepoFile("package.json"));
   assert.ok(pkg.scripts["worker:google-directory"], "package.json must expose worker:google-directory");
