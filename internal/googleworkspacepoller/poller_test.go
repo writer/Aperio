@@ -148,6 +148,48 @@ func TestIsExternalEmailEdgeCases(t *testing.T) {
 	}
 }
 
+// TestNextCursorAfterSweepPreservesOnPageCap is the regression pin for the
+// reviewer-flagged data-loss bug. When listActivities returned exhausted=false,
+// an earlier revision advanced the cursor to the OLDEST collected event. But
+// Google's Reports API is a DESC query with startTime as a *lower bound*, so
+// the next sweep with a larger startTime could never reach events older than
+// that boundary — silent permanent data loss. Correct behavior is to leave
+// the persisted cursor untouched on cap-hit so the older un-paged range stays
+// reachable on the next sweep; the just-enqueued events idempotently no-op
+// via the deterministic ingestion_jobs id.
+func TestNextCursorAfterSweepPreservesOnPageCap(t *testing.T) {
+	current := cursorRow{LastEventTime: time.Unix(100, 0).UTC(), LastUniqueQualifier: "q100"}
+	activities := []reportsActivity{
+		{EventTime: time.Unix(300, 0).UTC(), UniqueQualifier: "q300"}, // oldest collected
+		{EventTime: time.Unix(400, 0).UTC(), UniqueQualifier: "q400"},
+		{EventTime: time.Unix(500, 0).UTC(), UniqueQualifier: "q500"}, // newest collected
+	}
+	got := nextCursorAfterSweep(activities, false, current)
+	if !got.LastEventTime.Equal(current.LastEventTime) || got.LastUniqueQualifier != current.LastUniqueQualifier {
+		t.Fatalf("page-cap branch must NOT advance the cursor (would lose events older than q300 forever); got %+v want %+v", got, current)
+	}
+}
+
+func TestNextCursorAfterSweepAdvancesOnExhausted(t *testing.T) {
+	current := cursorRow{LastEventTime: time.Unix(100, 0).UTC(), LastUniqueQualifier: "q100"}
+	activities := []reportsActivity{
+		{EventTime: time.Unix(300, 0).UTC(), UniqueQualifier: "q300"},
+		{EventTime: time.Unix(500, 0).UTC(), UniqueQualifier: "q500"}, // newest (ASC order)
+	}
+	got := nextCursorAfterSweep(activities, true, current)
+	if !got.LastEventTime.Equal(time.Unix(500, 0).UTC()) || got.LastUniqueQualifier != "q500" {
+		t.Fatalf("exhausted=true must advance cursor to newest collected; got %+v", got)
+	}
+}
+
+func TestNextCursorAfterSweepEmptyKeepsCurrent(t *testing.T) {
+	current := cursorRow{LastEventTime: time.Unix(100, 0).UTC(), LastUniqueQualifier: "q100"}
+	got := nextCursorAfterSweep(nil, true, current)
+	if !got.LastEventTime.Equal(current.LastEventTime) || got.LastUniqueQualifier != current.LastUniqueQualifier {
+		t.Fatalf("empty activities must preserve cursor; got %+v", got)
+	}
+}
+
 func TestCursorRowIsStrictlyAfter(t *testing.T) {
 	c := cursorRow{LastEventTime: time.Unix(1000, 0).UTC(), LastUniqueQualifier: "B"}
 	if c.isStrictlyAfter(time.Unix(900, 0).UTC(), "Z") {

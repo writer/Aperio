@@ -255,22 +255,9 @@ func (p *Poller) pollIntegration(ctx context.Context, integ integrationRow) erro
 // starting from the persisted cursor (or now-lookback on first poll) and
 // enqueues each new activity as one ingestion_jobs row per Google event.
 //
-// The cursor-advance rule below is the heart of correctness for the page-
-// cap edge case:
-//
-//   - exhausted == true (we paginated all the way back to the cursor or
-//     ran out of nextPageToken): there are no unfetched events strictly
-//     after the cursor, so we advance the cursor to the NEWEST event we
-//     processed. Next sweep picks up from there.
-//   - exhausted == false (we hit maxPages before reaching the cursor):
-//     there are still older events strictly between the persisted cursor
-//     and the oldest event we collected. Advancing to the newest event
-//     would permanently skip that gap (the bug the reviewer flagged).
-//     Instead we advance only to the OLDEST event we processed. Next
-//     sweep re-fetches the events we just enqueued — that is safe
-//     because enqueueEvent uses a deterministic ingestion_jobs id and
-//     treats unique-violation as a no-op — and continues paginating
-//     into the previously-unfetched range.
+// Cursor-advance is delegated to nextCursorAfterSweep so the decision is a
+// pure, testable function and the heart-of-correctness comment lives next
+// to the code it explains.
 func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, application, accessToken string) error {
 	cursor, err := p.loadCursor(ctx, integ.ID, application)
 	if err != nil {
@@ -306,21 +293,50 @@ func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, appl
 			}
 		}
 	}
-	var nextTime time.Time
-	var nextQualifier string
-	if exhausted {
-		newest := activities[len(activities)-1]
-		nextTime = newest.EventTime
-		nextQualifier = newest.UniqueQualifier
-	} else {
-		oldest := activities[0]
-		nextTime = oldest.EventTime
-		nextQualifier = oldest.UniqueQualifier
-		log.Printf("googleworkspacepoller: integ=%s app=%s hit page cap (%d pages); advancing cursor only to oldest processed event so older unfetched activities are not skipped",
-			integ.ID, application, p.maxPages)
+	if !exhausted {
+		log.Printf("googleworkspacepoller: integ=%s app=%s hit page cap (%d pages, %d activities enqueued); leaving cursor untouched so the older un-paged events remain inside future startTime windows. The just-enqueued events will be re-fetched on the next sweep and absorbed as no-op unique-violations by the deterministic ingestion_jobs id.",
+			integ.ID, application, p.maxPages, len(activities))
 	}
-	p.touchCursor(ctx, integ.ID, application, nextTime, nextQualifier)
+	next := nextCursorAfterSweep(activities, exhausted, cursor)
+	p.touchCursor(ctx, integ.ID, application, next.LastEventTime, next.LastUniqueQualifier)
 	return nil
+}
+
+// nextCursorAfterSweep returns the cursor value that should be persisted
+// after a single (integration, application) sweep. It is a pure function so
+// the cursor-advance correctness invariant can be pinned in unit tests
+// without touching Postgres.
+//
+// Correctness rules:
+//
+//   - len(activities) == 0: nothing new was processed; preserve the
+//     persisted cursor verbatim. (touchCursor will still refresh
+//     last_polled_at and clear last_error.)
+//
+//   - exhausted == true: we paginated all the way back to the persisted
+//     cursor or ran out of nextPageToken, so there are no unfetched events
+//     strictly after the persisted cursor. Safe to advance to the NEWEST
+//     processed event (activities[len-1] after the ASC reversal).
+//
+//   - exhausted == false: page cap was hit. There are still older events
+//     in the gap (persisted-cursor, oldest-collected). We MUST NOT advance
+//     the cursor in this case. Google's Reports API is a DESC query with
+//     startTime as a *lower bound*, so any future call with a larger
+//     startTime can never return those older events — they become
+//     permanently unreachable. Keeping the persisted cursor unchanged
+//     means the next sweep re-fetches the just-enqueued newest events
+//     (idempotent: enqueueEvent uses a deterministic ingestion_jobs id
+//     and treats unique-violation as a no-op) AND continues paginating
+//     into the older range that was cut off by the cap. The tradeoff is
+//     extra API calls for a runaway-event tenant, which is the right
+//     direction: a tenant that keeps tripping the cap is an ops alert,
+//     never a silent data-loss event.
+func nextCursorAfterSweep(activities []reportsActivity, exhausted bool, current cursorRow) cursorRow {
+	if len(activities) == 0 || !exhausted {
+		return current
+	}
+	newest := activities[len(activities)-1]
+	return cursorRow{LastEventTime: newest.EventTime, LastUniqueQualifier: newest.UniqueQualifier}
 }
 
 type cursorRow struct {
