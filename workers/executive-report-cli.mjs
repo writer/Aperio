@@ -6,7 +6,7 @@
 
 import { generateExecutiveReport } from "./executive-report-generator.mjs";
 import { generateGoogleWorkspaceAssessment } from "./google-workspace-assessment-generator.mjs";
-import { prisma } from "@aperio/db";
+import { prisma } from "../packages/db/src/client.mjs";
 
 async function runForReport(reportId) {
   const row = await prisma.executiveReport.findUnique({
