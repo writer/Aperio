@@ -52,7 +52,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^1.17.0",
     "nats": "^2.29.3",
     "next": "^16.2.6",
     "protobufjs": "^8.6.0",
@@ -77,6 +77,6 @@
     "postcss": "^8.5.10"
   },
   "optionalDependencies": {
-    "puppeteer": "^23.10.0"
+    "puppeteer": "^25.1.0"
   }
 }
