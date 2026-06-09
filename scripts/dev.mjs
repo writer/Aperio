@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import readline from "node:readline";
 import { loadDevEnv, root } from "./dev-env.mjs";
@@ -23,7 +23,10 @@ if (setupOnly) {
 
 const children = [
   start("connect", "go", ["run", "./cmd/aperio"]),
-  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort])
+  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort]),
+  startWorker("ingestion", "./cmd/ingestion-worker"),
+  startWorker("siem", "./cmd/siem-dispatcher"),
+  startWorker("google", "./cmd/google-workspace-poller")
 ];
 
 let shuttingDown = false;
@@ -237,10 +240,34 @@ async function run(command, args) {
   });
 }
 
-function start(label, command, args) {
+function startWorker(label, pkg) {
+  // The workers expect a pgx-safe DATABASE_URL just like their npm scripts.
+  // We resolve it once at orchestrator start so the child inherits the same
+  // override that `npm run worker:*` would compute.
+  let databaseURL = process.env.DATABASE_URL;
+  try {
+    const probe = spawnSync("node", ["scripts/dev-config.mjs", "go-database-url"], {
+      cwd: root,
+      env: process.env,
+      encoding: "utf8"
+    });
+    if (probe.status === 0 && probe.stdout) {
+      const resolved = probe.stdout.trim();
+      if (resolved) {
+        databaseURL = resolved;
+      }
+    }
+  } catch {
+    // Fall back to whatever DATABASE_URL is already in the environment.
+  }
+  return start(label, "go", ["run", pkg], { DATABASE_URL: databaseURL });
+}
+
+function start(label, command, args, envOverrides) {
+  const env = envOverrides ? { ...process.env, ...envOverrides } : process.env;
   const child = spawn(command, args, {
     cwd: root,
-    env: process.env,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
     shell: process.platform === "win32",
     detached: process.platform !== "win32"

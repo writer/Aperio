@@ -124,6 +124,14 @@ worker-siem: require-env ## Run the Go SIEM dispatcher worker
 .PHONY: worker-siem-go
 worker-siem-go: worker-siem ## Alias for the Go SIEM dispatcher worker
 
+.PHONY: worker-google
+worker-google: require-env ## Run the Go Google Workspace audit-log poller
+	@$(MAKE) --no-print-directory db-up
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/google-workspace-poller $(GO_WORKER_ARGS)
+
+.PHONY: worker-google-go
+worker-google-go: worker-google ## Alias for the Go Google Workspace poller
+
 .PHONY: smoke-workers-go
 smoke-workers-go: require-env ## Run bounded Go worker smokes
 	@$(MAKE) --no-print-directory db-up migrate

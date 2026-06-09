@@ -416,12 +416,18 @@
       "state": "go-default",
       "covers": [
         "repo-file:cmd/google-workspace-poller/*.go",
-        "repo-file:internal/googleworkspacepoller/*.go"
+        "repo-file:internal/googleworkspacepoller/*.go",
+        "package-script:worker:google",
+        "package-script:worker:google:go",
+        "make-target:worker-google",
+        "make-target:worker-google-go"
       ],
       "owner": "Go Google Workspace audit-log poller default entrypoint",
-      "rationale": "cmd/google-workspace-poller exchanges the per-tenant Google OAuth refresh token for an access token and pulls Admin Reports audit activities into ingestion_jobs so the existing rule evaluators can produce findings. Ships only as a Go binary; there is no TypeScript counterpart.",
+      "rationale": "cmd/google-workspace-poller exchanges the per-tenant Google OAuth refresh token for an access token and pulls Admin Reports audit activities into ingestion_jobs so the existing rule evaluators can produce findings. Ships only as a Go binary; there is no TypeScript counterpart. Auto-started by scripts/dev.mjs alongside the other workers so a connected Google Workspace tenant produces data without manual npm invocations.",
       "evidence": [
-        "test:internal/googleworkspacepoller/poller_test.go"
+        "test:internal/googleworkspacepoller/poller_test.go",
+        "command:npm run worker:google -- -once",
+        "make-target:worker-google"
       ]
     },
     {
