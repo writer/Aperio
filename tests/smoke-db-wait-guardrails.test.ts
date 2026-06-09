@@ -30,7 +30,21 @@ test("Makefile uses docker compose --wait so healthchecks gate up", () => {
       /up -d --wait/,
       `${target} must use 'docker compose up -d --wait' so docker waits for the container healthcheck (pg_isready / nats healthz) before returning`
     );
+    assert.match(
+      block![0],
+      /set -e;/,
+      `${target} must fail immediately if docker compose cannot bind the configured host port`
+    );
   }
+});
+
+test("Makefile env loader preserves explicit environment overrides", () => {
+  const makefile = readRepoFile("Makefile");
+  const loader = readRepoFile("scripts/load-env-shell.mjs");
+
+  assert.match(makefile, /LOAD_ENV := eval "\$+\(node scripts\/load-env-shell\.mjs "\$\(ENV_FILE\)"\)";/);
+  assert.match(loader, /process\.env\[parsed\.key\] !== undefined/);
+  assert.match(loader, /continue;/);
 });
 
 test("dev-config.mjs wait requires consecutive TCP successes", () => {
@@ -56,4 +70,12 @@ test("dev-config.mjs wait requires consecutive TCP successes", () => {
     /else\s*\{\s*consecutive\s*=\s*0/,
     "the loop must reset the consecutive counter on failure so a single flap doesn't get credit"
   );
+});
+
+test("NATS compose service enables the monitoring endpoint used by healthcheck", () => {
+  const compose = readRepoFile("docker-compose.yml");
+  const natsBlock = compose.match(/^  nats:[\s\S]*?(?=^  [a-z]|\Z)/m);
+  assert.ok(natsBlock, "expected docker-compose nats service");
+  assert.match(natsBlock![0], /command:\s*\[[^\n]*"-m"[^\n]*"8222"/);
+  assert.match(natsBlock![0], /http:\/\/127\.0\.0\.1:8222\/healthz/);
 });

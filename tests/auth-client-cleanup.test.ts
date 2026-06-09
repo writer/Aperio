@@ -18,7 +18,7 @@ function sourceFilesUnder(relativeDir: string): string[] {
     const relativePath = path.join(relativeDir, entry);
     const stat = statSync(absolutePath);
     if (stat.isDirectory()) {
-      if (entry === "gen") return [];
+      if (entry === "gen" || entry === ".next") return [];
       return sourceFilesUnder(relativePath);
     }
     return /\.(?:ts|tsx)$/.test(entry) ? [relativePath] : [];

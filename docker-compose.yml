@@ -17,7 +17,7 @@ services:
 
   nats:
     image: nats:2.10-alpine
-    command: ["-js", "-sd", "/data"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "${APERIO_NATS_PORT:-4222}:4222"
       - "${APERIO_NATS_MONITOR_PORT:-8222}:8222"
