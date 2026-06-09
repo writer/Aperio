@@ -100,16 +100,31 @@ async function waitForTcp(name, target, timeoutMs) {
   if (!Number.isInteger(port) || port <= 0) {
     fail(`could not determine a port for ${name} from ${target}`);
   }
+  // Stability check: docker-published Postgres briefly accepts on the
+  // bound port during the image's init phase, then closes that socket
+  // and rebinds. A single TCP-connect success therefore races against
+  // the next caller (e.g. `prisma migrate deploy` against `127.0.0.1:5433`).
+  // Requiring N consecutive successes spaced ~250ms apart bridges that
+  // window without adding a pg client dependency. The cost for an
+  // already-healthy service is <1s.
+  const REQUIRED_CONSECUTIVE = 3;
+  const POLL_INTERVAL_MS = 250;
   const deadline = Date.now() + timeoutMs;
+  let consecutive = 0;
   for (;;) {
     if (await canConnect(host, port)) {
-      process.stdout.write(`${name} is reachable at ${host}:${port}\n`);
-      return;
+      consecutive += 1;
+      if (consecutive >= REQUIRED_CONSECUTIVE) {
+        process.stdout.write(`${name} is reachable at ${host}:${port}\n`);
+        return;
+      }
+    } else {
+      consecutive = 0;
     }
     if (Date.now() >= deadline) {
       fail(`${name} was not reachable at ${host}:${port} within ${timeoutMs}ms`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
 

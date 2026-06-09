@@ -168,7 +168,7 @@ logs: ## Tail local infrastructure logs
 db-up: require-env ## Start Postgres on the port from DATABASE_URL
 	@$(LOAD_ENV) export APERIO_POSTGRES_PORT=$$(node $(DEV_CONFIG) db-port); \
 		printf '$(CYAN)Starting Postgres on host port %s ...$(RESET)\n' "$$APERIO_POSTGRES_PORT"; \
-		$(COMPOSE) up -d postgres; \
+		$(COMPOSE) up -d --wait postgres; \
 		node $(DEV_CONFIG) wait postgres "$$DATABASE_URL" 60000
 
 .PHONY: nats-up
@@ -176,7 +176,7 @@ nats-up: require-env ## Start NATS on the port from APERIO_NATS_URL
 	@$(LOAD_ENV) export APERIO_NATS_PORT=$$(node $(DEV_CONFIG) nats-port); \
 		export APERIO_NATS_MONITOR_PORT=$$(node $(DEV_CONFIG) nats-monitor-port); \
 		printf '$(CYAN)Starting NATS on host port %s ...$(RESET)\n' "$$APERIO_NATS_PORT"; \
-		$(COMPOSE) up -d nats; \
+		$(COMPOSE) up -d --wait nats; \
 		node $(DEV_CONFIG) wait nats "$$APERIO_NATS_URL" 60000
 
 .PHONY: migrate
