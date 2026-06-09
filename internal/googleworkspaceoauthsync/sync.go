@@ -25,7 +25,9 @@ package googleworkspaceoauthsync
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -295,7 +297,20 @@ func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p par
 }
 
 func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, assetID string, p parsedToken, identity identityRow, now time.Time) error {
-	id := "grant_" + integ.ID + "_" + p.ClientID + "_" + identity.ExternalID
+	// Build the PK from the (integration, client, user) triple. external_id
+	// may be empty in production: identityRow rows can land with a blank
+	// external_id when the directory sync hasn't filled it in yet, in which
+	// case the caller falls back to email as the userKey. Hash the email-or-
+	// external-id userKey into the PK so two distinct empty-external-id
+	// users granting the same OAuth app under one integration cannot derive
+	// the same id and abort the sweep with a duplicate-key error on the
+	// second insert (the ON CONFLICT clause keys on user_email, which would
+	// not match between the two rows).
+	userKey := identity.ExternalID
+	if userKey == "" {
+		userKey = identity.Email
+	}
+	id := "grant_" + integ.ID + "_" + p.ClientID + "_" + shortHash(userKey)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO oauth_app_grants (
 			id, organization_id, integration_id, asset_id, provider, external_app_id,
@@ -395,6 +410,15 @@ func (s *Sync) exchangeRefreshToken(ctx context.Context, oauth OAuthConfig, refr
 		return "", errors.New("token exchange response missing access_token")
 	}
 	return decoded.AccessToken, nil
+}
+
+// shortHash returns the first 12 hex chars of sha256(value). Used to
+// derive a collision-resistant PK fragment from a userKey that may be a
+// raw email or an external_id, both of which can contain characters
+// (like `@` or `.`) that are inconvenient in an opaque id.
+func shortHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:6])
 }
 
 // stringArrayLiteral renders a Go []string as a Postgres array literal

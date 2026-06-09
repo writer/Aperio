@@ -150,6 +150,21 @@ func (a *App) compatUpdateCustomRule(ctx context.Context, integrationID, ruleID 
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// Capture the previous enabled state so we can mirror the built-in
+	// toggle's "disable auto-resolves OPEN findings" semantics. The
+	// connector rules dialog explicitly promises this to operators, and
+	// without it a disabled custom rule would leave its produced findings
+	// stuck on dashboards forever.
+	var previousEnabled bool
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT enabled FROM custom_finding_rules
+		WHERE id = $1 AND organization_id = $2 AND integration_id = $3
+	`, ruleID, auth.OrganizationID, integrationID).Scan(&previousEnabled); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("custom rule not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	res, err := a.db.ExecContext(ctx, `
 		UPDATE custom_finding_rules
 		SET name = $1, severity = $2::"Severity", event_type = $3, predicate = $4::jsonb, enabled = $5, updated_at = NOW()
@@ -160,6 +175,20 @@ func (a *App) compatUpdateCustomRule(ctx context.Context, integrationID, ruleID 
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("custom rule not found"))
+	}
+	if previousEnabled && !enabled {
+		// Findings carry evidence.ruleId = "custom.<id>" (see EvaluateCustomRules
+		// in internal/ingestionworker/custom_rules.go).
+		resolved, err := a.autoResolveFindingsForDisabledRules(ctx, auth.OrganizationID, integrationID, []string{"custom." + ruleID}, auth.UserID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if resolved > 0 {
+			a.writeCompatAudit(ctx, auth, "integration.custom_rule.auto_resolve", "integration_connection", integrationID, map[string]any{
+				"ruleId":        ruleID,
+				"resolvedCount": resolved,
+			})
+		}
 	}
 	a.writeCompatAudit(ctx, auth, "integration.custom_rule.update", "integration_connection", integrationID, map[string]any{
 		"ruleId":  ruleID,
@@ -175,6 +204,14 @@ func (a *App) compatDeleteCustomRule(ctx context.Context, integrationID, ruleID 
 	if err := a.assertIntegrationOwned(ctx, integrationID, auth.OrganizationID); err != nil {
 		return nil, err
 	}
+	// Delete also implicitly stops the rule from firing, so it must match
+	// the disable path and auto-resolve any OPEN findings the rule
+	// produced. Run the resolve BEFORE the delete so the audit log still
+	// has the rule id to reference.
+	resolved, err := a.autoResolveFindingsForDisabledRules(ctx, auth.OrganizationID, integrationID, []string{"custom." + ruleID}, auth.UserID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	res, err := a.db.ExecContext(ctx, `
 		DELETE FROM custom_finding_rules
 		WHERE id = $1 AND organization_id = $2 AND integration_id = $3
@@ -185,7 +222,10 @@ func (a *App) compatDeleteCustomRule(ctx context.Context, integrationID, ruleID 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("custom rule not found"))
 	}
-	a.writeCompatAudit(ctx, auth, "integration.custom_rule.delete", "integration_connection", integrationID, map[string]any{"ruleId": ruleID})
+	a.writeCompatAudit(ctx, auth, "integration.custom_rule.delete", "integration_connection", integrationID, map[string]any{
+		"ruleId":        ruleID,
+		"resolvedCount": resolved,
+	})
 	return map[string]any{"data": map[string]any{"id": ruleID}}, nil
 }
 

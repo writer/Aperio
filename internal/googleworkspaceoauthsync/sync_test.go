@@ -53,6 +53,28 @@ func TestSummaryHandlesEmptyScopes(t *testing.T) {
 	}
 }
 
+// TestShortHashDistinguishesDistinctUserKeys pins the collision-resistance
+// property the grant PK relies on. Two identities that share an empty
+// external_id must derive distinct PK suffixes from their email userKey so
+// upsertOauthGrant does not abort the sweep with a duplicate-key error on
+// the second user under the same (integration, client) pair.
+func TestShortHashDistinguishesDistinctUserKeys(t *testing.T) {
+	a := shortHash("alice@example.test")
+	b := shortHash("bob@example.test")
+	if a == b {
+		t.Fatalf("distinct emails must hash to distinct PK suffixes: %q == %q", a, b)
+	}
+	if shortHash("alice@example.test") != a {
+		t.Fatal("shortHash must be deterministic")
+	}
+	if shortHash("") == shortHash("alice@example.test") {
+		t.Fatal("empty userKey must not collide with a real one")
+	}
+	if len(a) != 12 {
+		t.Fatalf("shortHash should produce a 12-char fragment, got %d", len(a))
+	}
+}
+
 func TestStringArrayLiteralEscapes(t *testing.T) {
 	cases := []struct {
 		in   []string
