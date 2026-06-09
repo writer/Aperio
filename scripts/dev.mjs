@@ -22,8 +22,8 @@ if (setupOnly) {
 }
 
 const children = [
-  start("connect", "go", ["run", "./cmd/aperio"]),
-  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort]),
+  start("connect", "go", ["run", "./cmd/aperio"], { essential: true }),
+  start("web", "npx", ["next", "dev", "apps/web", "-p", webPort], { essential: true }),
   startWorker("ingestion", "./cmd/ingestion-worker"),
   startWorker("siem", "./cmd/siem-dispatcher"),
   startWorker("google", "./cmd/google-workspace-poller")
@@ -260,33 +260,74 @@ function startWorker(label, pkg) {
   } catch {
     // Fall back to whatever DATABASE_URL is already in the environment.
   }
-  return start(label, "go", ["run", pkg], { DATABASE_URL: databaseURL });
+  // Auxiliary on purpose: a worker compile error or fatal-on-startup must
+  // never tear down the web/API dev loop. The slot auto-restarts with
+  // capped exponential backoff so the worker recovers as soon as the
+  // developer fixes the underlying issue.
+  return start(label, "go", ["run", pkg], { essential: false, env: { DATABASE_URL: databaseURL } });
 }
 
-function start(label, command, args, envOverrides) {
-  const env = envOverrides ? { ...process.env, ...envOverrides } : process.env;
-  const child = spawn(command, args, {
-    cwd: root,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: process.platform === "win32",
-    detached: process.platform !== "win32"
-  });
-  pipe(label, child.stdout);
-  pipe(label, child.stderr);
-  child.on("exit", (code, signal) => {
-    if (!shuttingDown) {
-      console.error(`[${label}] exited with ${signal ?? code}`);
-      shutdown(code ?? 1);
-    }
-  });
-  child.on("error", (error) => {
-    if (!shuttingDown) {
-      console.error(`[${label}] ${error.message}`);
-      shutdown(1);
-    }
-  });
-  return child;
+// MAX_WORKER_RESTART_DELAY caps the auto-restart backoff so a permanently
+// broken worker doesn't spin tight, but is short enough that recovery
+// after a fix feels instant in the dev loop.
+const MAX_WORKER_RESTART_DELAY = 30_000;
+
+function start(label, command, args, options = {}) {
+  const essential = options.essential ?? true;
+  const env = options.env ? { ...process.env, ...options.env } : process.env;
+  // Slot is what we store in `children` so `terminate()` always sees the
+  // CURRENT child after an auxiliary restart, not a stale handle.
+  const slot = { child: null, restartCount: 0, get pid() { return this.child?.pid; }, kill(sig) { return this.child?.kill(sig); } };
+
+  function spawnOnce() {
+    const child = spawn(command, args, {
+      cwd: root,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      detached: process.platform !== "win32"
+    });
+    slot.child = child;
+    pipe(label, child.stdout);
+    pipe(label, child.stderr);
+    child.on("exit", (code, signal) => {
+      if (shuttingDown) {
+        return;
+      }
+      if (essential) {
+        console.error(`[${label}] exited with ${signal ?? code}; tearing down dev stack`);
+        shutdown(code ?? 1);
+        return;
+      }
+      // Auxiliary worker: keep web + API up. Schedule a backoff restart
+      // so a transient fatal (compile error, missing config, transient
+      // db unavailability) recovers automatically when fixed.
+      slot.restartCount += 1;
+      const delay = Math.min(MAX_WORKER_RESTART_DELAY, 1_000 * 2 ** Math.min(slot.restartCount - 1, 5));
+      console.error(
+        `[${label}] exited with ${signal ?? code} (worker only; web + API unaffected). Restart #${slot.restartCount} in ${delay}ms.`
+      );
+      setTimeout(() => {
+        if (!shuttingDown) {
+          spawnOnce();
+        }
+      }, delay);
+    });
+    child.on("error", (error) => {
+      if (shuttingDown) {
+        return;
+      }
+      if (essential) {
+        console.error(`[${label}] ${error.message}`);
+        shutdown(1);
+        return;
+      }
+      console.error(`[${label}] ${error.message} (worker only; web + API unaffected)`);
+    });
+  }
+
+  spawnOnce();
+  return slot;
 }
 
 function pipe(label, stream) {
@@ -295,8 +336,11 @@ function pipe(label, stream) {
   });
 }
 
-function terminate(child, signal) {
-  if (!child.pid) {
+function terminate(slot, signal) {
+  // slot may be the bare child (legacy) or a {child, restartCount} bookkeeping
+  // object returned by start(); resolve to the active child either way.
+  const child = slot.child ?? slot;
+  if (!child || !child.pid) {
     return;
   }
   try {
