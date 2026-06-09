@@ -40,7 +40,7 @@ test("dev orchestrator marks workers as non-essential", () => {
     /return start\(label,\s*"go",\s*\["run",\s*pkg\],\s*\{\s*essential:\s*false[\s\S]*?\}\s*\)/,
     "startWorker must pass essential: false so a worker exit does not tear down web + API"
   );
-  for (const worker of ["ingestion", "siem", "google"]) {
+  for (const worker of ["ingestion", "siem", "google", "google-directory"]) {
     const pattern = new RegExp(`startWorker\\("${worker}",\\s*"\\./cmd/[^"]+"\\)`);
     assert.match(source, pattern, `${worker} worker must be started via startWorker()`);
   }

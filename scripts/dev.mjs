@@ -26,7 +26,8 @@ const children = [
   start("web", "npx", ["next", "dev", "apps/web", "-p", webPort], { essential: true }),
   startWorker("ingestion", "./cmd/ingestion-worker"),
   startWorker("siem", "./cmd/siem-dispatcher"),
-  startWorker("google", "./cmd/google-workspace-poller")
+  startWorker("google", "./cmd/google-workspace-poller"),
+  startWorker("google-directory", "./cmd/google-workspace-directory-sync")
 ];
 
 let shuttingDown = false;

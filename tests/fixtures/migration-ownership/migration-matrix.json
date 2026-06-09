@@ -431,6 +431,25 @@
       ]
     },
     {
+      "id": "cmd-google-workspace-directory-sync-go-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:cmd/google-workspace-directory-sync/*.go",
+        "repo-file:internal/googleworkspacedirectorysync/*.go",
+        "package-script:worker:google-directory",
+        "package-script:worker:google-directory:go",
+        "make-target:worker-google-directory",
+        "make-target:worker-google-directory-go"
+      ],
+      "owner": "Go Google Workspace directory sync default entrypoint",
+      "rationale": "cmd/google-workspace-directory-sync exchanges the per-tenant Google OAuth refresh token for an access token, page-walks the Admin Directory API users.list endpoint, and upserts each user into saas_identities. Until this command landed, no production producer wrote to saas_identities for any provider, so the Security Graph and executive report always showed 0 privileged identities, 0 active accounts, and 0% MFA coverage for live Google Workspace tenants even when the audit-log poller was producing findings. Ships only as a Go binary; there is no TypeScript counterpart. Auto-started by scripts/dev.mjs alongside the audit poller so a connected Google Workspace tenant populates identities without manual npm invocations.",
+      "evidence": [
+        "test:internal/googleworkspacedirectorysync/sync_test.go",
+        "command:npm run worker:google-directory -- -once",
+        "make-target:worker-google-directory"
+      ]
+    },
+    {
       "id": "cmd-go-siem-worker-default",
       "state": "go-default",
       "covers": [

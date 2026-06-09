@@ -16,9 +16,14 @@ import "strings"
 // signals (visibility-based detection still works).
 //
 // Mapping rules cover the highest-signal events for the rules that exist
-// today. Unknown events fall through with an uppercased version of the raw
-// Google event name so future rule additions can match without a poller
-// change.
+// today. Unknown events return the empty string and the poller MUST skip
+// enqueueing them. The previous uppercased-passthrough behavior dumped
+// every Google event onto the ingestion queue as "DOWNLOAD", "VIEW",
+// "EDIT", etc., and because no rule evaluator existed for those types the
+// ingestion worker exhausted retries and dead-lettered ~84% of the queue
+// for a typical tenant. Returning "" + skipping at the producer means the
+// queue stays as a meaningful signal of "things we believe are findings"
+// instead of a noise channel.
 //
 // The mapping is intentionally narrow: we add a synthesized event type only
 // when there is a clear 1:1 (or parameter-conditioned) correspondence. The
@@ -67,7 +72,7 @@ func MapEventType(application, eventName string, parameters []reportsParameter, 
 			return "OAUTH_TOKEN_REVOKED"
 		}
 	}
-	return strings.ToUpper(eventName)
+	return ""
 }
 
 // isExternalSharing returns true when a Drive change_* activity describes
