@@ -6,7 +6,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { prisma } from "@aperio/db";
+import { prisma } from "../packages/db/src/client.mjs";
 import {
   artifactRoot,
   escapeHtml,
