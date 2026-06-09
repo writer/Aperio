@@ -88,7 +88,7 @@ func mapStatus(u googleUser, now time.Time) string {
 	// A user with no recorded lastLoginTime AND a creationTime older than
 	// the dormancy window is reported DORMANT — a brand new account that
 	// hasn't logged in yet is still ACTIVE for the dormancy window.
-	if u.LastLoginTime.IsZero() {
+	if u.LastLoginTime.IsZero() || u.LastLoginTime.Unix() <= 0 {
 		if !u.CreationTime.IsZero() && now.Sub(u.CreationTime) > dormantWindow {
 			return "DORMANT"
 		}
