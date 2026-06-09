@@ -53,7 +53,7 @@ test("dev-config.mjs wait requires consecutive TCP successes", () => {
   );
   assert.match(
     source,
-    /consecutive\s*=\s*0/,
+    /else\s*\{\s*consecutive\s*=\s*0/,
     "the loop must reset the consecutive counter on failure so a single flap doesn't get credit"
   );
 });
