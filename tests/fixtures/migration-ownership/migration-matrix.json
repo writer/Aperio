@@ -412,6 +412,19 @@
       ]
     },
     {
+      "id": "cmd-google-workspace-poller-go-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:cmd/google-workspace-poller/*.go",
+        "repo-file:internal/googleworkspacepoller/*.go"
+      ],
+      "owner": "Go Google Workspace audit-log poller default entrypoint",
+      "rationale": "cmd/google-workspace-poller exchanges the per-tenant Google OAuth refresh token for an access token and pulls Admin Reports audit activities into ingestion_jobs so the existing rule evaluators can produce findings. Ships only as a Go binary; there is no TypeScript counterpart.",
+      "evidence": [
+        "test:internal/googleworkspacepoller/poller_test.go"
+      ]
+    },
+    {
       "id": "cmd-go-siem-worker-default",
       "state": "go-default",
       "covers": [
