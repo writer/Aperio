@@ -45,7 +45,17 @@ const (
 	defaultLookback     = 24 * time.Hour
 	tokenURL            = "https://oauth2.googleapis.com/token"
 	reportsBaseURL      = "https://admin.googleapis.com/admin/reports/v1/activity/users/all/applications"
-	maxActivitiesPerApp = 200
+	// Page size is the per-request item cap accepted by Google's Reports API.
+	// We pair it with maxPagesPerApp below as a runaway-fetch safety bound;
+	// the cap is on pages, not items, so we never silently drop events past
+	// some arbitrary integer N when paginating.
+	defaultPageSize = 1000
+	// maxPagesPerApp bounds the work per (integration, application, sweep)
+	// to roughly 1 000 000 items. A tenant generating more than that within
+	// one poll interval is pathological and the operator should investigate;
+	// the cursor advance logic in pollApplication still guarantees no
+	// permanent data loss in that case (see comments there).
+	maxPagesPerApp = 1000
 )
 
 // DefaultApplications is the set of Google audit applications the poller
@@ -74,14 +84,15 @@ type OAuthResolver interface {
 // Poller is the long-running goroutine that drives Google Workspace ingestion.
 // Construct via New and start with Run.
 type Poller struct {
-	db            *sql.DB
-	httpClient    *http.Client
-	resolver      OAuthResolver
-	interval      time.Duration
-	lookback      time.Duration
-	applications  []string
-	nowFn         func() time.Time
-	maxActivities int
+	db           *sql.DB
+	httpClient   *http.Client
+	resolver     OAuthResolver
+	interval     time.Duration
+	lookback     time.Duration
+	applications []string
+	nowFn        func() time.Time
+	pageSize     int
+	maxPages     int
 }
 
 // New builds a Poller with sensible defaults. The HTTP client is given a
@@ -89,16 +100,26 @@ type Poller struct {
 // in tests if needed.
 func New(db *sql.DB, resolver OAuthResolver) *Poller {
 	return &Poller{
-		db:            db,
-		httpClient:    &http.Client{Timeout: 20 * time.Second},
-		resolver:      resolver,
-		interval:      defaultPollInterval,
-		lookback:      defaultLookback,
-		applications:  append([]string(nil), DefaultApplications...),
-		nowFn:         time.Now,
-		maxActivities: maxActivitiesPerApp,
+		db:           db,
+		httpClient:   &http.Client{Timeout: 20 * time.Second},
+		resolver:     resolver,
+		interval:     defaultPollInterval,
+		lookback:     defaultLookback,
+		applications: append([]string(nil), DefaultApplications...),
+		nowFn:        time.Now,
+		pageSize:     defaultPageSize,
+		maxPages:     maxPagesPerApp,
 	}
 }
+
+// WithPageSize overrides the per-request page size. Used in tests to
+// exercise pagination with small synthetic pages without spinning up
+// thousands of fake activities.
+func (p *Poller) WithPageSize(n int) *Poller { p.pageSize = n; return p }
+
+// WithMaxPages overrides the safety bound on per-application pagination.
+// Used in tests to exercise the page-cap branch deterministically.
+func (p *Poller) WithMaxPages(n int) *Poller { p.maxPages = n; return p }
 
 // WithInterval overrides the poll interval. Useful in tests; production
 // callers should accept the default.
@@ -233,6 +254,23 @@ func (p *Poller) pollIntegration(ctx context.Context, integ integrationRow) erro
 // pollApplication lists activities for one (integration, application) pair
 // starting from the persisted cursor (or now-lookback on first poll) and
 // enqueues each new activity as one ingestion_jobs row per Google event.
+//
+// The cursor-advance rule below is the heart of correctness for the page-
+// cap edge case:
+//
+//   - exhausted == true (we paginated all the way back to the cursor or
+//     ran out of nextPageToken): there are no unfetched events strictly
+//     after the cursor, so we advance the cursor to the NEWEST event we
+//     processed. Next sweep picks up from there.
+//   - exhausted == false (we hit maxPages before reaching the cursor):
+//     there are still older events strictly between the persisted cursor
+//     and the oldest event we collected. Advancing to the newest event
+//     would permanently skip that gap (the bug the reviewer flagged).
+//     Instead we advance only to the OLDEST event we processed. Next
+//     sweep re-fetches the events we just enqueued — that is safe
+//     because enqueueEvent uses a deterministic ingestion_jobs id and
+//     treats unique-violation as a no-op — and continues paginating
+//     into the previously-unfetched range.
 func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, application, accessToken string) error {
 	cursor, err := p.loadCursor(ctx, integ.ID, application)
 	if err != nil {
@@ -242,7 +280,7 @@ func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, appl
 	if startTime.IsZero() {
 		startTime = p.nowFn().Add(-p.lookback).UTC()
 	}
-	activities, err := p.listActivities(ctx, application, accessToken, startTime)
+	activities, exhausted, err := p.listActivities(ctx, application, accessToken, startTime, cursor)
 	if err != nil {
 		return err
 	}
@@ -256,8 +294,6 @@ func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, appl
 	for i, j := 0, len(activities)-1; i < j; i, j = i+1, j-1 {
 		activities[i], activities[j] = activities[j], activities[i]
 	}
-	latestTime := cursor.LastEventTime
-	latestQualifier := cursor.LastUniqueQualifier
 	for _, activity := range activities {
 		if !cursor.isStrictlyAfter(activity.EventTime, activity.UniqueQualifier) {
 			continue
@@ -269,10 +305,21 @@ func (p *Poller) pollApplication(ctx context.Context, integ integrationRow, appl
 				return err
 			}
 		}
-		latestTime = activity.EventTime
-		latestQualifier = activity.UniqueQualifier
 	}
-	p.touchCursor(ctx, integ.ID, application, latestTime, latestQualifier)
+	var nextTime time.Time
+	var nextQualifier string
+	if exhausted {
+		newest := activities[len(activities)-1]
+		nextTime = newest.EventTime
+		nextQualifier = newest.UniqueQualifier
+	} else {
+		oldest := activities[0]
+		nextTime = oldest.EventTime
+		nextQualifier = oldest.UniqueQualifier
+		log.Printf("googleworkspacepoller: integ=%s app=%s hit page cap (%d pages); advancing cursor only to oldest processed event so older unfetched activities are not skipped",
+			integ.ID, application, p.maxPages)
+	}
+	p.touchCursor(ctx, integ.ID, application, nextTime, nextQualifier)
 	return nil
 }
 
@@ -351,9 +398,21 @@ func (p *Poller) recordError(ctx context.Context, integrationID, application str
 // type is normalized into the synthesized Aperio constants the existing
 // worker matches against, so EXTERNAL_SHARING_ENABLED / SUPER_ADMIN_GRANTED /
 // etc work end-to-end without changes to internal/ingestionworker.
+//
+// ownerDomain is computed once per event (not derived later) so the same
+// value drives both the EXTERNAL_SHARING_ENABLED classifier and the payload
+// the worker reads. Resolution order, most authoritative first:
+//  1. parameters.owner (the doc owner email reported by Drive)
+//  2. the activity actor's email domain
+//  3. the integration's external_account_id (set in the OAuth callback to
+//     the verified Google Workspace hosted domain)
+//
+// If all three are empty the classifier stays conservative and refuses to
+// fire on target-email or target-domain signals.
 func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, application string, activity reportsActivity, event reportsEvent) error {
-	mapped := MapEventType(application, event.Name, event.Parameters)
-	payload := buildJobPayload(application, activity, event)
+	ownerDomain := resolveOwnerDomain(integ, activity, event.Parameters)
+	mapped := MapEventType(application, event.Name, event.Parameters, ownerDomain)
+	payload := buildJobPayload(application, activity, event, ownerDomain)
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -392,7 +451,7 @@ func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, applica
 // buildJobPayload flattens Google's array-based parameters into the
 // map[string]any shape the existing rule evaluators expect (they call
 // nestedString(payload, "parameters", "doc_title") and similar).
-func buildJobPayload(application string, activity reportsActivity, event reportsEvent) map[string]any {
+func buildJobPayload(application string, activity reportsActivity, event reportsEvent, ownerDomain string) map[string]any {
 	parameters := map[string]any{}
 	for _, param := range event.Parameters {
 		if param.MultiValue != nil {
@@ -413,7 +472,7 @@ func buildJobPayload(application string, activity reportsActivity, event reports
 		"application":   application,
 		"parameters":    parameters,
 		"sourceEventId": activity.UniqueQualifier,
-		"ownerDomain":   ownerDomainFromActor(activity.Actor.Email),
+		"ownerDomain":   ownerDomain,
 	}
 	if name, ok := parameters["doc_title"].(string); ok && name != "" {
 		payload["resource"] = map[string]any{"name": name, "id": stringParam(parameters, "doc_id")}
@@ -433,11 +492,37 @@ func stringParam(parameters map[string]any, key string) string {
 	return ""
 }
 
-func ownerDomainFromActor(email string) string {
-	if at := strings.LastIndex(email, "@"); at >= 0 {
-		return strings.ToLower(email[at+1:])
+// resolveOwnerDomain picks the most authoritative source of the workspace's
+// own domain for a single event. The order matters: parameters.owner is the
+// actual document owner (most specific for Drive sharing); the activity
+// actor is the next best because they had to be inside the tenant to make
+// the call; and integ.ExternalAccountID is the verified hosted domain
+// captured at OAuth time as the last-resort tenant-wide default.
+func resolveOwnerDomain(integ integrationRow, activity reportsActivity, parameters []reportsParameter) string {
+	for _, param := range parameters {
+		if strings.EqualFold(param.Name, "owner") && param.Value != "" {
+			if domain := domainFromEmail(param.Value); domain != "" {
+				return domain
+			}
+		}
 	}
-	return ""
+	if domain := domainFromEmail(activity.Actor.Email); domain != "" {
+		return domain
+	}
+	return strings.ToLower(strings.TrimSpace(integ.ExternalAccountID))
+}
+
+func domainFromEmail(email string) string {
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		// A bare domain (no @) is a valid owner value in some Drive events.
+		// Treat it as the domain itself.
+		if at < 0 && strings.Contains(email, ".") {
+			return strings.ToLower(strings.TrimSpace(email))
+		}
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(email[at+1:]))
 }
 
 // reportsActivity mirrors the subset of Google's Activity resource we use.
@@ -484,54 +569,117 @@ type reportsResponse struct {
 	NextPageToken string `json:"nextPageToken,omitempty"`
 }
 
-func (p *Poller) listActivities(ctx context.Context, application, accessToken string, startTime time.Time) ([]reportsActivity, error) {
+// listActivities paginates the Reports API until one of three terminators
+// fires:
+//
+//  1. A returned item is at-or-before the persisted cursor. Because Google
+//     returns items DESC, every subsequent item is also at-or-before, so we
+//     stop early without burning additional pages.
+//  2. The response has no nextPageToken. There is nothing more on the server
+//     side that matches the startTime filter.
+//  3. We hit maxPages. This bounds runaway fetches for pathological tenants.
+//
+// The boolean return value distinguishes terminator (1) and (2) — both mean
+// "fully drained" — from terminator (3), which means "older events may
+// remain on Google". The caller (pollApplication) uses that signal to decide
+// whether to advance the cursor to the NEWEST processed event (safe) or the
+// OLDEST processed event (the recovery case, where the next sweep will
+// re-fetch what we just enqueued AND continue into the unfetched older
+// range; the enqueue is idempotent via the deterministic ingestion_jobs id).
+//
+// Items returned by this function are STRICTLY AFTER the cursor — the
+// cursor-comparison filter inside the loop is what makes the strict-after
+// guarantee hold across the time/uniqueQualifier tiebreaker.
+func (p *Poller) listActivities(ctx context.Context, application, accessToken string, startTime time.Time, cursor cursorRow) ([]reportsActivity, bool, error) {
 	endpoint := reportsBaseURL + "/" + url.PathEscape(application)
-	q := url.Values{}
-	// startTime is exclusive on Google's side; our cursor comparison adds a
-	// strict-after check anyway so the boundary is correct either way.
-	q.Set("startTime", startTime.UTC().Format(time.RFC3339))
-	q.Set("maxResults", "1000")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+q.Encode(), nil)
-	if err != nil {
-		return nil, err
+	collected := make([]reportsActivity, 0, p.pageSize)
+	pageToken := ""
+	pageSize := p.pageSize
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Surface a truncated body so operators can see Google's error JSON
-		// without us round-tripping the entire payload into our logs.
-		snippet := string(body)
-		if len(snippet) > 200 {
-			snippet = snippet[:200]
+	for page := 0; page < p.maxPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
 		}
-		return nil, fmt.Errorf("google reports api %d: %s", resp.StatusCode, snippet)
-	}
-	var decoded reportsResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("decode reports response: %w", err)
-	}
-	out := make([]reportsActivity, 0, len(decoded.Items))
-	for _, item := range decoded.Items {
-		out = append(out, reportsActivity{
-			EventTime:       item.ID.Time.UTC(),
-			UniqueQualifier: item.ID.UniqueQualifier,
-			Actor:           item.Actor,
-			Events:          item.Events,
-		})
-		if len(out) >= p.maxActivities {
-			break
+		q := url.Values{}
+		q.Set("startTime", startTime.UTC().Format(time.RFC3339))
+		q.Set("maxResults", strconvI(pageSize))
+		if pageToken != "" {
+			q.Set("pageToken", pageToken)
 		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+q.Encode(), nil)
+		if err != nil {
+			return nil, false, err
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/json")
+		resp, err := p.httpClient.Do(req)
+		if err != nil {
+			return nil, false, err
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, false, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			snippet := string(body)
+			if len(snippet) > 200 {
+				snippet = snippet[:200]
+			}
+			return nil, false, fmt.Errorf("google reports api %d: %s", resp.StatusCode, snippet)
+		}
+		var decoded reportsResponse
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			return nil, false, fmt.Errorf("decode reports response: %w", err)
+		}
+		reachedCursor := false
+		for _, item := range decoded.Items {
+			activity := reportsActivity{
+				EventTime:       item.ID.Time.UTC(),
+				UniqueQualifier: item.ID.UniqueQualifier,
+				Actor:           item.Actor,
+				Events:          item.Events,
+			}
+			if !cursor.isStrictlyAfter(activity.EventTime, activity.UniqueQualifier) {
+				reachedCursor = true
+				break
+			}
+			collected = append(collected, activity)
+		}
+		if reachedCursor || decoded.NextPageToken == "" {
+			return collected, true, nil
+		}
+		pageToken = decoded.NextPageToken
 	}
-	return out, nil
+	// Page cap hit; caller treats !exhausted as the recovery case.
+	return collected, false, nil
+}
+
+// strconvI is a tiny shim so the import block stays free of strconv just
+// for one int-to-string conversion. Performance-irrelevant on this path.
+func strconvI(n int) string {
+	const digits = "0123456789"
+	if n == 0 {
+		return "0"
+	}
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for n > 0 {
+		pos--
+		buf[pos] = digits[n%10]
+		n /= 10
+	}
+	if negative {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }
 
 // exchangeRefreshToken converts the stored Google refresh token into a

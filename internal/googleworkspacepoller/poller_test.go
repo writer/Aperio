@@ -2,17 +2,19 @@ package googleworkspacepoller
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestMapEventTypeDriveExternalSharing(t *testing.T) {
+func TestMapEventTypeDriveExternalSharingByVisibility(t *testing.T) {
 	got := MapEventType("drive", "change_user_access", []reportsParameter{
 		{Name: "visibility", Value: "shared_externally"},
-	})
+	}, "company.com")
 	if got != "EXTERNAL_SHARING_ENABLED" {
 		t.Fatalf("want EXTERNAL_SHARING_ENABLED, got %s", got)
 	}
@@ -21,16 +23,80 @@ func TestMapEventTypeDriveExternalSharing(t *testing.T) {
 func TestMapEventTypeDriveInternalShareUnmapped(t *testing.T) {
 	got := MapEventType("drive", "change_user_access", []reportsParameter{
 		{Name: "visibility", Value: "private"},
-	})
+	}, "company.com")
 	if got == "EXTERNAL_SHARING_ENABLED" {
 		t.Fatalf("private share must not map to EXTERNAL_SHARING_ENABLED")
+	}
+}
+
+// TestMapEventTypeDriveSameDomainShareNotExternal pins the bug the reviewer
+// caught: target_user_emails inside the owner's own domain must NOT be
+// classified as EXTERNAL_SHARING_ENABLED, otherwise routine internal sharing
+// produces HIGH-severity false positives in the downstream worker.
+func TestMapEventTypeDriveSameDomainShareNotExternal(t *testing.T) {
+	got := MapEventType("drive", "change_user_access", []reportsParameter{
+		{Name: "target_user_emails", MultiValue: []string{"alice@company.com", "bob@company.com"}},
+	}, "company.com")
+	if got == "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("internal-only share must not map to EXTERNAL_SHARING_ENABLED, got %s", got)
+	}
+}
+
+func TestMapEventTypeDriveCrossDomainShareIsExternal(t *testing.T) {
+	got := MapEventType("drive", "change_acl_editors", []reportsParameter{
+		{Name: "target_user_emails", MultiValue: []string{"alice@company.com", "partner@other.com"}},
+	}, "company.com")
+	if got != "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("share with at least one external recipient must map to EXTERNAL_SHARING_ENABLED, got %s", got)
+	}
+}
+
+func TestMapEventTypeDriveTargetDomainParameter(t *testing.T) {
+	internal := MapEventType("drive", "change_document_visibility", []reportsParameter{
+		{Name: "target_domain", Value: "Company.COM"},
+	}, "company.com")
+	if internal == "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("same target_domain (case-insensitive) must not map to EXTERNAL_SHARING_ENABLED, got %s", internal)
+	}
+	external := MapEventType("drive", "change_document_visibility", []reportsParameter{
+		{Name: "target_domain", Value: "partner.net"},
+	}, "company.com")
+	if external != "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("different target_domain must map to EXTERNAL_SHARING_ENABLED, got %s", external)
+	}
+}
+
+// TestMapEventTypeDriveTargetOnlyConservativeWhenOwnerUnknown pins the
+// conservative behaviour for the case where the poller could not derive
+// an owner domain from the activity. Without an owner we cannot decide
+// internal-vs-external, and the downstream worker does no gating of its
+// own, so we MUST NOT fire EXTERNAL_SHARING_ENABLED on a target signal.
+func TestMapEventTypeDriveTargetOnlyConservativeWhenOwnerUnknown(t *testing.T) {
+	got := MapEventType("drive", "change_user_access", []reportsParameter{
+		{Name: "target_user_emails", MultiValue: []string{"someone@anywhere.example"}},
+	}, "")
+	if got == "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("target signal with unknown owner must stay conservative, got %s", got)
+	}
+}
+
+// TestMapEventTypeDriveVisibilityStillFiresWithoutOwner makes sure the
+// conservative-when-unknown branch only suppresses target-based detection.
+// Visibility transitions to public are intrinsically external regardless
+// of who the owner is.
+func TestMapEventTypeDriveVisibilityStillFiresWithoutOwner(t *testing.T) {
+	got := MapEventType("drive", "change_document_visibility", []reportsParameter{
+		{Name: "visibility", Value: "anyone_with_link"},
+	}, "")
+	if got != "EXTERNAL_SHARING_ENABLED" {
+		t.Fatalf("visibility=anyone_with_link must fire even without owner, got %s", got)
 	}
 }
 
 func TestMapEventTypeAdminSuperAdminGrant(t *testing.T) {
 	got := MapEventType("admin", "assign_role", []reportsParameter{
 		{Name: "ROLE_NAME", Value: "_SEED_ADMIN_ROLE"},
-	})
+	}, "")
 	if got != "SUPER_ADMIN_GRANTED" {
 		t.Fatalf("want SUPER_ADMIN_GRANTED, got %s", got)
 	}
@@ -39,23 +105,46 @@ func TestMapEventTypeAdminSuperAdminGrant(t *testing.T) {
 func TestMapEventTypeAdminRoleGrantFallback(t *testing.T) {
 	got := MapEventType("admin", "assign_role", []reportsParameter{
 		{Name: "ROLE_NAME", Value: "Help Desk Admin"},
-	})
+	}, "")
 	if got != "ADMIN_ROLE_GRANTED" {
 		t.Fatalf("want ADMIN_ROLE_GRANTED, got %s", got)
 	}
 }
 
 func TestMapEventTypeTokenAuthorize(t *testing.T) {
-	got := MapEventType("token", "authorize", nil)
+	got := MapEventType("token", "authorize", nil, "")
 	if got != "RISKY_OAUTH_GRANT" {
 		t.Fatalf("want RISKY_OAUTH_GRANT, got %s", got)
 	}
 }
 
 func TestMapEventTypeUnknownPassthrough(t *testing.T) {
-	got := MapEventType("drive", "some_new_event", nil)
+	got := MapEventType("drive", "some_new_event", nil, "")
 	if got != "SOME_NEW_EVENT" {
 		t.Fatalf("expected uppercase passthrough, got %s", got)
+	}
+}
+
+func TestIsExternalEmailEdgeCases(t *testing.T) {
+	cases := []struct {
+		email string
+		owner string
+		want  bool
+	}{
+		{"alice@company.com", "company.com", false},
+		{"ALICE@Company.COM", "company.com", false},
+		{"partner@other.com", "company.com", true},
+		{"", "company.com", false},
+		{"alice@company.com", "", false},
+		{"malformed", "company.com", false},
+		{"alice@", "company.com", false},
+		{"   alice@company.com   ", "company.com", true}, // leading/trailing space breaks domain compare; treated external is acceptable safety bias
+	}
+	for _, tc := range cases {
+		got := isExternalEmail(tc.email, tc.owner)
+		if got != tc.want {
+			t.Errorf("isExternalEmail(%q,%q)=%v want %v", tc.email, tc.owner, got, tc.want)
+		}
 	}
 }
 
@@ -97,7 +186,7 @@ func TestBuildJobPayloadFlattensParameters(t *testing.T) {
 			{Name: "owner_is_team_drive", BoolValue: &bv},
 			{Name: "shared_with", MultiValue: []string{"bob@partner.com"}},
 		},
-	})
+	}, "example.com")
 	params, ok := payload["parameters"].(map[string]any)
 	if !ok {
 		t.Fatal("parameters missing or wrong type")
@@ -115,11 +204,41 @@ func TestBuildJobPayloadFlattensParameters(t *testing.T) {
 		t.Fatalf("sourceEventId not derived from uniqueQualifier: %v", payload["sourceEventId"])
 	}
 	if payload["ownerDomain"] != "example.com" {
-		t.Fatalf("ownerDomain not derived: %v", payload["ownerDomain"])
+		t.Fatalf("ownerDomain not propagated: %v", payload["ownerDomain"])
 	}
 	resource, ok := payload["resource"].(map[string]any)
 	if !ok || resource["name"] != "Board Deck" || resource["id"] != "1xyz" {
 		t.Fatalf("resource not derived: %v", payload["resource"])
+	}
+}
+
+func TestResolveOwnerDomainPrefersDriveOwnerParam(t *testing.T) {
+	got := resolveOwnerDomain(
+		integrationRow{ExternalAccountID: "tenant.example"},
+		reportsActivity{Actor: reportsActor{Email: "actor@actor.example"}},
+		[]reportsParameter{{Name: "owner", Value: "doc.owner@docs.example"}},
+	)
+	if got != "docs.example" {
+		t.Fatalf("expected parameters.owner to win, got %s", got)
+	}
+}
+
+func TestResolveOwnerDomainFallsBackToActorThenIntegration(t *testing.T) {
+	got := resolveOwnerDomain(
+		integrationRow{ExternalAccountID: "tenant.example"},
+		reportsActivity{Actor: reportsActor{Email: "actor@actor.example"}},
+		nil,
+	)
+	if got != "actor.example" {
+		t.Fatalf("expected actor email domain when owner param missing, got %s", got)
+	}
+	got = resolveOwnerDomain(
+		integrationRow{ExternalAccountID: "tenant.example"},
+		reportsActivity{},
+		nil,
+	)
+	if got != "tenant.example" {
+		t.Fatalf("expected ExternalAccountID fallback when actor missing, got %s", got)
 	}
 }
 
@@ -134,9 +253,6 @@ func (fakeResolver) ResolveGoogleOAuthClient(_ context.Context, _ string) (OAuth
 // hitting real Google.
 func TestExchangeRefreshToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -158,8 +274,7 @@ func TestExchangeRefreshToken(t *testing.T) {
 
 	p := New(nil, fakeResolver{})
 	p.httpClient = server.Client()
-	// Override the token URL for the test by wrapping http.RoundTripper.
-	p.httpClient.Transport = rewriteHostRoundTripper{base: p.httpClient.Transport, target: server.URL}
+	p.httpClient.Transport = rewriteHostRoundTripper{target: server.URL, path: "/"}
 	access, err := p.exchangeRefreshToken(context.Background(), OAuthConfig{ClientID: "cid", ClientSecret: "csecret"}, "1//refresh")
 	if err != nil {
 		t.Fatalf("exchange failed: %v", err)
@@ -169,16 +284,178 @@ func TestExchangeRefreshToken(t *testing.T) {
 	}
 }
 
+// TestListActivitiesPaginatesUntilCursor pins the P1 fix: the poller must
+// walk nextPageToken pages until either Google runs out of items or it
+// returns an item at-or-before the persisted cursor. A future regression
+// that drops pagination (or re-introduces the silent maxActivities truncation)
+// breaks this test loud.
+func TestListActivitiesPaginatesUntilCursor(t *testing.T) {
+	// Three pages, newest → oldest, DESC order. Cursor is at time=200, so the
+	// poller should fetch pages 1+2 and stop mid-page-2 when it sees time=200.
+	pages := []reportsResponse{
+		{
+			Items: []struct {
+				ID struct {
+					Time            time.Time `json:"time"`
+					UniqueQualifier string    `json:"uniqueQualifier"`
+					ApplicationName string    `json:"applicationName"`
+					CustomerID      string    `json:"customerId"`
+				} `json:"id"`
+				Actor  reportsActor   `json:"actor"`
+				Events []reportsEvent `json:"events"`
+			}{
+				makeItem(500, "q500"),
+				makeItem(400, "q400"),
+			},
+			NextPageToken: "page2",
+		},
+		{
+			Items: []struct {
+				ID struct {
+					Time            time.Time `json:"time"`
+					UniqueQualifier string    `json:"uniqueQualifier"`
+					ApplicationName string    `json:"applicationName"`
+					CustomerID      string    `json:"customerId"`
+				} `json:"id"`
+				Actor  reportsActor   `json:"actor"`
+				Events []reportsEvent `json:"events"`
+			}{
+				makeItem(300, "q300"),
+				makeItem(200, "q200"), // cursor; poller must stop here
+				makeItem(100, "q100"), // never reached
+			},
+			NextPageToken: "page3",
+		},
+	}
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := atomic.AddInt32(&hits, 1) - 1
+		if int(idx) >= len(pages) {
+			t.Fatalf("server called more times than expected: %d", hits)
+		}
+		page := pages[idx]
+		// Sanity-check that the second call uses the page token we sent.
+		if idx == 1 && r.URL.Query().Get("pageToken") != "page2" {
+			t.Errorf("expected pageToken=page2 on second call, got %q", r.URL.Query().Get("pageToken"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(page)
+	}))
+	defer server.Close()
+
+	p := New(nil, fakeResolver{})
+	p.httpClient = server.Client()
+	p.httpClient.Transport = rewriteHostRoundTripper{target: server.URL, path: "/"}
+
+	cursor := cursorRow{LastEventTime: time.Unix(200, 0).UTC(), LastUniqueQualifier: "q200"}
+	activities, exhausted, err := p.listActivities(context.Background(), "drive", "tok", time.Unix(0, 0).UTC(), cursor)
+	if err != nil {
+		t.Fatalf("listActivities: %v", err)
+	}
+	if !exhausted {
+		t.Fatal("expected exhausted=true when cursor reached mid-page")
+	}
+	if hits != 2 {
+		t.Fatalf("expected exactly 2 page fetches, got %d", hits)
+	}
+	if len(activities) != 3 {
+		t.Fatalf("expected 3 activities strictly after cursor, got %d (%v)", len(activities), qualifiers(activities))
+	}
+	for _, want := range []string{"q500", "q400", "q300"} {
+		found := false
+		for _, a := range activities {
+			if a.UniqueQualifier == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %s in collected activities (%v)", want, qualifiers(activities))
+		}
+	}
+}
+
+// TestListActivitiesHitsPageCap pins the safety bound: if Google keeps
+// returning nextPageToken indefinitely and we never reach the cursor, the
+// poller stops at maxPages and reports exhausted=false so the caller knows
+// to advance the cursor only to the OLDEST processed event.
+func TestListActivitiesHitsPageCap(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := atomic.AddInt32(&hits, 1) - 1
+		// Each page returns one item with a unique time strictly newer than
+		// the cursor, plus a next page token so the loop never naturally ends.
+		t := int64(1000 - idx)
+		page := reportsResponse{NextPageToken: "more"}
+		page.Items = append(page.Items, makeItem(t, "q"+strconvI(int(t))))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(page)
+	}))
+	defer server.Close()
+
+	p := New(nil, fakeResolver{}).WithMaxPages(5)
+	p.httpClient = server.Client()
+	p.httpClient.Transport = rewriteHostRoundTripper{target: server.URL, path: "/"}
+
+	activities, exhausted, err := p.listActivities(context.Background(), "drive", "tok", time.Unix(0, 0).UTC(), cursorRow{})
+	if err != nil {
+		t.Fatalf("listActivities: %v", err)
+	}
+	if exhausted {
+		t.Fatal("expected exhausted=false when page cap hit")
+	}
+	if int(hits) != 5 {
+		t.Fatalf("expected exactly 5 page fetches (the cap), got %d", hits)
+	}
+	if len(activities) != 5 {
+		t.Fatalf("expected 5 activities, got %d", len(activities))
+	}
+}
+
+func qualifiers(activities []reportsActivity) []string {
+	out := make([]string, 0, len(activities))
+	for _, a := range activities {
+		out = append(out, a.UniqueQualifier)
+	}
+	return out
+}
+
+func makeItem(timeSeconds int64, qualifier string) struct {
+	ID struct {
+		Time            time.Time `json:"time"`
+		UniqueQualifier string    `json:"uniqueQualifier"`
+		ApplicationName string    `json:"applicationName"`
+		CustomerID      string    `json:"customerId"`
+	} `json:"id"`
+	Actor  reportsActor   `json:"actor"`
+	Events []reportsEvent `json:"events"`
+} {
+	var item struct {
+		ID struct {
+			Time            time.Time `json:"time"`
+			UniqueQualifier string    `json:"uniqueQualifier"`
+			ApplicationName string    `json:"applicationName"`
+			CustomerID      string    `json:"customerId"`
+		} `json:"id"`
+		Actor  reportsActor   `json:"actor"`
+		Events []reportsEvent `json:"events"`
+	}
+	item.ID.Time = time.Unix(timeSeconds, 0).UTC()
+	item.ID.UniqueQualifier = qualifier
+	item.Actor.Email = "actor@example.com"
+	return item
+}
+
+// rewriteHostRoundTripper redirects requests to a single httptest server so
+// we do not have to monkey-patch the const reportsBaseURL / tokenURL just
+// for tests. path overrides the request path so each test can choose what
+// the fake server is meant to be (token endpoint vs reports endpoint).
 type rewriteHostRoundTripper struct {
-	base   http.RoundTripper
 	target string
+	path   string
 }
 
 func (r rewriteHostRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Strip the original host and re-point at our httptest server so we don't
-	// have to monkey-patch the constants for one test.
-	prefix := req.URL.Scheme + "://" + req.URL.Host
-	_ = prefix
 	idx := strings.Index(r.target, "://")
 	scheme := "http"
 	host := r.target
@@ -188,10 +465,8 @@ func (r rewriteHostRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	}
 	req.URL.Scheme = scheme
 	req.URL.Host = host
-	req.URL.Path = "/"
-	base := r.base
-	if base == nil {
-		base = http.DefaultTransport
+	if r.path != "" {
+		req.URL.Path = r.path
 	}
-	return base.RoundTrip(req)
+	return http.DefaultTransport.RoundTrip(req)
 }
