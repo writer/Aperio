@@ -164,12 +164,51 @@ func validateNode(node predicateNode) error {
 			}
 		}
 		return nil
-	case "equals", "==", "not_equals", "!=", "contains", "in":
+	case "equals", "==", "not_equals", "!=":
 		if strings.TrimSpace(node.Field) == "" {
 			return fmt.Errorf("%q predicate requires a field", op)
 		}
 		if len(node.Value) == 0 {
 			return fmt.Errorf("%q predicate requires a value", op)
+		}
+		return nil
+	case "contains":
+		if strings.TrimSpace(node.Field) == "" {
+			return fmt.Errorf("%q predicate requires a field", op)
+		}
+		if len(node.Value) == 0 {
+			return fmt.Errorf("%q predicate requires a value", op)
+		}
+		// leafContains short-circuits to false on an empty needle, so a
+		// rule with `"value": ""` would persist 200 but never match.
+		// Reject scalar empties (and non-strings, which stringValueOfRaw
+		// silently coerces in ways that surprise operators).
+		var s string
+		if err := json.Unmarshal(node.Value, &s); err != nil {
+			return fmt.Errorf("%q predicate value must be a string", op)
+		}
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("%q predicate value must be a non-empty string (an empty needle never matches)", op)
+		}
+		return nil
+	case "in":
+		if strings.TrimSpace(node.Field) == "" {
+			return fmt.Errorf("%q predicate requires a field", op)
+		}
+		if len(node.Value) == 0 {
+			return fmt.Errorf("%q predicate requires a value", op)
+		}
+		// leafIn unmarshals value into []json.RawMessage and returns
+		// false on any decode error, so a scalar `"value": "x@y.com"`
+		// would persist 200 yet never match. Require an actual non-empty
+		// JSON array so the rule shape matches what the evaluator can
+		// execute.
+		var arr []json.RawMessage
+		if err := json.Unmarshal(node.Value, &arr); err != nil {
+			return fmt.Errorf("%q predicate value must be a JSON array", op)
+		}
+		if len(arr) == 0 {
+			return fmt.Errorf("%q predicate value must be a non-empty JSON array", op)
 		}
 		return nil
 	case "exists":

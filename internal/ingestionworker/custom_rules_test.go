@@ -229,6 +229,19 @@ func TestValidatePredicateRejectsMalformedShapes(t *testing.T) {
 		"unknown key":      `{"op":"equals","field":"actor","value":"x","extra":1}`,
 		"empty and":        `{"op":"and","predicates":[]}`,
 		"nested bad child": `{"op":"or","predicates":[{"op":"equals","field":"actor","value":"x"},{"op":"regex","field":"a","value":"b"}]}`,
+		// `in` with a scalar value is the same phantom-rule shape this
+		// validator was added to close: leafIn unmarshals into
+		// []json.RawMessage and returns false on a scalar, so the row
+		// persists 200 but can never match.
+		"in scalar":     `{"op":"in","field":"actor","value":"x@y.com"}`,
+		"in empty array": `{"op":"in","field":"actor","value":[]}`,
+		"in not array":  `{"op":"in","field":"actor","value":{"k":"v"}}`,
+		// `contains` with an empty value short-circuits to false in
+		// leafContains, so an empty-string needle is the same phantom-
+		// rule trap.
+		"contains empty":  `{"op":"contains","field":"actor","value":""}`,
+		"contains spaces": `{"op":"contains","field":"actor","value":"   "}`,
+		"contains number": `{"op":"contains","field":"actor","value":5}`,
 	}
 	for name, body := range bad {
 		if err := ValidatePredicate([]byte(body)); err == nil {
