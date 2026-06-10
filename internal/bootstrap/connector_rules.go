@@ -39,17 +39,47 @@ func (a *App) compatListConnectorRules(ctx context.Context, integrationID string
 	for _, d := range disabled {
 		disabledSet[d] = struct{}{}
 	}
-	builtIns := make([]map[string]any, 0)
+	// The built-in list must mirror the FULL set of FindingChecks the
+	// connector definition knows about, not just the subset that has a
+	// rich RuleCatalog entry. The connector-rules dialog recomputes the
+	// entire disabled_checks set from this list on every toggle and posts
+	// it as a wholesale replacement via compatUpdateIntegrationChecks, so
+	// any check we omit here (e.g. github.deploy_key_added, slack.app_installed,
+	// one_password.travel_mode_enabled — all DefaultEnabled=false and
+	// seeded into disabled_checks at connect time) would be silently
+	// dropped from the set on the first toggle and the check would
+	// re-enable itself, generating findings the operator never opted into.
+	// Where a check also has a RuleCatalog entry we prefer its richer
+	// metadata (eventTypes, longer description, exact severity); otherwise
+	// we fall back to the findingCheck columns.
+	catalogByID := map[string]ingestionworker.RuleCatalogEntry{}
 	for _, entry := range ingestionworker.RuleCatalogForProvider(provider) {
-		_, off := disabledSet[entry.ID]
+		catalogByID[entry.ID] = entry
+	}
+	builtIns := make([]map[string]any, 0)
+	for _, check := range compatFindingChecksForProvider(provider) {
+		_, off := disabledSet[check.Key]
+		if entry, ok := catalogByID[check.Key]; ok {
+			builtIns = append(builtIns, map[string]any{
+				"id":          entry.ID,
+				"kind":        "built_in",
+				"provider":    entry.Provider,
+				"title":       entry.Title,
+				"description": entry.Description,
+				"severity":    entry.Severity,
+				"eventTypes":  entry.EventTypes,
+				"enabled":     !off,
+			})
+			continue
+		}
 		builtIns = append(builtIns, map[string]any{
-			"id":          entry.ID,
+			"id":          check.Key,
 			"kind":        "built_in",
-			"provider":    entry.Provider,
-			"title":       entry.Title,
-			"description": entry.Description,
-			"severity":    entry.Severity,
-			"eventTypes":  entry.EventTypes,
+			"provider":    provider,
+			"title":       check.Title,
+			"description": check.Description,
+			"severity":    check.SeverityHint,
+			"eventTypes":  []string{},
 			"enabled":     !off,
 		})
 	}
