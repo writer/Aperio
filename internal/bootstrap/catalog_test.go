@@ -225,6 +225,36 @@ func TestDefaultDisabledChecksMatchCatalog(t *testing.T) {
 	}
 }
 
+// TestFindingChecksForProviderReturnsFullSet pins the contract relied on
+// by compatListConnectorRules: the connector-rules dialog recomputes
+// disabled_checks from this list and posts a wholesale replacement, so
+// the list MUST include every FindingCheck the connector definition
+// surfaces — including DefaultEnabled=false checks like
+// github.deploy_key_added and slack.app_installed that aren't in
+// ingestionworker.RuleCatalog. Dropping any of these would silently
+// re-enable them on the first built-in toggle.
+func TestFindingChecksForProviderReturnsFullSet(t *testing.T) {
+	for _, provider := range []string{"GITHUB", "SLACK", "OKTA", "GOOGLE_WORKSPACE", "ONE_PASSWORD"} {
+		got := compatFindingChecksForProvider(provider)
+		def := findConnectorDefinition(provider)
+		if def == nil {
+			t.Fatalf("provider %s has no connector definition", provider)
+		}
+		if len(got) != len(def.FindingChecks) {
+			t.Fatalf("provider %s: compatFindingChecksForProvider returned %d entries, want %d (full FindingChecks set)", provider, len(got), len(def.FindingChecks))
+		}
+		gotKeys := map[string]bool{}
+		for _, c := range got {
+			gotKeys[c.Key] = true
+		}
+		for _, defaultDisabled := range compatDefaultDisabledChecks(provider) {
+			if !gotKeys[defaultDisabled] {
+				t.Errorf("provider %s: default-disabled check %q missing from compatFindingChecksForProvider (would be silently re-enabled on next built-in toggle)", provider, defaultDisabled)
+			}
+		}
+	}
+}
+
 func TestFindingCheckStatusesOverlayDisabledSet(t *testing.T) {
 	statuses := compatFindingCheckStatuses("GITHUB", []string{"github.public_repository_created"})
 	github := findConnectorDefinition("GITHUB")

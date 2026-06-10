@@ -32,6 +32,10 @@ service AperioService {
   rpc DeleteIntegration(DeleteIntegrationRequest) returns (DeleteIntegrationResponse);
   rpc GetIntegrationChecks(GetIntegrationChecksRequest) returns (GetIntegrationChecksResponse);
   rpc UpdateIntegrationChecks(UpdateIntegrationChecksRequest) returns (UpdateIntegrationChecksResponse);
+  rpc ListConnectorRules(ListConnectorRulesRequest) returns (ListConnectorRulesResponse);
+  rpc CreateCustomRule(CreateCustomRuleRequest) returns (CreateCustomRuleResponse);
+  rpc UpdateCustomRule(UpdateCustomRuleRequest) returns (UpdateCustomRuleResponse);
+  rpc DeleteCustomRule(DeleteCustomRuleRequest) returns (DeleteCustomRuleResponse);
   rpc GetGoogleMailboxScanConfig(GetGoogleMailboxScanConfigRequest) returns (GetGoogleMailboxScanConfigResponse);
   rpc UpdateGoogleMailboxScanConfig(UpdateGoogleMailboxScanConfigRequest) returns (UpdateGoogleMailboxScanConfigResponse);
   rpc StartGoogleWorkspaceOAuth(StartGoogleWorkspaceOAuthRequest) returns (StartGoogleWorkspaceOAuthResponse);
@@ -1099,4 +1103,74 @@ message DeleteExecutiveReportRequest {
 
 message DeleteExecutiveReportResponse {
   bool deleted = 1;
+}
+
+message ConnectorBuiltInRule {
+  string id = 1;
+  string provider = 2;
+  string title = 3;
+  string description = 4;
+  string severity = 5;
+  repeated string event_types = 6;
+  bool enabled = 7;
+}
+
+message ConnectorCustomRule {
+  string id = 1;
+  string name = 2;
+  string severity = 3;
+  string event_type = 4;
+  string predicate_json = 5;
+  bool enabled = 6;
+  string updated_at = 7;
+  string subject_field = 8;
+}
+
+message ListConnectorRulesRequest {
+  string integration_id = 1;
+}
+
+message ListConnectorRulesResponse {
+  string integration_id = 1;
+  string provider = 2;
+  repeated ConnectorBuiltInRule built_in = 3;
+  repeated ConnectorCustomRule custom = 4;
+}
+
+message CreateCustomRuleRequest {
+  string integration_id = 1;
+  string name = 2;
+  string severity = 3;
+  string event_type = 4;
+  string predicate_json = 5;
+  bool enabled = 6;
+  string subject_field = 7;
+}
+
+message CreateCustomRuleResponse {
+  string id = 1;
+}
+
+message UpdateCustomRuleRequest {
+  string integration_id = 1;
+  string rule_id = 2;
+  string name = 3;
+  string severity = 4;
+  string event_type = 5;
+  string predicate_json = 6;
+  bool enabled = 7;
+  string subject_field = 8;
+}
+
+message UpdateCustomRuleResponse {
+  string id = 1;
+}
+
+message DeleteCustomRuleRequest {
+  string integration_id = 1;
+  string rule_id = 2;
+}
+
+message DeleteCustomRuleResponse {
+  string id = 1;
 }
