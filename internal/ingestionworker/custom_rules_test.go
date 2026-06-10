@@ -180,6 +180,36 @@ func TestCustomFindingWithoutSubjectFieldKeepsActorDedupe(t *testing.T) {
 	}
 }
 
+// TestEvaluateCustomRulesNotEqualsRequiresFieldPresent pins the fix for
+// the spurious-finding bug: an operator rule that compares a field with
+// not_equals must NOT fire on events that simply omit the referenced
+// field. Otherwise "not equal to private" silently degenerates to
+// "missing OR not private", flooding dashboards with false positives.
+func TestEvaluateCustomRulesNotEqualsRequiresFieldPresent(t *testing.T) {
+	rule := CustomRule{
+		ID:        "r1",
+		EventType: "X",
+		Severity:  "HIGH",
+		Predicate: mustPredicate(t, `{"field":"payload.parameters.visibility","op":"not_equals","value":"private"}`),
+		Enabled:   true,
+	}
+	// Field absent: must NOT fire.
+	got := EvaluateCustomRules(JobPayload{EventType: "X", Payload: map[string]any{}}, []CustomRule{rule})
+	if len(got) != 0 {
+		t.Fatalf("not_equals must not fire when the field is absent, got %d findings", len(got))
+	}
+	// Field present and matching: must NOT fire.
+	got = EvaluateCustomRules(JobPayload{EventType: "X", Payload: map[string]any{"parameters": map[string]any{"visibility": "private"}}}, []CustomRule{rule})
+	if len(got) != 0 {
+		t.Fatalf("not_equals must not fire when present-and-equal, got %d findings", len(got))
+	}
+	// Field present and differing: must fire.
+	got = EvaluateCustomRules(JobPayload{EventType: "X", Payload: map[string]any{"parameters": map[string]any{"visibility": "public"}}}, []CustomRule{rule})
+	if len(got) != 1 {
+		t.Fatalf("not_equals must fire when present-and-differing, got %d findings", len(got))
+	}
+}
+
 func TestSeverityToRiskScoreUnknownDefaultsToMedium(t *testing.T) {
 	if severityToRiskScore("CHARLIE") != 50 {
 		t.Fatal("unknown severity must default to MEDIUM-equivalent score")

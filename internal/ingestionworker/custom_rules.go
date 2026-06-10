@@ -178,6 +178,16 @@ func evalNode(node predicateNode, payload JobPayload) (bool, error) {
 	case "equals", "==":
 		return leafEquals(node, payload, false), nil
 	case "not_equals", "!=":
+		// A naive `!leafEquals` fires on every event that simply omits
+		// the field, since resolveField returns nil → "" → !equals(value)
+		// → true. That turns "not equal to private" into "missing OR not
+		// private" and generates spurious findings. Require the field to
+		// be present so not_equals expresses "present and differing"; an
+		// operator who wants "missing OR differing" can express it with
+		// an explicit OR over `exists` and `not_equals`.
+		if resolveField(node.Field, payload) == nil {
+			return false, nil
+		}
 		return !leafEquals(node, payload, false), nil
 	case "contains":
 		return leafContains(node, payload), nil

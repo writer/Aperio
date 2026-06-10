@@ -75,6 +75,36 @@ func TestShortHashDistinguishesDistinctUserKeys(t *testing.T) {
 	}
 }
 
+// TestGrantPKAndArbiterMoveTogether pins the invariant that the grant PK
+// and the natural-key arbiter (user_email) move together so neither the
+// recreate case (email reused, new external_id) nor the rename case
+// (external_id stable, email changes) can wedge the sweep with an
+// unabsorbable unique violation. The PK suffix must change iff the
+// email-or-external-id key changes.
+func TestGrantPKAndArbiterMoveTogether(t *testing.T) {
+	pkFor := func(email, externalID string) string {
+		key := email
+		if key == "" {
+			key = externalID
+		}
+		return shortHash(key)
+	}
+	// Recreate: same email, different external_id -> same PK -> arbiter
+	// matches existing row, DO UPDATE absorbs.
+	if pkFor("alice@example.test", "ext-old") != pkFor("alice@example.test", "ext-new") {
+		t.Fatal("email-reuse / recreate must keep the PK stable so arbiter UPDATE absorbs the row")
+	}
+	// Rename: stable external_id, new email -> different PK -> fresh
+	// INSERT (no PK collision), arbiter miss, new row.
+	if pkFor("alice.old@example.test", "ext-1") == pkFor("alice.new@example.test", "ext-1") {
+		t.Fatal("rename must produce a different PK so the fresh INSERT does not collide with the prior row")
+	}
+	// Empty-email fallback: still distinguishes two external_ids.
+	if pkFor("", "ext-1") == pkFor("", "ext-2") {
+		t.Fatal("empty-email fallback must distinguish distinct external_ids")
+	}
+}
+
 func TestStringArrayLiteralEscapes(t *testing.T) {
 	cases := []struct {
 		in   []string

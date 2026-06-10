@@ -297,22 +297,30 @@ func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p par
 }
 
 func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, assetID string, p parsedToken, identity identityRow, now time.Time) error {
-	// The PK is derived deterministically from (integration, client,
-	// userKey) where userKey is ExternalID with an email fallback. Two
-	// sweeps of the same user therefore always compute the same id, so we
-	// upsert on the primary key. This is critical when the upstream
-	// directory renames a user (external_id stable, email changes — a
-	// routine Workspace event): the second sweep computes the same PK but
-	// a different user_email, and if the ON CONFLICT arbiter were keyed on
-	// (..., user_email) the arbiter tuple would no longer match the
-	// existing row, Postgres would attempt a fresh INSERT, and we'd hit a
-	// primary-key unique violation that DO UPDATE could not absorb,
-	// wedging the entire integration sweep until the stale row was deleted
-	// by hand. Anchoring the arbiter on the PK keeps rename events as a
-	// quiet UPDATE that propagates the new user_email into the row.
-	userKey := identity.ExternalID
+	// oauth_app_grants has TWO uniqueness constraints: the primary key id
+	// and the natural-key unique on (organization_id, integration_id,
+	// external_app_id, user_email). The upsert can only arbitrate on ONE
+	// of them, and the OTHER must never collide for a given upsert call
+	// or the INSERT will raise an unabsorbable violation that wedges the
+	// integration sweep on every subsequent run.
+	//
+	// We arbitrate on the natural key (user_email) and derive the PK from
+	// the SAME tuple (shortHash of email-or-external-id), so the two keys
+	// move together:
+	//
+	//   * Recreate (email reused, new external_id):
+	//     same email → same PK → same arbiter tuple → quiet UPDATE.
+	//   * Rename (external_id stable, email changes):
+	//     new email → new PK → arbiter miss → fresh INSERT with new id,
+	//     no PK collision. The stale old-email row is left behind for
+	//     later cursor-based cleanup; this is strictly safer than wedging
+	//     the sweep.
+	//   * Empty external_id (already covered by sync_test):
+	//     userKey falls back to email so two distinct users never share a
+	//     PK suffix.
+	userKey := identity.Email
 	if userKey == "" {
-		userKey = identity.Email
+		userKey = identity.ExternalID
 	}
 	id := "grant_" + integ.ID + "_" + p.ClientID + "_" + shortHash(userKey)
 	_, err := s.db.ExecContext(ctx, `
@@ -325,10 +333,9 @@ func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, asset
 			$6, $7, $8, $9,
 			$10::text[], $11, $12, $13, NOW(), NOW()
 		)
-		ON CONFLICT (id) DO UPDATE SET
+		ON CONFLICT (organization_id, integration_id, external_app_id, user_email) DO UPDATE SET
 			asset_id           = EXCLUDED.asset_id,
 			app_display_name   = EXCLUDED.app_display_name,
-			user_email         = EXCLUDED.user_email,
 			user_external_id   = EXCLUDED.user_external_id,
 			user_display_name  = EXCLUDED.user_display_name,
 			scopes             = EXCLUDED.scopes,
