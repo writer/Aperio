@@ -57,7 +57,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Title:       "Okta password policy weakened",
 		Description: "An Okta password policy was changed to relax length, complexity, or rotation requirements.",
 		Severity:    "HIGH",
-		EventTypes:  []string{"POLICY_RULE_UPDATE", "PASSWORD_POLICY_UPDATE"},
+		EventTypes:  []string{"POLICY_LIFECYCLE_UPDATE", "PASSWORD_POLICY_UPDATED"},
 	},
 	{
 		ID:          "okta.suspicious_signin",
