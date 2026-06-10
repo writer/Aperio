@@ -297,15 +297,19 @@ func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p par
 }
 
 func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, assetID string, p parsedToken, identity identityRow, now time.Time) error {
-	// Build the PK from the (integration, client, user) triple. external_id
-	// may be empty in production: identityRow rows can land with a blank
-	// external_id when the directory sync hasn't filled it in yet, in which
-	// case the caller falls back to email as the userKey. Hash the email-or-
-	// external-id userKey into the PK so two distinct empty-external-id
-	// users granting the same OAuth app under one integration cannot derive
-	// the same id and abort the sweep with a duplicate-key error on the
-	// second insert (the ON CONFLICT clause keys on user_email, which would
-	// not match between the two rows).
+	// The PK is derived deterministically from (integration, client,
+	// userKey) where userKey is ExternalID with an email fallback. Two
+	// sweeps of the same user therefore always compute the same id, so we
+	// upsert on the primary key. This is critical when the upstream
+	// directory renames a user (external_id stable, email changes — a
+	// routine Workspace event): the second sweep computes the same PK but
+	// a different user_email, and if the ON CONFLICT arbiter were keyed on
+	// (..., user_email) the arbiter tuple would no longer match the
+	// existing row, Postgres would attempt a fresh INSERT, and we'd hit a
+	// primary-key unique violation that DO UPDATE could not absorb,
+	// wedging the entire integration sweep until the stale row was deleted
+	// by hand. Anchoring the arbiter on the PK keeps rename events as a
+	// quiet UPDATE that propagates the new user_email into the row.
 	userKey := identity.ExternalID
 	if userKey == "" {
 		userKey = identity.Email
@@ -321,9 +325,10 @@ func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, asset
 			$6, $7, $8, $9,
 			$10::text[], $11, $12, $13, NOW(), NOW()
 		)
-		ON CONFLICT (organization_id, integration_id, external_app_id, user_email) DO UPDATE SET
+		ON CONFLICT (id) DO UPDATE SET
 			asset_id           = EXCLUDED.asset_id,
 			app_display_name   = EXCLUDED.app_display_name,
+			user_email         = EXCLUDED.user_email,
 			user_external_id   = EXCLUDED.user_external_id,
 			user_display_name  = EXCLUDED.user_display_name,
 			scopes             = EXCLUDED.scopes,
