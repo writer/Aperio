@@ -15,23 +15,30 @@ func mustPredicate(t *testing.T, s string) json.RawMessage {
 }
 
 func TestEvaluateCustomRulesEmptyPredicateMatchesByEventType(t *testing.T) {
-	rules := []CustomRule{{
-		ID:        "r1",
-		Name:      "All external sharing",
-		Severity:  "HIGH",
-		EventType: "EXTERNAL_SHARING_ENABLED",
-		Predicate: mustPredicate(t, `{}`),
-		Enabled:   true,
-	}}
-	got := EvaluateCustomRules(JobPayload{EventType: "EXTERNAL_SHARING_ENABLED", Actor: "alice@x.com"}, rules)
-	if len(got) != 1 {
-		t.Fatalf("expected one finding, got %d", len(got))
-	}
-	if got[0].Severity != "HIGH" {
-		t.Fatalf("severity passthrough wrong: %s", got[0].Severity)
-	}
-	if got[0].RuleID != "custom.r1" {
-		t.Fatalf("rule id should be custom.<id>: %s", got[0].RuleID)
+	for name, predicate := range map[string]string{
+		"empty object": `{}`,
+		"null":         `null`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rules := []CustomRule{{
+				ID:        "r1",
+				Name:      "All external sharing",
+				Severity:  "HIGH",
+				EventType: "EXTERNAL_SHARING_ENABLED",
+				Predicate: mustPredicate(t, predicate),
+				Enabled:   true,
+			}}
+			got := EvaluateCustomRules(JobPayload{EventType: "EXTERNAL_SHARING_ENABLED", Actor: "alice@x.com"}, rules)
+			if len(got) != 1 {
+				t.Fatalf("expected one finding, got %d", len(got))
+			}
+			if got[0].Severity != "HIGH" {
+				t.Fatalf("severity passthrough wrong: %s", got[0].Severity)
+			}
+			if got[0].RuleID != "custom.r1" {
+				t.Fatalf("rule id should be custom.<id>: %s", got[0].RuleID)
+			}
+		})
 	}
 }
 

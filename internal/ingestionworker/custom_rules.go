@@ -228,7 +228,8 @@ func validateNode(node predicateNode) error {
 // structurally invalid predicate (missing field, unknown op) so a
 // malformed rule cannot silently swallow a match.
 func evalPredicate(raw json.RawMessage, payload JobPayload) (bool, error) {
-	if len(raw) == 0 || string(raw) == "{}" {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "{}" || trimmed == "null" {
 		// Empty predicate is treated as "always match for this event_type".
 		// The event_type filter in EvaluateCustomRules has already narrowed
 		// the candidate set, so an empty predicate is a useful sentinel for
