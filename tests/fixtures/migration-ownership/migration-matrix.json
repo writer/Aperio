@@ -354,14 +354,16 @@
       "state": "validation-tooling",
       "covers": [
         "repo-file:scripts/dev*.mjs",
+        "repo-file:scripts/load-env-shell.mjs",
         "repo-file:scripts/seed.ts"
       ],
       "owner": "Local development and deterministic seed scripts",
-      "rationale": "Dev and seed scripts prepare the local stack used by validators and the pending E2E harness.",
+      "rationale": "Dev, env-loading, and seed scripts prepare the local stack used by validators and the pending E2E harness.",
       "evidence": [
         "source:scripts/dev.mjs",
         "source:scripts/dev-config.mjs",
         "source:scripts/dev-env.mjs",
+        "source:scripts/load-env-shell.mjs",
         "source:scripts/seed.ts"
       ]
     },

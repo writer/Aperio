@@ -30,6 +30,12 @@ function tamperEnvelope(encrypted: string) {
   return Buffer.from(JSON.stringify(envelope), "utf8").toString("base64url");
 }
 
+function removeEnvelopeField(encrypted: string, field: "iv" | "tag" | "ciphertext") {
+  const envelope = JSON.parse(Buffer.from(encrypted, "base64url").toString("utf8")) as Record<string, unknown>;
+  delete envelope[field];
+  return Buffer.from(JSON.stringify(envelope), "utf8").toString("base64url");
+}
+
 function thrownMessage(fn: () => unknown) {
   try {
     fn();
@@ -77,11 +83,19 @@ test("credential envelopes fail closed for missing key, malformed data, wrong AA
   );
   assert.match(tamperedMessage, /Encrypted value authentication failed/);
 
+  const missingFieldMessages = (["iv", "tag", "ciphertext"] as const).map((field) =>
+    thrownMessage(() => decryptString(removeEnvelopeField(goWrittenEnvelope, field), fixtureAAD))
+  );
+  for (const message of missingFieldMessages) {
+    assert.match(message, /Encrypted value is malformed/);
+  }
+
   for (const message of [
     missingKeyMessage,
     malformedMessage,
     wrongAADMessage,
-    tamperedMessage
+    tamperedMessage,
+    ...missingFieldMessages
   ]) {
     assert.doesNotMatch(message, new RegExp(fixturePlaintext));
   }

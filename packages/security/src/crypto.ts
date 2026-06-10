@@ -21,7 +21,10 @@ type EncryptedEnvelope = {
   ciphertext: string;
 };
 
-function decodeBase64Url(value: string): Buffer {
+function decodeBase64Url(value: unknown): Buffer {
+  if (typeof value !== "string") {
+    throw new Error("Invalid base64url value");
+  }
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(normalized, "base64");
 }
@@ -126,23 +129,38 @@ export function decryptString(
   // Decryption intentionally mirrors encryptString: callers must provide the
   // same AAD context or authentication fails before plaintext is returned.
   const key = resolveKey();
-  const decipher = createDecipheriv(
-    ALGORITHM,
-    key,
-    decodeBase64Url(envelope.iv),
-    { authTagLength: AUTH_TAG_BYTES }
-  );
-  const aad = aadBuffer(additionalAuthenticatedData);
-
-  if (aad) {
-    decipher.setAAD(aad);
-  }
-
-  decipher.setAuthTag(decodeBase64Url(envelope.tag));
+  let iv: Buffer;
+  let tag: Buffer;
+  let ciphertext: Buffer;
 
   try {
+    iv = decodeBase64Url(envelope.iv);
+    tag = decodeBase64Url(envelope.tag);
+    ciphertext = decodeBase64Url(envelope.ciphertext);
+  } catch {
+    throw new Error("Encrypted value is malformed");
+  }
+
+  if (
+    iv.length !== IV_BYTES ||
+    tag.length !== AUTH_TAG_BYTES ||
+    ciphertext.length === 0
+  ) {
+    throw new Error("Encrypted value is malformed");
+  }
+
+  const aad = aadBuffer(additionalAuthenticatedData);
+
+  try {
+    const decipher = createDecipheriv(ALGORITHM, key, iv, {
+      authTagLength: AUTH_TAG_BYTES
+    });
+    if (aad) {
+      decipher.setAAD(aad);
+    }
+    decipher.setAuthTag(tag);
     return Buffer.concat([
-      decipher.update(decodeBase64Url(envelope.ciphertext)),
+      decipher.update(ciphertext),
       decipher.final()
     ]).toString("utf8");
   } catch {

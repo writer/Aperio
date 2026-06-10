@@ -14,7 +14,10 @@ const blockedHostnameSuffixes = [
 function normalizeHostname(hostname: string) {
   // Normalize trailing-dot FQDNs before allow/deny checks so "localhost." and
   // equivalent private suffixes cannot bypass string comparisons.
-  return hostname.trim().replace(/\.$/, "").toLowerCase();
+  const normalized = hostname.trim().replace(/\.$/, "").toLowerCase();
+  return normalized.startsWith("[") && normalized.endsWith("]")
+    ? normalized.slice(1, -1)
+    : normalized;
 }
 
 function isPrivateIpv4(address: string) {
@@ -54,7 +57,33 @@ function isPrivateIpv6(address: string) {
 
   if (normalized.startsWith("::ffff:")) {
     // IPv4-mapped IPv6 addresses inherit the IPv4 private-space policy.
-    return isPrivateIpv4(normalized.slice("::ffff:".length));
+    const tail = normalized.slice("::ffff:".length);
+    if (tail.includes(".")) {
+      return isPrivateIpv4(tail);
+    }
+    const parts = tail.split(":");
+    if (parts.length === 2) {
+      const high = Number.parseInt(parts[0], 16);
+      const low = Number.parseInt(parts[1], 16);
+      if (
+        Number.isInteger(high) &&
+        Number.isInteger(low) &&
+        high >= 0 &&
+        high <= 0xffff &&
+        low >= 0 &&
+        low <= 0xffff
+      ) {
+        return isPrivateIpv4(
+          [
+            (high >> 8) & 0xff,
+            high & 0xff,
+            (low >> 8) & 0xff,
+            low & 0xff
+          ].join(".")
+        );
+      }
+    }
+    return true;
   }
 
   return (

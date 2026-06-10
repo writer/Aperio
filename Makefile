@@ -30,10 +30,9 @@ YELLOW := \033[33m
 CYAN := \033[36m
 RESET := \033[0m
 
-# Quote-safe .env loader for recipe shells. `include .env` keeps surrounding
-# quotes as part of the value (breaking pgx and friends), so each recipe that
-# needs configuration sources the file in its own shell instead.
-LOAD_ENV := set -a; [ -f $(ENV_FILE) ] && . ./$(ENV_FILE); set +a;
+# Quote-safe .env loader for recipe shells. Explicit environment variables win
+# over values from ENV_FILE so alternate-port test runs can override .env.
+LOAD_ENV := eval "$$(node scripts/load-env-shell.mjs "$(ENV_FILE)")";
 
 ##@ Help
 
@@ -157,7 +156,7 @@ smoke-workers-go: require-env ## Run bounded Go worker smokes
 
 .PHONY: smoke-e2e
 smoke-e2e: require-env ## Run the local Go API + TypeScript FE E2E smoke harness
-	@npm run smoke:e2e
+	@$(LOAD_ENV) ENV_FILE="$(ENV_FILE)" npm run smoke:e2e
 
 .PHONY: mcp
 mcp: require-env ## Run the Go stdio MCP broker
@@ -182,14 +181,14 @@ logs: ## Tail local infrastructure logs
 
 .PHONY: db-up
 db-up: require-env ## Start Postgres on the port from DATABASE_URL
-	@$(LOAD_ENV) export APERIO_POSTGRES_PORT=$$(node $(DEV_CONFIG) db-port); \
+	@$(LOAD_ENV) set -e; export APERIO_POSTGRES_PORT=$$(node $(DEV_CONFIG) db-port); \
 		printf '$(CYAN)Starting Postgres on host port %s ...$(RESET)\n' "$$APERIO_POSTGRES_PORT"; \
 		$(COMPOSE) up -d --wait postgres; \
 		node $(DEV_CONFIG) wait postgres "$$DATABASE_URL" 60000
 
 .PHONY: nats-up
 nats-up: require-env ## Start NATS on the port from APERIO_NATS_URL
-	@$(LOAD_ENV) export APERIO_NATS_PORT=$$(node $(DEV_CONFIG) nats-port); \
+	@$(LOAD_ENV) set -e; export APERIO_NATS_PORT=$$(node $(DEV_CONFIG) nats-port); \
 		export APERIO_NATS_MONITOR_PORT=$$(node $(DEV_CONFIG) nats-monitor-port); \
 		printf '$(CYAN)Starting NATS on host port %s ...$(RESET)\n' "$$APERIO_NATS_PORT"; \
 		$(COMPOSE) up -d --wait nats; \

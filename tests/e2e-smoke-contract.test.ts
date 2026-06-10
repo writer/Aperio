@@ -23,7 +23,7 @@ test("local E2E smoke command is registered as the authoritative harness", () =>
   assert.equal(packageJson.scripts["smoke:e2e"], "node scripts/smoke-e2e.mjs");
   assert.match(makefile, /^\.PHONY: .*smoke-e2e/m);
   assert.match(makefile, /^smoke-e2e: require-env ## Run the local Go API \+ TypeScript FE E2E smoke harness/m);
-  assert.match(makefile, /\bnpm run smoke:e2e\b/);
+  assert.match(makefile, /\$\(LOAD_ENV\) ENV_FILE="\$\(ENV_FILE\)" npm run smoke:e2e/);
 });
 
 test("CI e2e-smoke writes local .env before launching the smoke harness", () => {
