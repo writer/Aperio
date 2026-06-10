@@ -309,6 +309,104 @@ func TestDBIntegrationLifecycle(t *testing.T) {
 	}
 }
 
+func TestDBGoogleOAuthReconnectPreservesDisabledChecks(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+	input := googleIntegrationUpsert{
+		organizationID:    auth.OrganizationID,
+		externalAccountID: "example.com",
+		displayName:       "Example Workspace",
+		mode:              "READ_ONLY",
+		refreshToken:      "refresh-token-1",
+		adminEmail:        "admin@example.com",
+		requestIP:         "127.0.0.1",
+	}
+	if err := app.upsertGoogleWorkspaceIntegration(ctx, input); err != nil {
+		t.Fatalf("initial google oauth upsert: %v", err)
+	}
+
+	var integrationID string
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM integration_connections
+		WHERE organization_id = $1 AND provider = 'GOOGLE_WORKSPACE' AND external_account_id = $2
+	`, auth.OrganizationID, input.externalAccountID).Scan(&integrationID); err != nil {
+		t.Fatalf("query google integration: %v", err)
+	}
+
+	const disabledCheck = "google_workspace.risky_oauth_grant"
+	if _, err := app.db.ExecContext(ctx, `
+		UPDATE integration_connections
+		SET disabled_checks = ARRAY[$1]::text[]
+		WHERE id = $2 AND organization_id = $3
+	`, disabledCheck, integrationID, auth.OrganizationID); err != nil {
+		t.Fatalf("seed disabled checks: %v", err)
+	}
+
+	input.displayName = "Example Workspace Reconnected"
+	input.mode = "REMEDIATION"
+	input.refreshToken = "refresh-token-2"
+	if err := app.upsertGoogleWorkspaceIntegration(ctx, input); err != nil {
+		t.Fatalf("reconnect google oauth upsert: %v", err)
+	}
+
+	var disabledJSON string
+	var displayName string
+	var mode string
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT array_to_json(disabled_checks)::text, display_name, mode::text
+		FROM integration_connections
+		WHERE id = $1 AND organization_id = $2
+	`, integrationID, auth.OrganizationID).Scan(&disabledJSON, &displayName, &mode); err != nil {
+		t.Fatalf("query disabled checks after reconnect: %v", err)
+	}
+	var disabled []string
+	if err := json.Unmarshal([]byte(disabledJSON), &disabled); err != nil {
+		t.Fatalf("decode disabled checks after reconnect: %v", err)
+	}
+	if len(disabled) != 1 || disabled[0] != disabledCheck {
+		t.Fatalf("disabled checks after reconnect = %v, want [%s]", disabled, disabledCheck)
+	}
+	if displayName != input.displayName || mode != input.mode {
+		t.Fatalf("reconnect did not update metadata: displayName=%q mode=%q", displayName, mode)
+	}
+}
+
+func TestDBSecurityAssetOwnerFieldsPersist(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+	owner := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	businessOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "VIEWER")
+
+	created := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatCreateSecurityAsset(ctx, map[string]any{
+			"ownerUserId":           owner.UserID,
+			"businessOwnerUserId":   businessOwner.UserID,
+			"type":                  "DATA_RESOURCE",
+			"name":                  "Customer DB",
+			"labels":                []any{"database"},
+			"criticality":           "HIGH",
+			"exposureLevel":         "INTERNAL",
+			"ownershipStatus":       "ASSIGNED",
+			"containsSensitiveData": true,
+			"isPrivileged":          false,
+			"riskScore":             65,
+		}, auth)
+	}))
+	assetID := created["id"].(string)
+	assertAssetOwners(t, app, assetID, owner.UserID, businessOwner.UserID)
+
+	nextOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "ADMIN")
+	nextBusinessOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	_ = dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateSecurityAsset(ctx, assetID, map[string]any{
+			"ownerUserId":         nextOwner.UserID,
+			"businessOwnerUserId": nextBusinessOwner.UserID,
+		}, auth)
+	}))
+	assertAssetOwners(t, app, assetID, nextOwner.UserID, nextBusinessOwner.UserID)
+}
+
 func TestDBSiemLifecycle(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()
@@ -2123,6 +2221,25 @@ func assertFindingState(t *testing.T, app *App, findingID, wantStatus string, wa
 	}
 	if status != wantStatus || resolvedAt.Valid != wantResolvedAt {
 		t.Fatalf("finding state = (%s,resolved_at:%v), want (%s,resolved_at:%v)", status, resolvedAt.Valid, wantStatus, wantResolvedAt)
+	}
+}
+
+func assertAssetOwners(t *testing.T, app *App, assetID, wantOwnerID, wantBusinessOwnerID string) {
+	t.Helper()
+	var ownerID sql.NullString
+	var businessOwnerID sql.NullString
+	if err := app.db.QueryRowContext(context.Background(), `
+		SELECT owner_user_id, business_owner_user_id
+		FROM security_assets
+		WHERE id = $1
+	`, assetID).Scan(&ownerID, &businessOwnerID); err != nil {
+		t.Fatalf("query asset owners: %v", err)
+	}
+	if !ownerID.Valid || ownerID.String != wantOwnerID {
+		t.Fatalf("owner_user_id = %v, want %s", ownerID, wantOwnerID)
+	}
+	if !businessOwnerID.Valid || businessOwnerID.String != wantBusinessOwnerID {
+		t.Fatalf("business_owner_user_id = %v, want %s", businessOwnerID, wantBusinessOwnerID)
 	}
 }
 

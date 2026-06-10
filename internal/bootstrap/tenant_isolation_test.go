@@ -149,6 +149,46 @@ func TestTenantIsolationByIDRoutesRejectForeignResources(t *testing.T) {
 		out, err := app.compatUpdateRiskException(ctx, victimExceptionID, map[string]any{"status": "REVOKED"}, attacker)
 		assertNotFound(t, "compatUpdateRiskException", out, err)
 	})
+	t.Run("create security asset with foreign integration", func(t *testing.T) {
+		out, err := app.compatCreateSecurityAsset(ctx, map[string]any{
+			"integrationId":         victimIntegrationID,
+			"type":                  "DATA_RESOURCE",
+			"name":                  "Attacker Asset",
+			"containsSensitiveData": true,
+			"isPrivileged":          true,
+			"riskScore":             90,
+		}, attacker)
+		assertNotFound(t, "compatCreateSecurityAsset", out, err)
+	})
+	t.Run("create security asset with foreign owner", func(t *testing.T) {
+		out, err := app.compatCreateSecurityAsset(ctx, map[string]any{
+			"ownerUserId":           victim.UserID,
+			"type":                  "DATA_RESOURCE",
+			"name":                  "Attacker Asset",
+			"containsSensitiveData": true,
+			"isPrivileged":          true,
+			"riskScore":             90,
+		}, attacker)
+		assertNotFound(t, "compatCreateSecurityAsset owner", out, err)
+	})
+	t.Run("create risk exception with foreign asset", func(t *testing.T) {
+		out, err := app.compatCreateRiskException(ctx, map[string]any{
+			"assetId":              victimAssetID,
+			"title":                "Attacker exception",
+			"rationale":            "should not cross tenants",
+			"compensatingControls": []any{},
+		}, attacker)
+		assertNotFound(t, "compatCreateRiskException asset", out, err)
+	})
+	t.Run("create risk exception with foreign finding", func(t *testing.T) {
+		out, err := app.compatCreateRiskException(ctx, map[string]any{
+			"findingId":            victimFindingID,
+			"title":                "Attacker exception",
+			"rationale":            "should not cross tenants",
+			"compensatingControls": []any{},
+		}, attacker)
+		assertNotFound(t, "compatCreateRiskException finding", out, err)
+	})
 
 	// The probes above must not have leaked the resources into the attacker's
 	// tenant or mutated the victim's rows.

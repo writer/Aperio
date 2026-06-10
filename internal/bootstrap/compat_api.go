@@ -1960,7 +1960,19 @@ func (a *App) compatCreateSecurityAsset(ctx context.Context, body map[string]any
 		return nil, err
 	}
 	id := compatID("ast")
-	_, err := a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, last_observed_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,'UNASSIGNED'),$13,$14,$15,$16,NOW(),NOW())`, id, auth.OrganizationID, optionalStringPtr(body, "integrationId"), requiredString(body, "type"), optionalStringPtr(body, "provider"), requiredString(body, "name"), optionalStringPtr(body, "summary"), optionalStringPtr(body, "externalId"), stringSlice(body["labels"]), stringDefault(body, "criticality", "MEDIUM"), stringDefault(body, "exposureLevel", "INTERNAL"), optionalStringPtr(body, "ownershipStatus"), boolValue(body["containsSensitiveData"]), boolValue(body["isPrivileged"]), intValue(body["riskScore"]), optionalTime(body, "lastObservedAt"))
+	integrationID := optionalStringPtr(body, "integrationId")
+	if err := a.assertOptionalIntegrationOwned(ctx, integrationID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	ownerUserID := optionalStringPtr(body, "ownerUserId")
+	if err := a.assertOptionalUserOwned(ctx, ownerUserID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	businessOwnerUserID := optionalStringPtr(body, "businessOwnerUserId")
+	if err := a.assertOptionalUserOwned(ctx, businessOwnerUserID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	_, err := a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, owner_user_id, business_owner_user_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, last_observed_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6::"SecurityAssetType",$7::"SaaSProvider",$8,$9,$10,$11,$12::"AssetCriticality",$13::"AssetExposureLevel",COALESCE($14::"AssetOwnershipStatus",'UNASSIGNED'::"AssetOwnershipStatus"),$15,$16,$17,$18,NOW(),NOW())`, id, auth.OrganizationID, integrationID, ownerUserID, businessOwnerUserID, requiredString(body, "type"), optionalStringPtr(body, "provider"), requiredString(body, "name"), optionalStringPtr(body, "summary"), optionalStringPtr(body, "externalId"), stringSlice(body["labels"]), stringDefault(body, "criticality", "MEDIUM"), stringDefault(body, "exposureLevel", "INTERNAL"), optionalStringPtr(body, "ownershipStatus"), boolValue(body["containsSensitiveData"]), boolValue(body["isPrivileged"]), intValue(body["riskScore"]), optionalTime(body, "lastObservedAt"))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -1977,7 +1989,15 @@ func (a *App) compatUpdateSecurityAsset(ctx context.Context, id string, body map
 	if err := requireCompatRole(auth, "OWNER", "ADMIN", "SECURITY_ANALYST"); err != nil {
 		return nil, err
 	}
-	_, err := a.db.ExecContext(ctx, `UPDATE security_assets SET name = COALESCE($1, name), summary = COALESCE($2, summary), labels = COALESCE($3, labels), criticality = COALESCE($4, criticality), exposure_level = COALESCE($5, exposure_level), ownership_status = COALESCE($6, ownership_status), contains_sensitive_data = COALESCE($7, contains_sensitive_data), is_privileged = COALESCE($8, is_privileged), risk_score = COALESCE($9, risk_score), updated_at = NOW() WHERE id = $10 AND organization_id = $11`, optionalStringPtr(body, "name"), optionalStringPtr(body, "summary"), optionalStringSlice(body, "labels"), optionalStringPtr(body, "criticality"), optionalStringPtr(body, "exposureLevel"), optionalStringPtr(body, "ownershipStatus"), optionalBool(body, "containsSensitiveData"), optionalBool(body, "isPrivileged"), optionalInt(body, "riskScore"), id, auth.OrganizationID)
+	ownerUserID := optionalStringPtr(body, "ownerUserId")
+	if err := a.assertOptionalUserOwned(ctx, ownerUserID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	businessOwnerUserID := optionalStringPtr(body, "businessOwnerUserId")
+	if err := a.assertOptionalUserOwned(ctx, businessOwnerUserID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	_, err := a.db.ExecContext(ctx, `UPDATE security_assets SET owner_user_id = COALESCE($1, owner_user_id), business_owner_user_id = COALESCE($2, business_owner_user_id), name = COALESCE($3, name), summary = COALESCE($4, summary), labels = COALESCE($5, labels), criticality = COALESCE($6::"AssetCriticality", criticality), exposure_level = COALESCE($7::"AssetExposureLevel", exposure_level), ownership_status = COALESCE($8::"AssetOwnershipStatus", ownership_status), contains_sensitive_data = COALESCE($9, contains_sensitive_data), is_privileged = COALESCE($10, is_privileged), risk_score = COALESCE($11, risk_score), updated_at = NOW() WHERE id = $12 AND organization_id = $13`, ownerUserID, businessOwnerUserID, optionalStringPtr(body, "name"), optionalStringPtr(body, "summary"), optionalStringSlice(body, "labels"), optionalStringPtr(body, "criticality"), optionalStringPtr(body, "exposureLevel"), optionalStringPtr(body, "ownershipStatus"), optionalBool(body, "containsSensitiveData"), optionalBool(body, "isPrivileged"), optionalInt(body, "riskScore"), id, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -1995,6 +2015,14 @@ func (a *App) compatCreateRiskException(ctx context.Context, body map[string]any
 		return nil, err
 	}
 	id := compatID("rex")
+	assetID := optionalStringPtr(body, "assetId")
+	if err := a.assertOptionalSecurityAssetOwned(ctx, assetID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
+	findingID := optionalStringPtr(body, "findingId")
+	if err := a.assertOptionalFindingOwned(ctx, findingID, auth.OrganizationID); err != nil {
+		return nil, err
+	}
 	status := "ACTIVE"
 	approvedBy := any(nil)
 	approvedAt := any(nil)
@@ -2002,7 +2030,7 @@ func (a *App) compatCreateRiskException(ctx context.Context, body map[string]any
 		approvedBy = auth.UserID
 		approvedAt = time.Now()
 	}
-	_, err := a.db.ExecContext(ctx, `INSERT INTO risk_exceptions (id, organization_id, asset_id, finding_id, created_by_user_id, approved_by_user_id, title, rationale, compensating_controls, status, expires_at, approved_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())`, id, auth.OrganizationID, optionalStringPtr(body, "assetId"), optionalStringPtr(body, "findingId"), auth.UserID, approvedBy, requiredString(body, "title"), requiredString(body, "rationale"), stringSlice(body["compensatingControls"]), status, optionalTime(body, "expiresAt"), approvedAt)
+	_, err := a.db.ExecContext(ctx, `INSERT INTO risk_exceptions (id, organization_id, asset_id, finding_id, created_by_user_id, approved_by_user_id, title, rationale, compensating_controls, status, expires_at, approved_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())`, id, auth.OrganizationID, assetID, findingID, auth.UserID, approvedBy, requiredString(body, "title"), requiredString(body, "rationale"), stringSlice(body["compensatingControls"]), status, optionalTime(body, "expiresAt"), approvedAt)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -2030,6 +2058,61 @@ func (a *App) compatUpdateRiskException(ctx context.Context, id string, body map
 		}
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("exception not found"))
+}
+
+func (a *App) assertOptionalIntegrationOwned(ctx context.Context, id *string, organizationID string) error {
+	if id == nil {
+		return nil
+	}
+	return a.assertIntegrationOwned(ctx, *id, organizationID)
+}
+
+func (a *App) assertOptionalSecurityAssetOwned(ctx context.Context, id *string, organizationID string) error {
+	if id == nil {
+		return nil
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM security_assets WHERE id = $1 AND organization_id = $2)
+	`, *id, organizationID).Scan(&exists); err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return connect.NewError(connect.CodeNotFound, errors.New("asset not found"))
+	}
+	return nil
+}
+
+func (a *App) assertOptionalUserOwned(ctx context.Context, id *string, organizationID string) error {
+	if id == nil {
+		return nil
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND organization_id = $2)
+	`, *id, organizationID).Scan(&exists); err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return connect.NewError(connect.CodeNotFound, errors.New("user not found"))
+	}
+	return nil
+}
+
+func (a *App) assertOptionalFindingOwned(ctx context.Context, id *string, organizationID string) error {
+	if id == nil {
+		return nil
+	}
+	var exists bool
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM security_findings WHERE id = $1 AND organization_id = $2)
+	`, *id, organizationID).Scan(&exists); err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	if !exists {
+		return connect.NewError(connect.CodeNotFound, errors.New("finding not found"))
+	}
+	return nil
 }
 
 // Utility helpers.
