@@ -452,7 +452,6 @@ func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input google
 		ON CONFLICT (organization_id, provider, external_account_id) DO UPDATE SET
 			display_name = EXCLUDED.display_name,
 			scopes = EXCLUDED.scopes,
-			disabled_checks = EXCLUDED.disabled_checks,
 			mode = EXCLUDED.mode,
 			encrypted_access_token = EXCLUDED.encrypted_access_token,
 			encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
