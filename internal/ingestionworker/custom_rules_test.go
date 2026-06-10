@@ -210,6 +210,52 @@ func TestEvaluateCustomRulesNotEqualsRequiresFieldPresent(t *testing.T) {
 	}
 }
 
+// TestValidatePredicateRejectsMalformedShapes pins the gate that prevents
+// the bootstrap API from persisting a 200 for a predicate the evaluator
+// can never execute. Without this check json.Marshal accepts any JSON
+// value (scalar, array, object), the row lands in the DB, and the
+// evaluator's Unmarshal-into-predicateNode failure is silently swallowed
+// as a clean skip — the operator sees a phantom rule in the UI that
+// never matches anything.
+func TestValidatePredicateRejectsMalformedShapes(t *testing.T) {
+	bad := map[string]string{
+		"scalar number":    `5`,
+		"scalar string":    `"foo"`,
+		"array":            `["x"]`,
+		"unknown op":       `{"op":"regex","field":"actor","value":".*"}`,
+		"missing op":       `{"field":"actor","value":"x"}`,
+		"missing field":    `{"op":"equals","value":"x"}`,
+		"missing value":    `{"op":"equals","field":"actor"}`,
+		"unknown key":      `{"op":"equals","field":"actor","value":"x","extra":1}`,
+		"empty and":        `{"op":"and","predicates":[]}`,
+		"nested bad child": `{"op":"or","predicates":[{"op":"equals","field":"actor","value":"x"},{"op":"regex","field":"a","value":"b"}]}`,
+	}
+	for name, body := range bad {
+		if err := ValidatePredicate([]byte(body)); err == nil {
+			t.Errorf("%s: expected ValidatePredicate to reject %s", name, body)
+		}
+	}
+}
+
+func TestValidatePredicateAcceptsValidShapes(t *testing.T) {
+	good := []string{
+		``,
+		`{}`,
+		`null`,
+		`{"op":"equals","field":"actor","value":"x@y.com"}`,
+		`{"op":"not_equals","field":"payload.visibility","value":"private"}`,
+		`{"op":"contains","field":"payload.target_domain","value":"@vendor."}`,
+		`{"op":"in","field":"payload.scope","value":["a","b"]}`,
+		`{"op":"exists","field":"payload.token"}`,
+		`{"op":"and","predicates":[{"op":"equals","field":"actor","value":"x"},{"op":"or","predicates":[{"op":"contains","field":"a","value":"b"},{"op":"exists","field":"c"}]}]}`,
+	}
+	for _, body := range good {
+		if err := ValidatePredicate([]byte(body)); err != nil {
+			t.Errorf("ValidatePredicate rejected valid predicate %s: %v", body, err)
+		}
+	}
+}
+
 func TestSeverityToRiskScoreUnknownDefaultsToMedium(t *testing.T) {
 	if severityToRiskScore("CHARLIE") != 50 {
 		t.Fatal("unknown severity must default to MEDIUM-equivalent score")

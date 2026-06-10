@@ -40,7 +40,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "OKTA",
 		Title:       "Okta admin role assigned",
 		Description: "A user was granted an Okta administrator role, expanding their tenant-wide privileges.",
-		Severity:    "HIGH",
+		Severity:    "CRITICAL",
 		EventTypes:  []string{"USER_ACCOUNT_PRIVILEGE_GRANT", "USER_ACCOUNT_PRIVILEGE_GRANTED", "ADMIN_ROLE_ASSIGNED", "ROLE_ASSIGNMENT_CREATED"},
 	},
 	{
@@ -49,7 +49,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Title:       "Okta MFA factor reset",
 		Description: "A user's MFA factors were reset, which can be abused for account-takeover bypass during phishing.",
 		Severity:    "HIGH",
-		EventTypes:  []string{"USER_MFA_FACTOR_RESET", "USER_MFA_FACTOR_DEACTIVATE"},
+		EventTypes:  []string{"USER_MFA_FACTOR_RESET", "USER_MFA_FACTOR_RESET_ALL", "MFA_FACTOR_RESET"},
 	},
 	{
 		ID:          "okta.password_policy_weakened",
@@ -64,8 +64,8 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "OKTA",
 		Title:       "Okta suspicious sign-in",
 		Description: "A sign-in matched Okta's suspicious-activity signal (impossible travel, anomalous device, or threat intel hit).",
-		Severity:    "HIGH",
-		EventTypes:  []string{"USER_SESSION_START", "SECURITY_THREAT_DETECTED"},
+		Severity:    "MEDIUM",
+		EventTypes:  []string{"SECURITY_THREAT_DETECTED", "USER_AUTHENTICATION_FAILED", "USER_SESSION_START"},
 	},
 	{
 		ID:          "google_workspace.external_sharing_enabled",
@@ -120,7 +120,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "GOOGLE_WORKSPACE",
 		Title:       "Email forwarding enabled",
 		Description: "Mail forwarding or IMAP was enabled on a mailbox, opening a data-exfiltration channel.",
-		Severity:    "MEDIUM",
+		Severity:    "HIGH",
 		EventTypes:  []string{"EMAIL_FORWARDING_ENABLED"},
 	},
 	{
@@ -128,7 +128,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "GOOGLE_WORKSPACE",
 		Title:       "Mailbox delegation granted",
 		Description: "Mailbox delegation was granted, letting another account read or send mail on the mailbox owner's behalf.",
-		Severity:    "MEDIUM",
+		Severity:    "HIGH",
 		EventTypes:  []string{"MAILBOX_DELEGATION_GRANTED"},
 	},
 	{
@@ -136,7 +136,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "GOOGLE_WORKSPACE",
 		Title:       "Legacy mail authentication used",
 		Description: "A legacy IMAP/SMTP authentication path was used, which bypasses modern MFA and risk-based sign-in controls.",
-		Severity:    "MEDIUM",
+		Severity:    "HIGH",
 		EventTypes:  []string{"LEGACY_MAIL_AUTH_USED"},
 	},
 	{
@@ -144,7 +144,7 @@ var RuleCatalog = []RuleCatalogEntry{
 		Provider:    "GOOGLE_WORKSPACE",
 		Title:       "Forwarding + delegation + send-as combo",
 		Description: "A mailbox simultaneously has forwarding, delegation, and send-as configured — a classic exfiltration staging pattern.",
-		Severity:    "HIGH",
+		Severity:    "CRITICAL",
 		EventTypes:  []string{"FORWARDING_DELEGATE_SEND_AS_COMBO"},
 	},
 }

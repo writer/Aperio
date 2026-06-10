@@ -193,6 +193,9 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 	now := s.nowFn().UTC()
 	appsByClientID := map[string]parsedToken{}
 	grantCount := 0
+	attemptedUsers := 0
+	failedUsers := 0
+	var firstFailure error
 	for _, identity := range identities {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -204,12 +207,17 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 		if userKey == "" {
 			continue
 		}
+		attemptedUsers++
 		tokens, err := s.listTokensForUser(ctx, accessToken, userKey)
 		if err != nil {
 			// Permission errors for one user (e.g., suspended at Google's
 			// side after our row was last refreshed) must not abort the
 			// sweep. Surface to the integration-level cursor and move on.
 			log.Printf("googleworkspaceoauthsync: integ=%s user=%s tokens.list failed: %v", integ.ID, identity.Email, err)
+			failedUsers++
+			if firstFailure == nil {
+				firstFailure = err
+			}
 			continue
 		}
 		for _, t := range tokens {
@@ -228,7 +236,21 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 			grantCount++
 		}
 	}
-	s.touchCursor(ctx, integ.ID, len(appsByClientID), grantCount)
+	// A sweep where every attempted user errored is almost always a
+	// credential/scope misconfiguration (e.g., the exchanged access token
+	// lacks the Admin Directory token-read scope -> all users return 403).
+	// Without this guard the cursor would record last_error=NULL with
+	// last_grant_count=0, which is indistinguishable from a tenant that
+	// genuinely has zero OAuth grants — masking a total failure as a
+	// clean empty sweep. Promote the all-fail case to an integration-
+	// level error so the connectors UI can surface it. The partial-fail
+	// case still writes a heartbeat but records the count in last_error
+	// so the operator can see degradation without losing the successful
+	// rows.
+	if attemptedUsers > 0 && failedUsers == attemptedUsers && firstFailure != nil {
+		return fmt.Errorf("tokens.list failed for all %d directory users: %w", attemptedUsers, firstFailure)
+	}
+	s.touchCursor(ctx, integ.ID, len(appsByClientID), grantCount, failedUsers, attemptedUsers)
 	return nil
 }
 
@@ -351,17 +373,28 @@ func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, asset
 	return err
 }
 
-func (s *Sync) touchCursor(ctx context.Context, integrationID string, appCount, grantCount int) {
+func (s *Sync) touchCursor(ctx context.Context, integrationID string, appCount, grantCount, failedUsers, attemptedUsers int) {
+	// Partial failure: keep the successfully-collected counts visible but
+	// note the degradation in last_error so a connectors-page operator
+	// sees the WARN-level state instead of a deceptively-clean heartbeat.
+	var partialErr any
+	if failedUsers > 0 && failedUsers < attemptedUsers {
+		msg := fmt.Sprintf("tokens.list failed for %d of %d directory users", failedUsers, attemptedUsers)
+		if len(msg) > 480 {
+			msg = msg[:480]
+		}
+		partialErr = msg
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO google_workspace_oauth_sync_cursors
 			(integration_id, last_synced_at, last_app_count, last_grant_count, last_error)
-		VALUES ($1, $2, $3, $4, NULL)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (integration_id) DO UPDATE SET
 			last_synced_at   = EXCLUDED.last_synced_at,
 			last_app_count   = EXCLUDED.last_app_count,
 			last_grant_count = EXCLUDED.last_grant_count,
-			last_error       = NULL
-	`, integrationID, s.nowFn().UTC(), appCount, grantCount)
+			last_error       = EXCLUDED.last_error
+	`, integrationID, s.nowFn().UTC(), appCount, grantCount, partialErr)
 	if err != nil {
 		log.Printf("googleworkspaceoauthsync: touchCursor failed integ=%s: %v", integrationID, err)
 	}

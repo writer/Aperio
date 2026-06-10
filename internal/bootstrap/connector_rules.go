@@ -299,6 +299,16 @@ func parseCustomRuleBody(body map[string]any) (name, severity, eventType, subjec
 			return
 		}
 	}
+	// json.Marshal succeeds for any JSON value (scalar, array, object), so
+	// without a follow-up shape check the API silently persists a 200 for
+	// a rule that the evaluator can never execute (unmarshal into
+	// predicateNode fails -> EvaluateCustomRules treats the error as a
+	// clean skip). Reject malformed predicates here so the operator gets
+	// CodeInvalidArgument up front instead of a phantom-rule UI.
+	if validateErr := ingestionworker.ValidatePredicate(predicate); validateErr != nil {
+		err = validateErr
+		return
+	}
 	return
 }
 

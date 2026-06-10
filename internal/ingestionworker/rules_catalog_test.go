@@ -48,6 +48,77 @@ func TestRuleCatalogMatchesEvaluators(t *testing.T) {
 	}
 }
 
+// TestRuleCatalogSeveritiesAndEventTypesMatchEvaluators tightens the
+// catalog ↔ evaluator parity check beyond rule IDs. The previous
+// guardrail only pinned IDs, so the catalog could (and did) drift:
+// severities the worker never produced were rendered in the UI, and
+// event types that never fired were advertised as triggers. Both
+// regressions made operators triage and toggle against metadata the
+// pipeline never agreed with. For each catalog entry we locate the
+// `RuleID: "<id>"` line in worker.go and assert:
+//
+//   - The `Severity:` literal at the next few lines matches the catalog
+//     Severity. Rules with a runtime-computed severity (e.g.
+//     risky_oauth_grant where severity escalates with scope risk) are
+//     skipped — the catalog represents the dominant/baseline level only.
+//   - The event-type gating immediately preceding the RuleID line — be
+//     it a `switch normalizeEventType(...) { case "X","Y": }` block or
+//     a `normalized != "X" && normalized != "Y"` guard or a single
+//     `== "X"` check — is a superset of the catalog EventTypes, so the
+//     UI never advertises an event type the worker won't recognize.
+func TestRuleCatalogSeveritiesAndEventTypesMatchEvaluators(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("worker.go"))
+	if err != nil {
+		t.Fatalf("read worker.go: %v", err)
+	}
+	src := string(source)
+	severityLiteralRE := regexp.MustCompile(`Severity:\s+"([A-Z]+)"`)
+	caseRE := regexp.MustCompile(`case\s+((?:"[A-Z_]+"\s*,?\s*)+)\s*:`)
+	equalsEventRE := regexp.MustCompile(`(?:normalizeEventType\([^)]*\)|normalized)\s*==\s*"([A-Z_]+)"`)
+	notEqualsEventRE := regexp.MustCompile(`(?:normalizeEventType\([^)]*\)|normalized)\s*!=\s*"([A-Z_]+)"`)
+	for _, entry := range RuleCatalog {
+		ruleLitRE := regexp.MustCompile(`RuleID:\s+"` + regexp.QuoteMeta(entry.ID) + `"`)
+		loc := ruleLitRE.FindStringIndex(src)
+		if loc == nil {
+			continue
+		}
+		windowEnd := loc[1] + 400
+		if windowEnd > len(src) {
+			windowEnd = len(src)
+		}
+		if sevMatch := severityLiteralRE.FindStringSubmatch(src[loc[1]:windowEnd]); sevMatch != nil {
+			if sevMatch[1] != entry.Severity {
+				t.Errorf("rule %q severity drift: catalog=%q evaluator=%q (UI would render a severity the worker never emits)", entry.ID, entry.Severity, sevMatch[1])
+			}
+		}
+		// Look back up to ~2KB for the gating block immediately preceding
+		// the RuleID line; that's enough to span an evaluator function's
+		// guard clauses without leaking into the previous evaluator.
+		windowStart := loc[0] - 2048
+		if windowStart < 0 {
+			windowStart = 0
+		}
+		preceding := src[windowStart:loc[0]]
+		gated := map[string]bool{}
+		for _, m := range caseRE.FindAllStringSubmatch(preceding, -1) {
+			for _, part := range strings.Split(m[1], ",") {
+				gated[strings.Trim(strings.TrimSpace(part), `"`)] = true
+			}
+		}
+		for _, m := range equalsEventRE.FindAllStringSubmatch(preceding, -1) {
+			gated[m[1]] = true
+		}
+		for _, m := range notEqualsEventRE.FindAllStringSubmatch(preceding, -1) {
+			gated[m[1]] = true
+		}
+		for _, et := range entry.EventTypes {
+			if !gated[et] {
+				t.Errorf("rule %q event-type drift: catalog advertises %q but worker.go's switch never matches it (UI lists a trigger the worker never recognizes)", entry.ID, et)
+			}
+		}
+	}
+}
+
 // TestRuleCatalogProvidersAreKnown defends against a typo in Provider
 // classifying a rule under a SaaS provider the connectors UI does not
 // surface, which would orphan the toggle.

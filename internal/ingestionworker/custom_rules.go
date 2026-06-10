@@ -2,6 +2,7 @@ package ingestionworker
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -122,6 +123,64 @@ func severityToRiskScore(severity string) int {
 		return 30
 	default:
 		return 50
+	}
+}
+
+// ValidatePredicate checks that raw is a valid predicate DSL object before
+// the API layer persists it. Without this gate the parser silently accepts
+// scalars/arrays (because json.Marshal succeeds on any JSON value), the
+// row is stored with status 200, and the evaluator's json.Unmarshal into
+// predicateNode later fails — surfaced as a clean skip in
+// EvaluateCustomRules, so the operator's rule appears active in the UI
+// but can never fire. Empty/{} is treated as the "match every event of
+// this type" sentinel and accepted.
+func ValidatePredicate(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "{}" || trimmed == "null" {
+		return nil
+	}
+	var node predicateNode
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&node); err != nil {
+		return fmt.Errorf("predicate must be a JSON object with op/field/predicates/value keys: %w", err)
+	}
+	return validateNode(node)
+}
+
+func validateNode(node predicateNode) error {
+	op := strings.ToLower(strings.TrimSpace(node.Op))
+	switch op {
+	case "and", "or":
+		if len(node.Predicates) == 0 {
+			return fmt.Errorf("%q predicate requires at least one child predicate", op)
+		}
+		for i, child := range node.Predicates {
+			if err := validateNode(child); err != nil {
+				return fmt.Errorf("predicates[%d]: %w", i, err)
+			}
+		}
+		return nil
+	case "equals", "==", "not_equals", "!=", "contains", "in":
+		if strings.TrimSpace(node.Field) == "" {
+			return fmt.Errorf("%q predicate requires a field", op)
+		}
+		if len(node.Value) == 0 {
+			return fmt.Errorf("%q predicate requires a value", op)
+		}
+		return nil
+	case "exists":
+		if strings.TrimSpace(node.Field) == "" {
+			return fmt.Errorf("%q predicate requires a field", op)
+		}
+		return nil
+	case "":
+		return fmt.Errorf("predicate is missing an op")
+	default:
+		return fmt.Errorf("unknown predicate op %q; supported: and, or, equals, not_equals, contains, exists, in", op)
 	}
 }
 
