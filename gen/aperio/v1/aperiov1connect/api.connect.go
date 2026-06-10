@@ -104,6 +104,18 @@ const (
 	// AperioServiceUpdateIntegrationChecksProcedure is the fully-qualified name of the AperioService's
 	// UpdateIntegrationChecks RPC.
 	AperioServiceUpdateIntegrationChecksProcedure = "/aperio.v1.AperioService/UpdateIntegrationChecks"
+	// AperioServiceListConnectorRulesProcedure is the fully-qualified name of the AperioService's
+	// ListConnectorRules RPC.
+	AperioServiceListConnectorRulesProcedure = "/aperio.v1.AperioService/ListConnectorRules"
+	// AperioServiceCreateCustomRuleProcedure is the fully-qualified name of the AperioService's
+	// CreateCustomRule RPC.
+	AperioServiceCreateCustomRuleProcedure = "/aperio.v1.AperioService/CreateCustomRule"
+	// AperioServiceUpdateCustomRuleProcedure is the fully-qualified name of the AperioService's
+	// UpdateCustomRule RPC.
+	AperioServiceUpdateCustomRuleProcedure = "/aperio.v1.AperioService/UpdateCustomRule"
+	// AperioServiceDeleteCustomRuleProcedure is the fully-qualified name of the AperioService's
+	// DeleteCustomRule RPC.
+	AperioServiceDeleteCustomRuleProcedure = "/aperio.v1.AperioService/DeleteCustomRule"
 	// AperioServiceGetGoogleMailboxScanConfigProcedure is the fully-qualified name of the
 	// AperioService's GetGoogleMailboxScanConfig RPC.
 	AperioServiceGetGoogleMailboxScanConfigProcedure = "/aperio.v1.AperioService/GetGoogleMailboxScanConfig"
@@ -229,6 +241,10 @@ type AperioServiceClient interface {
 	DeleteIntegration(context.Context, *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error)
 	GetIntegrationChecks(context.Context, *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error)
 	UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error)
+	ListConnectorRules(context.Context, *connect.Request[v1.ListConnectorRulesRequest]) (*connect.Response[v1.ListConnectorRulesResponse], error)
+	CreateCustomRule(context.Context, *connect.Request[v1.CreateCustomRuleRequest]) (*connect.Response[v1.CreateCustomRuleResponse], error)
+	UpdateCustomRule(context.Context, *connect.Request[v1.UpdateCustomRuleRequest]) (*connect.Response[v1.UpdateCustomRuleResponse], error)
+	DeleteCustomRule(context.Context, *connect.Request[v1.DeleteCustomRuleRequest]) (*connect.Response[v1.DeleteCustomRuleResponse], error)
 	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
 	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
 	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
@@ -422,6 +438,30 @@ func NewAperioServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			httpClient,
 			baseURL+AperioServiceUpdateIntegrationChecksProcedure,
 			connect.WithSchema(aperioServiceMethods.ByName("UpdateIntegrationChecks")),
+			connect.WithClientOptions(opts...),
+		),
+		listConnectorRules: connect.NewClient[v1.ListConnectorRulesRequest, v1.ListConnectorRulesResponse](
+			httpClient,
+			baseURL+AperioServiceListConnectorRulesProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("ListConnectorRules")),
+			connect.WithClientOptions(opts...),
+		),
+		createCustomRule: connect.NewClient[v1.CreateCustomRuleRequest, v1.CreateCustomRuleResponse](
+			httpClient,
+			baseURL+AperioServiceCreateCustomRuleProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("CreateCustomRule")),
+			connect.WithClientOptions(opts...),
+		),
+		updateCustomRule: connect.NewClient[v1.UpdateCustomRuleRequest, v1.UpdateCustomRuleResponse](
+			httpClient,
+			baseURL+AperioServiceUpdateCustomRuleProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("UpdateCustomRule")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteCustomRule: connect.NewClient[v1.DeleteCustomRuleRequest, v1.DeleteCustomRuleResponse](
+			httpClient,
+			baseURL+AperioServiceDeleteCustomRuleProcedure,
+			connect.WithSchema(aperioServiceMethods.ByName("DeleteCustomRule")),
 			connect.WithClientOptions(opts...),
 		),
 		getGoogleMailboxScanConfig: connect.NewClient[v1.GetGoogleMailboxScanConfigRequest, v1.GetGoogleMailboxScanConfigResponse](
@@ -646,6 +686,10 @@ type aperioServiceClient struct {
 	deleteIntegration             *connect.Client[v1.DeleteIntegrationRequest, v1.DeleteIntegrationResponse]
 	getIntegrationChecks          *connect.Client[v1.GetIntegrationChecksRequest, v1.GetIntegrationChecksResponse]
 	updateIntegrationChecks       *connect.Client[v1.UpdateIntegrationChecksRequest, v1.UpdateIntegrationChecksResponse]
+	listConnectorRules            *connect.Client[v1.ListConnectorRulesRequest, v1.ListConnectorRulesResponse]
+	createCustomRule              *connect.Client[v1.CreateCustomRuleRequest, v1.CreateCustomRuleResponse]
+	updateCustomRule              *connect.Client[v1.UpdateCustomRuleRequest, v1.UpdateCustomRuleResponse]
+	deleteCustomRule              *connect.Client[v1.DeleteCustomRuleRequest, v1.DeleteCustomRuleResponse]
 	getGoogleMailboxScanConfig    *connect.Client[v1.GetGoogleMailboxScanConfigRequest, v1.GetGoogleMailboxScanConfigResponse]
 	updateGoogleMailboxScanConfig *connect.Client[v1.UpdateGoogleMailboxScanConfigRequest, v1.UpdateGoogleMailboxScanConfigResponse]
 	startGoogleWorkspaceOAuth     *connect.Client[v1.StartGoogleWorkspaceOAuthRequest, v1.StartGoogleWorkspaceOAuthResponse]
@@ -803,6 +847,26 @@ func (c *aperioServiceClient) GetIntegrationChecks(ctx context.Context, req *con
 // UpdateIntegrationChecks calls aperio.v1.AperioService.UpdateIntegrationChecks.
 func (c *aperioServiceClient) UpdateIntegrationChecks(ctx context.Context, req *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error) {
 	return c.updateIntegrationChecks.CallUnary(ctx, req)
+}
+
+// ListConnectorRules calls aperio.v1.AperioService.ListConnectorRules.
+func (c *aperioServiceClient) ListConnectorRules(ctx context.Context, req *connect.Request[v1.ListConnectorRulesRequest]) (*connect.Response[v1.ListConnectorRulesResponse], error) {
+	return c.listConnectorRules.CallUnary(ctx, req)
+}
+
+// CreateCustomRule calls aperio.v1.AperioService.CreateCustomRule.
+func (c *aperioServiceClient) CreateCustomRule(ctx context.Context, req *connect.Request[v1.CreateCustomRuleRequest]) (*connect.Response[v1.CreateCustomRuleResponse], error) {
+	return c.createCustomRule.CallUnary(ctx, req)
+}
+
+// UpdateCustomRule calls aperio.v1.AperioService.UpdateCustomRule.
+func (c *aperioServiceClient) UpdateCustomRule(ctx context.Context, req *connect.Request[v1.UpdateCustomRuleRequest]) (*connect.Response[v1.UpdateCustomRuleResponse], error) {
+	return c.updateCustomRule.CallUnary(ctx, req)
+}
+
+// DeleteCustomRule calls aperio.v1.AperioService.DeleteCustomRule.
+func (c *aperioServiceClient) DeleteCustomRule(ctx context.Context, req *connect.Request[v1.DeleteCustomRuleRequest]) (*connect.Response[v1.DeleteCustomRuleResponse], error) {
+	return c.deleteCustomRule.CallUnary(ctx, req)
 }
 
 // GetGoogleMailboxScanConfig calls aperio.v1.AperioService.GetGoogleMailboxScanConfig.
@@ -992,6 +1056,10 @@ type AperioServiceHandler interface {
 	DeleteIntegration(context.Context, *connect.Request[v1.DeleteIntegrationRequest]) (*connect.Response[v1.DeleteIntegrationResponse], error)
 	GetIntegrationChecks(context.Context, *connect.Request[v1.GetIntegrationChecksRequest]) (*connect.Response[v1.GetIntegrationChecksResponse], error)
 	UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error)
+	ListConnectorRules(context.Context, *connect.Request[v1.ListConnectorRulesRequest]) (*connect.Response[v1.ListConnectorRulesResponse], error)
+	CreateCustomRule(context.Context, *connect.Request[v1.CreateCustomRuleRequest]) (*connect.Response[v1.CreateCustomRuleResponse], error)
+	UpdateCustomRule(context.Context, *connect.Request[v1.UpdateCustomRuleRequest]) (*connect.Response[v1.UpdateCustomRuleResponse], error)
+	DeleteCustomRule(context.Context, *connect.Request[v1.DeleteCustomRuleRequest]) (*connect.Response[v1.DeleteCustomRuleResponse], error)
 	GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error)
 	UpdateGoogleMailboxScanConfig(context.Context, *connect.Request[v1.UpdateGoogleMailboxScanConfigRequest]) (*connect.Response[v1.UpdateGoogleMailboxScanConfigResponse], error)
 	StartGoogleWorkspaceOAuth(context.Context, *connect.Request[v1.StartGoogleWorkspaceOAuthRequest]) (*connect.Response[v1.StartGoogleWorkspaceOAuthResponse], error)
@@ -1181,6 +1249,30 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 		AperioServiceUpdateIntegrationChecksProcedure,
 		svc.UpdateIntegrationChecks,
 		connect.WithSchema(aperioServiceMethods.ByName("UpdateIntegrationChecks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceListConnectorRulesHandler := connect.NewUnaryHandler(
+		AperioServiceListConnectorRulesProcedure,
+		svc.ListConnectorRules,
+		connect.WithSchema(aperioServiceMethods.ByName("ListConnectorRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceCreateCustomRuleHandler := connect.NewUnaryHandler(
+		AperioServiceCreateCustomRuleProcedure,
+		svc.CreateCustomRule,
+		connect.WithSchema(aperioServiceMethods.ByName("CreateCustomRule")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceUpdateCustomRuleHandler := connect.NewUnaryHandler(
+		AperioServiceUpdateCustomRuleProcedure,
+		svc.UpdateCustomRule,
+		connect.WithSchema(aperioServiceMethods.ByName("UpdateCustomRule")),
+		connect.WithHandlerOptions(opts...),
+	)
+	aperioServiceDeleteCustomRuleHandler := connect.NewUnaryHandler(
+		AperioServiceDeleteCustomRuleProcedure,
+		svc.DeleteCustomRule,
+		connect.WithSchema(aperioServiceMethods.ByName("DeleteCustomRule")),
 		connect.WithHandlerOptions(opts...),
 	)
 	aperioServiceGetGoogleMailboxScanConfigHandler := connect.NewUnaryHandler(
@@ -1427,6 +1519,14 @@ func NewAperioServiceHandler(svc AperioServiceHandler, opts ...connect.HandlerOp
 			aperioServiceGetIntegrationChecksHandler.ServeHTTP(w, r)
 		case AperioServiceUpdateIntegrationChecksProcedure:
 			aperioServiceUpdateIntegrationChecksHandler.ServeHTTP(w, r)
+		case AperioServiceListConnectorRulesProcedure:
+			aperioServiceListConnectorRulesHandler.ServeHTTP(w, r)
+		case AperioServiceCreateCustomRuleProcedure:
+			aperioServiceCreateCustomRuleHandler.ServeHTTP(w, r)
+		case AperioServiceUpdateCustomRuleProcedure:
+			aperioServiceUpdateCustomRuleHandler.ServeHTTP(w, r)
+		case AperioServiceDeleteCustomRuleProcedure:
+			aperioServiceDeleteCustomRuleHandler.ServeHTTP(w, r)
 		case AperioServiceGetGoogleMailboxScanConfigProcedure:
 			aperioServiceGetGoogleMailboxScanConfigHandler.ServeHTTP(w, r)
 		case AperioServiceUpdateGoogleMailboxScanConfigProcedure:
@@ -1598,6 +1698,22 @@ func (UnimplementedAperioServiceHandler) GetIntegrationChecks(context.Context, *
 
 func (UnimplementedAperioServiceHandler) UpdateIntegrationChecks(context.Context, *connect.Request[v1.UpdateIntegrationChecksRequest]) (*connect.Response[v1.UpdateIntegrationChecksResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateIntegrationChecks is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) ListConnectorRules(context.Context, *connect.Request[v1.ListConnectorRulesRequest]) (*connect.Response[v1.ListConnectorRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.ListConnectorRules is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) CreateCustomRule(context.Context, *connect.Request[v1.CreateCustomRuleRequest]) (*connect.Response[v1.CreateCustomRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.CreateCustomRule is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) UpdateCustomRule(context.Context, *connect.Request[v1.UpdateCustomRuleRequest]) (*connect.Response[v1.UpdateCustomRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.UpdateCustomRule is not implemented"))
+}
+
+func (UnimplementedAperioServiceHandler) DeleteCustomRule(context.Context, *connect.Request[v1.DeleteCustomRuleRequest]) (*connect.Response[v1.DeleteCustomRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aperio.v1.AperioService.DeleteCustomRule is not implemented"))
 }
 
 func (UnimplementedAperioServiceHandler) GetGoogleMailboxScanConfig(context.Context, *connect.Request[v1.GetGoogleMailboxScanConfigRequest]) (*connect.Response[v1.GetGoogleMailboxScanConfigResponse], error) {

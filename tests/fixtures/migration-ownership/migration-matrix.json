@@ -452,6 +452,25 @@
       ]
     },
     {
+      "id": "cmd-google-workspace-oauth-sync-go-default",
+      "state": "go-default",
+      "covers": [
+        "repo-file:cmd/google-workspace-oauth-sync/*.go",
+        "repo-file:internal/googleworkspaceoauthsync/*.go",
+        "package-script:worker:google-oauth",
+        "package-script:worker:google-oauth:go",
+        "make-target:worker-google-oauth",
+        "make-target:worker-google-oauth-go"
+      ],
+      "owner": "Go Google Workspace OAuth grant sync default entrypoint",
+      "rationale": "cmd/google-workspace-oauth-sync walks the Admin Directory users.tokens.list endpoint per user and upserts third-party OAuth apps into security_assets (type=OAUTH_APP, labels including shadow-it) and per-user grants into oauth_app_grants. Until this command landed, the Shadow IT page surfaced zero OAuth apps for live Google Workspace tenants because nothing populated either table. Ships only as a Go binary; there is no TypeScript counterpart. Auto-started by scripts/dev.mjs.",
+      "evidence": [
+        "test:internal/googleworkspaceoauthsync/sync_test.go",
+        "command:npm run worker:google-oauth -- -once",
+        "make-target:worker-google-oauth"
+      ]
+    },
+    {
       "id": "cmd-go-siem-worker-default",
       "state": "go-default",
       "covers": [

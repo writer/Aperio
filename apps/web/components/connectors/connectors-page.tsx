@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, Plus, Search, Unplug } from "lucide-react";
+import { CheckCircle2, ExternalLink, Plus, Search, ShieldCheck, Unplug } from "lucide-react";
+import { ConnectorRulesDialog } from "./connector-rules-dialog";
 import { cn } from "../../lib/utils";
 import {
   clearIntegrationOAuthClient,
@@ -47,6 +48,7 @@ export function ConnectorsPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [rulesIntegration, setRulesIntegration] = useState<IntegrationConnection | null>(null);
 
   const filteredIntegrations = useMemo(() => {
     // Active integrations are searched by both display labels and provider-owned
@@ -268,7 +270,15 @@ export function ConnectorsPage() {
                       synced {formatRelative(integration.lastSyncAt)}
                     </span>
                   </p>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRulesIntegration(integration)}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Rules
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -374,6 +384,14 @@ export function ConnectorsPage() {
             tone: "success"
           });
           await load();
+        }}
+      />
+      <ConnectorRulesDialog
+        integrationId={rulesIntegration?.id ?? null}
+        integrationLabel={rulesIntegration?.displayName ?? ""}
+        open={rulesIntegration !== null}
+        onOpenChange={(next) => {
+          if (!next) setRulesIntegration(null);
         }}
       />
     </div>

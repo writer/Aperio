@@ -477,6 +477,39 @@ export async function updateIntegrationChecks(
   ) as Promise<{ data: IntegrationCheckState }>;
 }
 
+export type ConnectorBuiltInRule =
+  import("@aperio/connect/client").ConnectConnectorBuiltInRule;
+export type ConnectorCustomRule =
+  import("@aperio/connect/client").ConnectConnectorCustomRule;
+export type ConnectorRulesResponse =
+  import("@aperio/connect/client").ConnectConnectorRulesResponse;
+export type CustomRuleInput =
+  import("@aperio/connect/client").ConnectCustomRuleInput;
+
+export async function fetchConnectorRules(integrationId: string) {
+  const out = await aperioConnectClient.listConnectorRules(integrationId);
+  return out.data;
+}
+
+export async function createCustomRule(
+  integrationId: string,
+  input: CustomRuleInput
+) {
+  return aperioConnectClient.createCustomRule(integrationId, input);
+}
+
+export async function updateCustomRule(
+  integrationId: string,
+  ruleId: string,
+  input: CustomRuleInput
+) {
+  return aperioConnectClient.updateCustomRule(integrationId, ruleId, input);
+}
+
+export async function deleteCustomRule(integrationId: string, ruleId: string) {
+  return aperioConnectClient.deleteCustomRule(integrationId, ruleId);
+}
+
 export async function forceSyncIntegration(integrationId: string) {
   return aperioConnectClient.forceSyncIntegration(integrationId) as Promise<{
     data: IntegrationConnection;

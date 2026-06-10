@@ -397,6 +397,23 @@ func validCompatDisabledChecks(provider string, requested []string) []string {
 	return disabled
 }
 
+// compatFindingChecksForProvider returns the full ordered FindingChecks
+// list registered for a provider. It exists so callers like the connector
+// rules dialog can iterate the same universe of toggles the catalog
+// surfaces elsewhere, avoiding the silent-drop bug where a partial list
+// (e.g. only ingestionworker.RuleCatalog entries) drops checks that
+// default to disabled and so are seeded into integration_connections.
+// disabled_checks at connect time.
+func compatFindingChecksForProvider(provider string) []findingCheck {
+	definition := findConnectorDefinition(provider)
+	if definition == nil {
+		return nil
+	}
+	out := make([]findingCheck, len(definition.FindingChecks))
+	copy(out, definition.FindingChecks)
+	return out
+}
+
 // compatFindingCheckStatuses overlays the integration's disabled set onto the
 // catalog check definitions to produce the IntegrationCheckState.checks shape.
 func compatFindingCheckStatuses(provider string, disabledChecks []string) []findingCheckStatus {

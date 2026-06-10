@@ -139,6 +139,14 @@ worker-google-directory: require-env ## Run the Go Google Workspace directory sy
 .PHONY: worker-google-directory-go
 worker-google-directory-go: worker-google-directory ## Alias for the Go Google Workspace directory sync
 
+.PHONY: worker-google-oauth
+worker-google-oauth: require-env ## Run the Go Google Workspace OAuth grant sync
+	@$(MAKE) --no-print-directory db-up
+	@$(LOAD_ENV) DATABASE_URL="$$(node $(DEV_CONFIG) go-database-url)" go run ./cmd/google-workspace-oauth-sync $(GO_WORKER_ARGS)
+
+.PHONY: worker-google-oauth-go
+worker-google-oauth-go: worker-google-oauth ## Alias for the Go Google Workspace OAuth sync
+
 .PHONY: smoke-workers-go
 smoke-workers-go: require-env ## Run bounded Go worker smokes
 	@$(MAKE) --no-print-directory db-up migrate

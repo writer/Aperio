@@ -609,6 +609,135 @@ func (a *App) UpdateIntegrationChecks(
 	}}), nil
 }
 
+func (a *App) ListConnectorRules(
+	ctx context.Context,
+	req *connect.Request[aperiov1.ListConnectorRulesRequest],
+) (*connect.Response[aperiov1.ListConnectorRulesResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatListConnectorRules(ctx, strings.TrimSpace(req.Msg.IntegrationId), auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	resp := &aperiov1.ListConnectorRulesResponse{
+		IntegrationId: stringFromAny(data["integrationId"]),
+		Provider:      stringFromAny(data["provider"]),
+	}
+	if builtIns, ok := data["builtIn"].([]map[string]any); ok {
+		for _, rule := range builtIns {
+			resp.BuiltIn = append(resp.BuiltIn, &aperiov1.ConnectorBuiltInRule{
+				Id:          stringFromAny(rule["id"]),
+				Provider:    stringFromAny(rule["provider"]),
+				Title:       stringFromAny(rule["title"]),
+				Description: stringFromAny(rule["description"]),
+				Severity:    stringFromAny(rule["severity"]),
+				EventTypes:  stringSlice(rule["eventTypes"]),
+				Enabled:     boolFromAny(rule["enabled"]),
+			})
+		}
+	}
+	if customs, ok := data["custom"].([]map[string]any); ok {
+		for _, rule := range customs {
+			predicateJSON := ""
+			if rule["predicate"] != nil {
+				if buf, err := json.Marshal(rule["predicate"]); err == nil {
+					predicateJSON = string(buf)
+				}
+			}
+			resp.Custom = append(resp.Custom, &aperiov1.ConnectorCustomRule{
+				Id:            stringFromAny(rule["id"]),
+				Name:          stringFromAny(rule["name"]),
+				Severity:      stringFromAny(rule["severity"]),
+				EventType:     stringFromAny(rule["eventType"]),
+				SubjectField:  stringFromAny(rule["subjectField"]),
+				PredicateJson: predicateJSON,
+				Enabled:       boolFromAny(rule["enabled"]),
+				UpdatedAt:     stringFromAny(rule["updatedAt"]),
+			})
+		}
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (a *App) CreateCustomRule(
+	ctx context.Context,
+	req *connect.Request[aperiov1.CreateCustomRuleRequest],
+) (*connect.Response[aperiov1.CreateCustomRuleResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.SubjectField, req.Msg.PredicateJson, req.Msg.Enabled)
+	if err != nil {
+		return nil, err
+	}
+	result, err := a.compatCreateCustomRule(ctx, strings.TrimSpace(req.Msg.IntegrationId), body, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.CreateCustomRuleResponse{Id: stringFromAny(data["id"])}), nil
+}
+
+func (a *App) UpdateCustomRule(
+	ctx context.Context,
+	req *connect.Request[aperiov1.UpdateCustomRuleRequest],
+) (*connect.Response[aperiov1.UpdateCustomRuleResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.SubjectField, req.Msg.PredicateJson, req.Msg.Enabled)
+	if err != nil {
+		return nil, err
+	}
+	result, err := a.compatUpdateCustomRule(ctx, strings.TrimSpace(req.Msg.IntegrationId), strings.TrimSpace(req.Msg.RuleId), body, auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.UpdateCustomRuleResponse{Id: stringFromAny(data["id"])}), nil
+}
+
+func (a *App) DeleteCustomRule(
+	ctx context.Context,
+	req *connect.Request[aperiov1.DeleteCustomRuleRequest],
+) (*connect.Response[aperiov1.DeleteCustomRuleResponse], error) {
+	auth, err := a.compatAuthFromSession(ctx, req.Header())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	result, err := a.compatDeleteCustomRule(ctx, strings.TrimSpace(req.Msg.IntegrationId), strings.TrimSpace(req.Msg.RuleId), auth)
+	if err != nil {
+		return nil, err
+	}
+	data := asMap(asMap(result)["data"])
+	return connect.NewResponse(&aperiov1.DeleteCustomRuleResponse{Id: stringFromAny(data["id"])}), nil
+}
+
+func customRuleBodyFromProto(name, severity, eventType, subjectField, predicateJSON string, enabled bool) (map[string]any, error) {
+	body := map[string]any{
+		"name":         name,
+		"severity":     severity,
+		"eventType":    eventType,
+		"subjectField": subjectField,
+		"enabled":      enabled,
+	}
+	if strings.TrimSpace(predicateJSON) == "" {
+		body["predicate"] = map[string]any{}
+	} else {
+		var parsed any
+		if err := json.Unmarshal([]byte(predicateJSON), &parsed); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("predicate must be a JSON object"))
+		}
+		body["predicate"] = parsed
+	}
+	return body, nil
+}
+
 func (a *App) GetGoogleMailboxScanConfig(
 	ctx context.Context,
 	req *connect.Request[aperiov1.GetGoogleMailboxScanConfigRequest],

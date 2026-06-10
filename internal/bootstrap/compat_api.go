@@ -455,6 +455,14 @@ func (a *App) dispatchCompatAPI(
 		return a.compatIntegrationChecks(ctx, segments[3], auth)
 	case method == http.MethodPatch && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "checks":
 		return a.compatUpdateIntegrationChecks(ctx, segments[3], body, auth)
+	case method == http.MethodGet && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "rules":
+		return a.compatListConnectorRules(ctx, segments[3], auth)
+	case method == http.MethodPost && len(segments) == 5 && segments[2] == "integrations" && segments[4] == "custom-rules":
+		return a.compatCreateCustomRule(ctx, segments[3], body, auth)
+	case method == http.MethodPatch && len(segments) == 6 && segments[2] == "integrations" && segments[4] == "custom-rules":
+		return a.compatUpdateCustomRule(ctx, segments[3], segments[5], body, auth)
+	case method == http.MethodDelete && len(segments) == 6 && segments[2] == "integrations" && segments[4] == "custom-rules":
+		return a.compatDeleteCustomRule(ctx, segments[3], segments[5], auth)
 	case method == http.MethodPost && path == "/api/v1/integrations/google-workspace/oauth/start":
 		if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 			return nil, err
@@ -1114,8 +1122,67 @@ func (a *App) compatUpdateIntegrationChecks(ctx context.Context, id string, body
 	if _, err := a.db.ExecContext(ctx, `UPDATE integration_connections SET disabled_checks = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, disabled, id, auth.OrganizationID); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	// Auto-resolve OPEN findings produced by any newly-disabled rule. The
+	// user chose "suppress" semantics on the connector toggle: turning a
+	// rule off means existing OPEN findings auto-resolve with a "rule
+	// disabled by operator" note so they stop showing on dashboards
+	// without manual triage.
+	previousSet := map[string]struct{}{}
+	for _, r := range previous {
+		previousSet[r] = struct{}{}
+	}
+	newlyDisabled := make([]string, 0, len(disabled))
+	for _, r := range disabled {
+		if _, was := previousSet[r]; !was {
+			newlyDisabled = append(newlyDisabled, r)
+		}
+	}
+	if len(newlyDisabled) > 0 {
+		resolved, err := a.autoResolveFindingsForDisabledRules(ctx, auth.OrganizationID, id, newlyDisabled, auth.UserID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if resolved > 0 {
+			a.writeCompatAudit(ctx, auth, "integration.checks.auto_resolve", "integration_connection", id, map[string]any{
+				"rules":         newlyDisabled,
+				"resolvedCount": resolved,
+			})
+		}
+	}
 	a.writeCompatAudit(ctx, auth, "integration.checks.update", "integration_connection", id, map[string]any{"previousDisabled": previous, "nextDisabled": disabled})
 	return map[string]any{"data": map[string]any{"integrationId": id, "disabledChecks": disabled, "checks": compatFindingCheckStatuses(provider, disabled)}}, nil
+}
+
+func (a *App) autoResolveFindingsForDisabledRules(ctx context.Context, organizationID, integrationID string, ruleIDs []string, byUserID string) (int64, error) {
+	if len(ruleIDs) == 0 {
+		return 0, nil
+	}
+	// security_findings stores the rule id inside evidence->>'ruleId';
+	// we filter on that path and limit to OPEN findings tied to this
+	// integration so disabling a rule on one connector doesn't auto-
+	// resolve findings owned by a sibling connector for the same rule.
+	var resolverID any
+	if strings.TrimSpace(byUserID) != "" {
+		resolverID = byUserID
+	} else {
+		resolverID = nil
+	}
+	res, err := a.db.ExecContext(ctx, `
+		UPDATE security_findings
+		SET status = 'RESOLVED'::"FindingStatus",
+		    resolved_at = NOW(),
+		    resolved_by_id = $1,
+		    evidence = COALESCE(evidence, '{}'::jsonb) || jsonb_build_object('autoResolveReason', 'Rule disabled by operator')
+		WHERE organization_id = $2
+		  AND integration_id = $3
+		  AND status = 'OPEN'::"FindingStatus"
+		  AND (evidence->>'ruleId') = ANY($4::text[])
+	`, resolverID, organizationID, integrationID, ruleIDs)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (a *App) compatGoogleMailboxConfig(ctx context.Context, id string, auth compatAuth) (any, error) {
