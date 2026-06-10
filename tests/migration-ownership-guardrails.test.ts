@@ -707,6 +707,7 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   const ci = readRepoFile(".github/workflows/ci.yml");
   const contracts = readRepoFile(".github/workflows/contracts.yml");
   const leakCheck = readRepoFile(".github/workflows/leak-check.yml");
+  const droidReview = readRepoFile(".github/workflows/droid-review.yml");
 
   assert.match(scripts["guardrails:migration"], /migration-ownership-guardrails\.test\.ts/);
   assert.match(scripts["guardrails:migration"], /auth-client-cleanup\.test\.ts/);
@@ -756,6 +757,7 @@ test("validator and CI gates include contracts, audit, worker smoke, and secret 
   assert.match(contracts, /buf\/cmd\/buf@v1\.59\.0 breaking/);
   assert.match(contracts, /git diff --exit-code -- gen packages\/connect\/src\/gen/);
   assert.match(leakCheck, /npm run leak:check/);
+  assert.match(droidReview, /github_token:\s*\$\{\{\s*github\.token\s*\}\}/);
 
   execFileSync("git", ["check-ignore", "-q", ".env"], { cwd: repoRoot });
   const envStatus = execFileSync("git", ["status", "--porcelain", "--", ".env"], {
