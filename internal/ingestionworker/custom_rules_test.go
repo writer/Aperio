@@ -233,9 +233,9 @@ func TestValidatePredicateRejectsMalformedShapes(t *testing.T) {
 		// validator was added to close: leafIn unmarshals into
 		// []json.RawMessage and returns false on a scalar, so the row
 		// persists 200 but can never match.
-		"in scalar":     `{"op":"in","field":"actor","value":"x@y.com"}`,
+		"in scalar":      `{"op":"in","field":"actor","value":"x@y.com"}`,
 		"in empty array": `{"op":"in","field":"actor","value":[]}`,
-		"in not array":  `{"op":"in","field":"actor","value":{"k":"v"}}`,
+		"in not array":   `{"op":"in","field":"actor","value":{"k":"v"}}`,
 		// `contains` with an empty value short-circuits to false in
 		// leafContains, so an empty-string needle is the same phantom-
 		// rule trap.
