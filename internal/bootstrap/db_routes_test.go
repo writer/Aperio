@@ -372,6 +372,41 @@ func TestDBGoogleOAuthReconnectPreservesDisabledChecks(t *testing.T) {
 	}
 }
 
+func TestDBSecurityAssetOwnerFieldsPersist(t *testing.T) {
+	app, auth := newTestDBApp(t)
+	ctx := context.Background()
+	owner := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	businessOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "VIEWER")
+
+	created := dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatCreateSecurityAsset(ctx, map[string]any{
+			"ownerUserId":           owner.UserID,
+			"businessOwnerUserId":   businessOwner.UserID,
+			"type":                  "DATA_RESOURCE",
+			"name":                  "Customer DB",
+			"labels":                []any{"database"},
+			"criticality":           "HIGH",
+			"exposureLevel":         "INTERNAL",
+			"ownershipStatus":       "ASSIGNED",
+			"containsSensitiveData": true,
+			"isPrivileged":          false,
+			"riskScore":             65,
+		}, auth)
+	}))
+	assetID := created["id"].(string)
+	assertAssetOwners(t, app, assetID, owner.UserID, businessOwner.UserID)
+
+	nextOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "ADMIN")
+	nextBusinessOwner := seedOrgUserWithRole(t, app, auth.OrganizationID, "SECURITY_ANALYST")
+	_ = dataMap(t, mustCall(t, func() (any, error) {
+		return app.compatUpdateSecurityAsset(ctx, assetID, map[string]any{
+			"ownerUserId":         nextOwner.UserID,
+			"businessOwnerUserId": nextBusinessOwner.UserID,
+		}, auth)
+	}))
+	assertAssetOwners(t, app, assetID, nextOwner.UserID, nextBusinessOwner.UserID)
+}
+
 func TestDBSiemLifecycle(t *testing.T) {
 	app, auth := newTestDBApp(t)
 	ctx := context.Background()
@@ -2186,6 +2221,25 @@ func assertFindingState(t *testing.T, app *App, findingID, wantStatus string, wa
 	}
 	if status != wantStatus || resolvedAt.Valid != wantResolvedAt {
 		t.Fatalf("finding state = (%s,resolved_at:%v), want (%s,resolved_at:%v)", status, resolvedAt.Valid, wantStatus, wantResolvedAt)
+	}
+}
+
+func assertAssetOwners(t *testing.T, app *App, assetID, wantOwnerID, wantBusinessOwnerID string) {
+	t.Helper()
+	var ownerID sql.NullString
+	var businessOwnerID sql.NullString
+	if err := app.db.QueryRowContext(context.Background(), `
+		SELECT owner_user_id, business_owner_user_id
+		FROM security_assets
+		WHERE id = $1
+	`, assetID).Scan(&ownerID, &businessOwnerID); err != nil {
+		t.Fatalf("query asset owners: %v", err)
+	}
+	if !ownerID.Valid || ownerID.String != wantOwnerID {
+		t.Fatalf("owner_user_id = %v, want %s", ownerID, wantOwnerID)
+	}
+	if !businessOwnerID.Valid || businessOwnerID.String != wantBusinessOwnerID {
+		t.Fatalf("business_owner_user_id = %v, want %s", businessOwnerID, wantBusinessOwnerID)
 	}
 }
 

@@ -160,6 +160,17 @@ func TestTenantIsolationByIDRoutesRejectForeignResources(t *testing.T) {
 		}, attacker)
 		assertNotFound(t, "compatCreateSecurityAsset", out, err)
 	})
+	t.Run("create security asset with foreign owner", func(t *testing.T) {
+		out, err := app.compatCreateSecurityAsset(ctx, map[string]any{
+			"ownerUserId":           victim.UserID,
+			"type":                  "DATA_RESOURCE",
+			"name":                  "Attacker Asset",
+			"containsSensitiveData": true,
+			"isPrivileged":          true,
+			"riskScore":             90,
+		}, attacker)
+		assertNotFound(t, "compatCreateSecurityAsset owner", out, err)
+	})
 	t.Run("create risk exception with foreign asset", func(t *testing.T) {
 		out, err := app.compatCreateRiskException(ctx, map[string]any{
 			"assetId":              victimAssetID,
