@@ -221,6 +221,7 @@ export type ConnectConnectorCustomRule = {
   name: string;
   severity: string;
   eventType: string;
+  subjectField: string;
   predicate: unknown;
   enabled: boolean;
   updatedAt: string;
@@ -237,6 +238,7 @@ export type ConnectCustomRuleInput = {
   name: string;
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   eventType: string;
+  subjectField: string;
   predicate: unknown;
   enabled: boolean;
 };
@@ -1492,6 +1494,7 @@ export const aperioConnectClient = {
           name: rule.name,
           severity: rule.severity,
           eventType: rule.eventType,
+          subjectField: rule.subjectField,
           predicate: rule.predicateJson ? safeParse(rule.predicateJson) : {},
           enabled: rule.enabled,
           updatedAt: rule.updatedAt
@@ -1508,6 +1511,7 @@ export const aperioConnectClient = {
       name: input.name,
       severity: input.severity,
       eventType: input.eventType,
+      subjectField: input.subjectField,
       predicateJson: JSON.stringify(input.predicate ?? {}),
       enabled: input.enabled
     });
@@ -1524,6 +1528,7 @@ export const aperioConnectClient = {
       name: input.name,
       severity: input.severity,
       eventType: input.eventType,
+      subjectField: input.subjectField,
       predicateJson: JSON.stringify(input.predicate ?? {}),
       enabled: input.enabled
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   createCustomRule,
@@ -33,6 +33,7 @@ type CustomDraft = {
   name: string;
   severity: CustomRuleInput["severity"];
   eventType: string;
+  subjectField: string;
   predicateText: string;
   enabled: boolean;
 };
@@ -41,6 +42,7 @@ const EMPTY_DRAFT: CustomDraft = {
   name: "",
   severity: "MEDIUM",
   eventType: "",
+  subjectField: "",
   predicateText: "{}",
   enabled: true
 };
@@ -86,26 +88,28 @@ export function ConnectorRulesDialog({
     }
   }, [open, integrationId, load]);
 
-  const disabledIds = useMemo(() => {
-    if (!data) return new Set<string>();
-    const ids = new Set<string>();
-    data.builtIn.forEach((rule) => {
-      if (!rule.enabled) ids.add(rule.id);
-    });
-    return ids;
-  }, [data]);
-
   const toggleBuiltIn = useCallback(
     async (rule: ConnectorBuiltInRule, nextEnabled: boolean) => {
-      if (!integrationId || !data) return;
+      if (!integrationId) return;
+      // Re-fetch the canonical rules right before computing the next
+      // disabled set. Without this, two rapid clicks on different switches
+      // would each read the same stale `disabledIds` baseline and the
+      // second updateIntegrationChecks would overwrite the first — silently
+      // re-enabling a rule the operator had just disabled (and undoing its
+      // auto-resolve). Pairing the refetch with savingRuleId locking ALL
+      // toggles below closes the race from both directions.
       setSavingRuleId(rule.id);
-      const next = new Set(disabledIds);
-      if (nextEnabled) {
-        next.delete(rule.id);
-      } else {
-        next.add(rule.id);
-      }
       try {
+        const fresh = await fetchConnectorRules(integrationId);
+        const next = new Set<string>();
+        fresh.builtIn.forEach((r) => {
+          if (!r.enabled) next.add(r.id);
+        });
+        if (nextEnabled) {
+          next.delete(rule.id);
+        } else {
+          next.add(rule.id);
+        }
         await updateIntegrationChecks(integrationId, Array.from(next));
         toast({
           tone: "success",
@@ -125,7 +129,7 @@ export function ConnectorRulesDialog({
         setSavingRuleId(null);
       }
     },
-    [data, disabledIds, integrationId, load, toast]
+    [integrationId, load, toast]
   );
 
   const submitDraft = useCallback(
@@ -157,6 +161,7 @@ export function ConnectorRulesDialog({
           name,
           severity: draft.severity,
           eventType,
+          subjectField: draft.subjectField.trim(),
           predicate,
           enabled: draft.enabled
         });
@@ -185,6 +190,7 @@ export function ConnectorRulesDialog({
           name: rule.name,
           severity: rule.severity as CustomRuleInput["severity"],
           eventType: rule.eventType,
+          subjectField: rule.subjectField,
           predicate: rule.predicate ?? {},
           enabled: nextEnabled
         });
@@ -279,7 +285,7 @@ export function ConnectorRulesDialog({
                       </div>
                       <Switch
                         checked={rule.enabled}
-                        disabled={savingRuleId === rule.id}
+                        disabled={savingRuleId !== null}
                         onCheckedChange={(checked) => void toggleBuiltIn(rule, checked)}
                         aria-label={`Toggle ${rule.title}`}
                       />
@@ -313,6 +319,9 @@ export function ConnectorRulesDialog({
                           <span className="text-sm font-medium text-foreground">{rule.name}</span>
                           <Badge variant="outline">{rule.severity}</Badge>
                           <Badge variant="secondary">{rule.eventType}</Badge>
+                          {rule.subjectField ? (
+                            <Badge variant="outline">subject: {rule.subjectField}</Badge>
+                          ) : null}
                         </div>
                         <pre className="mt-2 max-h-24 overflow-auto rounded bg-muted p-2 text-[11px]">
                           {JSON.stringify(rule.predicate ?? {}, null, 2)}
@@ -321,7 +330,7 @@ export function ConnectorRulesDialog({
                       <div className="flex flex-col items-end gap-2">
                         <Switch
                           checked={rule.enabled}
-                          disabled={savingRuleId === rule.id}
+                          disabled={savingRuleId !== null}
                           onCheckedChange={(checked) => void toggleCustom(rule, checked)}
                           aria-label={`Toggle ${rule.name}`}
                         />
@@ -329,7 +338,7 @@ export function ConnectorRulesDialog({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          disabled={savingRuleId === rule.id}
+                          disabled={savingRuleId !== null}
                           onClick={() => void removeCustom(rule)}
                           aria-label={`Delete ${rule.name}`}
                         >
@@ -383,6 +392,18 @@ export function ConnectorRulesDialog({
                     />
                   </Field>
                 </div>
+                <Field
+                  label="Subject field (optional). Dot-pathed payload field used as the finding's subject and dedupe key. Leave blank to keep one finding per actor."
+                >
+                  <Input
+                    value={draft.subjectField}
+                    onChange={(event) =>
+                      setDraft({ ...draft, subjectField: event.target.value })
+                    }
+                    placeholder="payload.parameters.target"
+                    maxLength={200}
+                  />
+                </Field>
                 <Field
                   label='Predicate (JSON). Use {} to match every event of the type above. AND/OR over: equals, not_equals, contains, exists, in.'
                 >

@@ -1123,6 +1123,7 @@ message ConnectorCustomRule {
   string predicate_json = 5;
   bool enabled = 6;
   string updated_at = 7;
+  string subject_field = 8;
 }
 
 message ListConnectorRulesRequest {
@@ -1143,6 +1144,7 @@ message CreateCustomRuleRequest {
   string event_type = 4;
   string predicate_json = 5;
   bool enabled = 6;
+  string subject_field = 7;
 }
 
 message CreateCustomRuleResponse {
@@ -1157,6 +1159,7 @@ message UpdateCustomRuleRequest {
   string event_type = 5;
   string predicate_json = 6;
   bool enabled = 7;
+  string subject_field = 8;
 }
 
 message UpdateCustomRuleResponse {

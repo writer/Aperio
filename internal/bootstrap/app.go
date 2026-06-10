@@ -652,6 +652,7 @@ func (a *App) ListConnectorRules(
 				Name:          stringFromAny(rule["name"]),
 				Severity:      stringFromAny(rule["severity"]),
 				EventType:     stringFromAny(rule["eventType"]),
+				SubjectField:  stringFromAny(rule["subjectField"]),
 				PredicateJson: predicateJSON,
 				Enabled:       boolFromAny(rule["enabled"]),
 				UpdatedAt:     stringFromAny(rule["updatedAt"]),
@@ -669,7 +670,7 @@ func (a *App) CreateCustomRule(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.PredicateJson, req.Msg.Enabled)
+	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.SubjectField, req.Msg.PredicateJson, req.Msg.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -689,7 +690,7 @@ func (a *App) UpdateCustomRule(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
-	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.PredicateJson, req.Msg.Enabled)
+	body, err := customRuleBodyFromProto(req.Msg.Name, req.Msg.Severity, req.Msg.EventType, req.Msg.SubjectField, req.Msg.PredicateJson, req.Msg.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -717,12 +718,13 @@ func (a *App) DeleteCustomRule(
 	return connect.NewResponse(&aperiov1.DeleteCustomRuleResponse{Id: stringFromAny(data["id"])}), nil
 }
 
-func customRuleBodyFromProto(name, severity, eventType, predicateJSON string, enabled bool) (map[string]any, error) {
+func customRuleBodyFromProto(name, severity, eventType, subjectField, predicateJSON string, enabled bool) (map[string]any, error) {
 	body := map[string]any{
-		"name":      name,
-		"severity":  severity,
-		"eventType": eventType,
-		"enabled":   enabled,
+		"name":         name,
+		"severity":     severity,
+		"eventType":    eventType,
+		"subjectField": subjectField,
+		"enabled":      enabled,
 	}
 	if strings.TrimSpace(predicateJSON) == "" {
 		body["predicate"] = map[string]any{}

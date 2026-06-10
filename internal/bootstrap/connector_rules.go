@@ -66,18 +66,19 @@ func (a *App) compatListConnectorRules(ctx context.Context, integrationID string
 }
 
 type customRuleRow struct {
-	ID        string
-	Name      string
-	Severity  string
-	EventType string
-	Predicate json.RawMessage
-	Enabled   bool
-	UpdatedAt time.Time
+	ID           string
+	Name         string
+	Severity     string
+	EventType    string
+	SubjectField string
+	Predicate    json.RawMessage
+	Enabled      bool
+	UpdatedAt    time.Time
 }
 
 func (a *App) loadCustomRulesForIntegration(ctx context.Context, organizationID, integrationID string) ([]map[string]any, error) {
 	rows, err := a.db.QueryContext(ctx, `
-		SELECT id, name, severity::text, event_type, predicate, enabled, updated_at
+		SELECT id, name, severity::text, event_type, subject_field, predicate, enabled, updated_at
 		FROM custom_finding_rules
 		WHERE organization_id = $1 AND integration_id = $2
 		ORDER BY created_at ASC
@@ -90,7 +91,7 @@ func (a *App) loadCustomRulesForIntegration(ctx context.Context, organizationID,
 	for rows.Next() {
 		var r customRuleRow
 		var predicateRaw []byte
-		if err := rows.Scan(&r.ID, &r.Name, &r.Severity, &r.EventType, &predicateRaw, &r.Enabled, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Severity, &r.EventType, &r.SubjectField, &predicateRaw, &r.Enabled, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		r.Predicate = predicateRaw
@@ -99,14 +100,15 @@ func (a *App) loadCustomRulesForIntegration(ctx context.Context, organizationID,
 			_ = json.Unmarshal(r.Predicate, &predicateVal)
 		}
 		out = append(out, map[string]any{
-			"id":        r.ID,
-			"kind":      "custom",
-			"name":      r.Name,
-			"severity":  r.Severity,
-			"eventType": r.EventType,
-			"predicate": predicateVal,
-			"enabled":   r.Enabled,
-			"updatedAt": r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+			"id":           r.ID,
+			"kind":         "custom",
+			"name":         r.Name,
+			"severity":     r.Severity,
+			"eventType":    r.EventType,
+			"subjectField": r.SubjectField,
+			"predicate":    predicateVal,
+			"enabled":      r.Enabled,
+			"updatedAt":    r.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	return out, rows.Err()
@@ -119,22 +121,23 @@ func (a *App) compatCreateCustomRule(ctx context.Context, integrationID string, 
 	if err := a.assertIntegrationOwned(ctx, integrationID, auth.OrganizationID); err != nil {
 		return nil, err
 	}
-	name, severity, eventType, predicateRaw, enabled, err := parseCustomRuleBody(body)
+	name, severity, eventType, subjectField, predicateRaw, enabled, err := parseCustomRuleBody(body)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	id := "cfr_" + randomCompatID()
 	if _, err := a.db.ExecContext(ctx, `
-		INSERT INTO custom_finding_rules (id, organization_id, integration_id, name, severity, event_type, predicate, enabled, updated_at)
-		VALUES ($1, $2, $3, $4, $5::"Severity", $6, $7::jsonb, $8, NOW())
-	`, id, auth.OrganizationID, integrationID, name, severity, eventType, string(predicateRaw), enabled); err != nil {
+		INSERT INTO custom_finding_rules (id, organization_id, integration_id, name, severity, event_type, subject_field, predicate, enabled, updated_at)
+		VALUES ($1, $2, $3, $4, $5::"Severity", $6, $7, $8::jsonb, $9, NOW())
+	`, id, auth.OrganizationID, integrationID, name, severity, eventType, subjectField, string(predicateRaw), enabled); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	a.writeCompatAudit(ctx, auth, "integration.custom_rule.create", "integration_connection", integrationID, map[string]any{
-		"ruleId":    id,
-		"name":      name,
-		"severity":  severity,
-		"eventType": eventType,
+		"ruleId":       id,
+		"name":         name,
+		"severity":     severity,
+		"eventType":    eventType,
+		"subjectField": subjectField,
 	})
 	return map[string]any{"data": map[string]any{"id": id}}, nil
 }
@@ -146,7 +149,7 @@ func (a *App) compatUpdateCustomRule(ctx context.Context, integrationID, ruleID 
 	if err := a.assertIntegrationOwned(ctx, integrationID, auth.OrganizationID); err != nil {
 		return nil, err
 	}
-	name, severity, eventType, predicateRaw, enabled, err := parseCustomRuleBody(body)
+	name, severity, eventType, subjectField, predicateRaw, enabled, err := parseCustomRuleBody(body)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -167,9 +170,9 @@ func (a *App) compatUpdateCustomRule(ctx context.Context, integrationID, ruleID 
 	}
 	res, err := a.db.ExecContext(ctx, `
 		UPDATE custom_finding_rules
-		SET name = $1, severity = $2::"Severity", event_type = $3, predicate = $4::jsonb, enabled = $5, updated_at = NOW()
-		WHERE id = $6 AND organization_id = $7 AND integration_id = $8
-	`, name, severity, eventType, string(predicateRaw), enabled, ruleID, auth.OrganizationID, integrationID)
+		SET name = $1, severity = $2::"Severity", event_type = $3, subject_field = $4, predicate = $5::jsonb, enabled = $6, updated_at = NOW()
+		WHERE id = $7 AND organization_id = $8 AND integration_id = $9
+	`, name, severity, eventType, subjectField, string(predicateRaw), enabled, ruleID, auth.OrganizationID, integrationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -246,7 +249,7 @@ func (a *App) assertIntegrationOwned(ctx context.Context, integrationID, organiz
 // must be one of LOW/MEDIUM/HIGH/CRITICAL to match the Severity enum.
 // eventType is uppercased so a UI typo of "external_sharing_enabled" still
 // matches the producer-side mapping in MapEventType.
-func parseCustomRuleBody(body map[string]any) (name, severity, eventType string, predicate []byte, enabled bool, err error) {
+func parseCustomRuleBody(body map[string]any) (name, severity, eventType, subjectField string, predicate []byte, enabled bool, err error) {
 	name = strings.TrimSpace(stringValueFromBody(body["name"]))
 	if name == "" {
 		err = errors.New("name is required")
@@ -272,6 +275,14 @@ func parseCustomRuleBody(body map[string]any) (name, severity, eventType string,
 	}
 	if len(eventType) > 120 {
 		err = errors.New("eventType must be 120 characters or fewer")
+		return
+	}
+	// subjectField is optional; when set, the evaluator uses it as both the
+	// finding's display target and dedupe target so multiple subjects per
+	// actor don't collapse via ON CONFLICT (organization_id, dedupe_key).
+	subjectField = strings.TrimSpace(stringValueFromBody(body["subjectField"]))
+	if len(subjectField) > 200 {
+		err = errors.New("subjectField must be 200 characters or fewer")
 		return
 	}
 	enabled = true

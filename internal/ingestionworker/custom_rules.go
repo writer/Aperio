@@ -34,8 +34,15 @@ type CustomRule struct {
 	Name           string
 	Severity       string
 	EventType      string
-	Predicate      json.RawMessage
-	Enabled        bool
+	// SubjectField is a dot-pathed reference (see resolveField) that the
+	// evaluator uses as both Finding.Target and Finding.DedupeTarget. When
+	// non-empty it lets one rule produce per-subject findings (e.g. one
+	// finding per externally-shared file) instead of collapsing every event
+	// for the same actor into a single security_findings row via the
+	// dedupe_key UPSERT. Empty preserves the actor-keyed default.
+	SubjectField string
+	Predicate    json.RawMessage
+	Enabled      bool
 }
 
 // EvaluateCustomRules runs every enabled CustomRule against the payload
@@ -66,22 +73,37 @@ func customFinding(rule CustomRule, payload JobPayload) Finding {
 	if severity == "" {
 		severity = "MEDIUM"
 	}
-	target := payload.Actor
-	if target == "" {
-		target = rule.Name
+	actor := payload.Actor
+	if actor == "" {
+		actor = rule.Name
+	}
+	// Resolve the operator-declared subject from the payload. When set, it
+	// becomes both the human-facing Target and the dedupe key suffix so two
+	// distinct subjects under the same actor (e.g. the same user externally
+	// sharing two files) produce two separate security_findings rows
+	// instead of overwriting one another via ON CONFLICT (org, dedupe_key).
+	subject := actor
+	dedupe := ""
+	if strings.TrimSpace(rule.SubjectField) != "" {
+		if resolved := predicateString(resolveField(rule.SubjectField, payload)); resolved != "" {
+			subject = resolved
+			dedupe = resolved
+		}
 	}
 	return Finding{
-		RuleID:      "custom." + rule.ID,
-		Title:       rule.Name,
-		Description: "Custom rule defined by operator on this integration.",
-		Severity:    severity,
-		RiskScore:   severityToRiskScore(severity),
-		Target:      target,
+		RuleID:       "custom." + rule.ID,
+		Title:        rule.Name,
+		Description:  "Custom rule defined by operator on this integration.",
+		Severity:     severity,
+		RiskScore:    severityToRiskScore(severity),
+		Target:       subject,
+		DedupeTarget: dedupe,
 		Evidence: map[string]any{
 			"ruleId":       "custom." + rule.ID,
 			"customRuleId": rule.ID,
-			"target":       target,
-			"subject":      target,
+			"target":       subject,
+			"subject":      subject,
+			"actor":        actor,
 			"provider":     payload.Provider,
 			"eventType":    payload.EventType,
 		},

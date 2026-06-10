@@ -421,6 +421,7 @@ model CustomFindingRule {
   name           String                @db.VarChar(160)
   severity       Severity              @default(MEDIUM)
   eventType      String                @map("event_type") @db.VarChar(120)
+  subjectField   String                @default("") @map("subject_field") @db.VarChar(200)
   predicate      Json                  @default("{}")
   enabled        Boolean               @default(true)
   createdAt      DateTime              @default(now()) @map("created_at")

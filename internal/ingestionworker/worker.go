@@ -1597,7 +1597,7 @@ func (w *Worker) findingsForJob(ctx context.Context, payload JobPayload, item jo
 
 func (w *Worker) loadCustomRules(ctx context.Context, integrationID string) ([]CustomRule, error) {
 	rows, err := w.db.QueryContext(ctx, `
-		SELECT id, organization_id, integration_id, name, severity::text, event_type, predicate, enabled
+		SELECT id, organization_id, integration_id, name, severity::text, event_type, subject_field, predicate, enabled
 		FROM custom_finding_rules
 		WHERE integration_id = $1 AND enabled = true
 	`, integrationID)
@@ -1609,7 +1609,7 @@ func (w *Worker) loadCustomRules(ctx context.Context, integrationID string) ([]C
 	for rows.Next() {
 		var r CustomRule
 		var predicateRaw []byte
-		if err := rows.Scan(&r.ID, &r.OrganizationID, &r.IntegrationID, &r.Name, &r.Severity, &r.EventType, &predicateRaw, &r.Enabled); err != nil {
+		if err := rows.Scan(&r.ID, &r.OrganizationID, &r.IntegrationID, &r.Name, &r.Severity, &r.EventType, &r.SubjectField, &predicateRaw, &r.Enabled); err != nil {
 			return nil, err
 		}
 		r.Predicate = predicateRaw

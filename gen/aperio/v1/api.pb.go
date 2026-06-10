@@ -10496,6 +10496,7 @@ type ConnectorCustomRule struct {
 	PredicateJson string                 `protobuf:"bytes,5,opt,name=predicate_json,json=predicateJson,proto3" json:"predicate_json,omitempty"`
 	Enabled       bool                   `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	SubjectField  string                 `protobuf:"bytes,8,opt,name=subject_field,json=subjectField,proto3" json:"subject_field,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10575,6 +10576,13 @@ func (x *ConnectorCustomRule) GetEnabled() bool {
 func (x *ConnectorCustomRule) GetUpdatedAt() string {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *ConnectorCustomRule) GetSubjectField() string {
+	if x != nil {
+		return x.SubjectField
 	}
 	return ""
 }
@@ -10699,6 +10707,7 @@ type CreateCustomRuleRequest struct {
 	EventType     string                 `protobuf:"bytes,4,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
 	PredicateJson string                 `protobuf:"bytes,5,opt,name=predicate_json,json=predicateJson,proto3" json:"predicate_json,omitempty"`
 	Enabled       bool                   `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	SubjectField  string                 `protobuf:"bytes,7,opt,name=subject_field,json=subjectField,proto3" json:"subject_field,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10775,6 +10784,13 @@ func (x *CreateCustomRuleRequest) GetEnabled() bool {
 	return false
 }
 
+func (x *CreateCustomRuleRequest) GetSubjectField() string {
+	if x != nil {
+		return x.SubjectField
+	}
+	return ""
+}
+
 type CreateCustomRuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -10828,6 +10844,7 @@ type UpdateCustomRuleRequest struct {
 	EventType     string                 `protobuf:"bytes,5,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
 	PredicateJson string                 `protobuf:"bytes,6,opt,name=predicate_json,json=predicateJson,proto3" json:"predicate_json,omitempty"`
 	Enabled       bool                   `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	SubjectField  string                 `protobuf:"bytes,8,opt,name=subject_field,json=subjectField,proto3" json:"subject_field,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10909,6 +10926,13 @@ func (x *UpdateCustomRuleRequest) GetEnabled() bool {
 		return x.Enabled
 	}
 	return false
+}
+
+func (x *UpdateCustomRuleRequest) GetSubjectField() string {
+	if x != nil {
+		return x.SubjectField
+	}
+	return ""
 }
 
 type UpdateCustomRuleResponse struct {
@@ -11902,7 +11926,7 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\bseverity\x18\x05 \x01(\tR\bseverity\x12\x1f\n" +
 	"\vevent_types\x18\x06 \x03(\tR\n" +
 	"eventTypes\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\"\xd4\x01\n" +
+	"\aenabled\x18\a \x01(\bR\aenabled\"\xf9\x01\n" +
 	"\x13ConnectorCustomRule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -11912,14 +11936,15 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x0epredicate_json\x18\x05 \x01(\tR\rpredicateJson\x12\x18\n" +
 	"\aenabled\x18\x06 \x01(\bR\aenabled\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\tR\tupdatedAt\"B\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt\x12#\n" +
+	"\rsubject_field\x18\b \x01(\tR\fsubjectField\"B\n" +
 	"\x19ListConnectorRulesRequest\x12%\n" +
 	"\x0eintegration_id\x18\x01 \x01(\tR\rintegrationId\"\xd3\x01\n" +
 	"\x1aListConnectorRulesResponse\x12%\n" +
 	"\x0eintegration_id\x18\x01 \x01(\tR\rintegrationId\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12:\n" +
 	"\bbuilt_in\x18\x03 \x03(\v2\x1f.aperio.v1.ConnectorBuiltInRuleR\abuiltIn\x126\n" +
-	"\x06custom\x18\x04 \x03(\v2\x1e.aperio.v1.ConnectorCustomRuleR\x06custom\"\xd0\x01\n" +
+	"\x06custom\x18\x04 \x03(\v2\x1e.aperio.v1.ConnectorCustomRuleR\x06custom\"\xf5\x01\n" +
 	"\x17CreateCustomRuleRequest\x12%\n" +
 	"\x0eintegration_id\x18\x01 \x01(\tR\rintegrationId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -11927,9 +11952,10 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x04 \x01(\tR\teventType\x12%\n" +
 	"\x0epredicate_json\x18\x05 \x01(\tR\rpredicateJson\x12\x18\n" +
-	"\aenabled\x18\x06 \x01(\bR\aenabled\"*\n" +
+	"\aenabled\x18\x06 \x01(\bR\aenabled\x12#\n" +
+	"\rsubject_field\x18\a \x01(\tR\fsubjectField\"*\n" +
 	"\x18CreateCustomRuleResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xe9\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x8e\x02\n" +
 	"\x17UpdateCustomRuleRequest\x12%\n" +
 	"\x0eintegration_id\x18\x01 \x01(\tR\rintegrationId\x12\x17\n" +
 	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12\x12\n" +
@@ -11938,7 +11964,8 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x05 \x01(\tR\teventType\x12%\n" +
 	"\x0epredicate_json\x18\x06 \x01(\tR\rpredicateJson\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\"*\n" +
+	"\aenabled\x18\a \x01(\bR\aenabled\x12#\n" +
+	"\rsubject_field\x18\b \x01(\tR\fsubjectField\"*\n" +
 	"\x18UpdateCustomRuleResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"Y\n" +
 	"\x17DeleteCustomRuleRequest\x12%\n" +
