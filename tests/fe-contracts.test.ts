@@ -165,6 +165,26 @@ test("Connect transport stays configured for credentialed no-store browser fetch
   assert.match(nextConfig, /connect-src 'self'.*\$\{connectApiBaseUrl\}/);
 });
 
+test("workspace switcher retries after a transient workspace load failure", () => {
+  const switcher = readRepoFile("apps/web/components/layout/workspace-switcher.tsx");
+
+  assert.match(
+    switcher,
+    /if \(!open \|\| workspaces !== null \|\| errorMessage\) return;/,
+    "the failed open should stop retrying while the error is visible"
+  );
+  assert.match(
+    switcher,
+    /if \(next && errorMessage\) \{\s*setWorkspaces\(null\);\s*setErrorMessage\(null\);/s,
+    "reopening after an error should clear the failed snapshot and retry"
+  );
+  assert.doesNotMatch(
+    switcher,
+    /catch[\s\S]*?setWorkspaces\(\[\]\);/,
+    "transient failures must not be cached as a successful empty workspace list"
+  );
+});
+
 test("security identity MFA remains a nullable tri-state contract", () => {
   const proto = readRepoFile("proto/aperio/v1/api.proto");
   const generated = readRepoFile("packages/connect/src/gen/aperio/v1/api_pb.ts");

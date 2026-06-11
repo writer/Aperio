@@ -1,8 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { CheckCircle2, ExternalLink, Plus, Search, ShieldCheck, Unplug } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  ListChecks,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Unplug
+} from "lucide-react";
 import { ConnectorRulesDialog } from "./connector-rules-dialog";
+import { FindingsDialog } from "./findings-dialog";
 import { cn } from "../../lib/utils";
 import {
   clearIntegrationOAuthClient,
@@ -11,6 +22,7 @@ import {
   fetchConnectorCatalog,
   fetchIntegrationOAuthClient,
   fetchIntegrations,
+  forceSyncIntegration,
   saveIntegrationOAuthClient,
   startGoogleWorkspaceOAuth,
   type ConnectIntegrationPayload,
@@ -38,6 +50,17 @@ import { formatRelative, providerLabel } from "../../lib/format";
 type StatusFilter = "ALL" | IntegrationConnection["status"];
 const STATUS_FILTERS: StatusFilter[] = ["ALL", "CONNECTED", "ERROR", "DISABLED"];
 
+// compatForceSync on the API only succeeds for CONNECTED Google Workspace
+// integrations today; every other provider/status combination returns
+// CodeUnimplemented or NotFound. Gate the Sync action so operators do not
+// see a button whose only outcome is a "Sync failed" toast.
+function supportsForceSync(integration: IntegrationConnection): boolean {
+  return (
+    integration.provider === "GOOGLE_WORKSPACE" &&
+    integration.status === "CONNECTED"
+  );
+}
+
 export function ConnectorsPage() {
   const { toast } = useToast();
   const [catalog, setCatalog] = useState<ConnectorDefinition[]>([]);
@@ -49,6 +72,9 @@ export function ConnectorsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [rulesIntegration, setRulesIntegration] = useState<IntegrationConnection | null>(null);
+  const [findingsIntegration, setFindingsIntegration] =
+    useState<IntegrationConnection | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const filteredIntegrations = useMemo(() => {
     // Active integrations are searched by both display labels and provider-owned
@@ -137,6 +163,34 @@ export function ConnectorsPage() {
         description: err instanceof Error ? err.message : undefined,
         tone: "error"
       });
+    }
+  }
+
+  async function handleSync(integration: IntegrationConnection) {
+    if (syncingId) return;
+    if (!supportsForceSync(integration)) return;
+    setSyncingId(integration.id);
+    try {
+      const result = await forceSyncIntegration(integration.id);
+      const ingested = result.sync?.eventsIngested ?? 0;
+      const opened = result.sync?.findingsOpened ?? 0;
+      toast({
+        title: `Sync queued · ${integration.displayName}`,
+        description:
+          ingested === 0 && opened === 0
+            ? "New events will appear once the ingestion worker finishes."
+            : `${ingested} event${ingested === 1 ? "" : "s"} ingested · ${opened} new finding${opened === 1 ? "" : "s"}`,
+        tone: "success"
+      });
+      await load();
+    } catch (err) {
+      toast({
+        title: "Sync failed",
+        description: err instanceof Error ? err.message : undefined,
+        tone: "error"
+      });
+    } finally {
+      setSyncingId(null);
     }
   }
 
@@ -270,19 +324,48 @@ export function ConnectorsPage() {
                       synced {formatRelative(integration.lastSyncAt)}
                     </span>
                   </p>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => setRulesIntegration(integration)}
+                      disabled={syncingId === integration.id}
                     >
                       <ShieldCheck className="h-3.5 w-3.5" />
                       Rules
+                    </Button>
+                    {supportsForceSync(integration) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleSync(integration)}
+                        disabled={syncingId === integration.id}
+                      >
+                        {syncingId === integration.id ? (
+                          <Loader2
+                            className="h-3.5 w-3.5 animate-spin"
+                            aria-hidden
+                          />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        {syncingId === integration.id ? "Syncing…" : "Sync"}
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setFindingsIntegration(integration)}
+                      disabled={syncingId === integration.id}
+                    >
+                      <ListChecks className="h-3.5 w-3.5" aria-hidden />
+                      Findings
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => void handleDisconnect(integration.id)}
+                      disabled={syncingId === integration.id}
                     >
                       <Unplug className="h-3.5 w-3.5" />
                       Disconnect
@@ -393,6 +476,14 @@ export function ConnectorsPage() {
         onOpenChange={(next) => {
           if (!next) setRulesIntegration(null);
         }}
+      />
+      <FindingsDialog
+        integration={findingsIntegration}
+        open={findingsIntegration !== null}
+        onOpenChange={(next) => {
+          if (!next) setFindingsIntegration(null);
+        }}
+        onSaved={() => void load()}
       />
     </div>
   );

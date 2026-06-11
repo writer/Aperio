@@ -1079,6 +1079,7 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,$6,$7,$8,'HIGH','INTERNAL','ASSIGNED',false,$9,$10,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName, strings.ReplaceAll(provider, "_", " ")+" control plane", external, []string{"integration", strings.ToLower(mode)}, isPrivileged, riskScore)
 	a.writeCompatAudit(ctx, auth, "integration.connect", "integration_connection", id, map[string]any{"provider": provider, "displayName": displayName, "externalAccountId": external, "mode": mode})
+	a.requestImmediateGoogleWorkspaceSync(ctx, id, provider, auth)
 	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": disabledChecks, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
@@ -1277,13 +1278,39 @@ func (a *App) writeCompatAudit(ctx context.Context, auth compatAuth, action, tar
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`, compatID("aud"), auth.OrganizationID, actor, action, targetType, targetID, meta)
 }
 
+// GoogleWorkspaceSyncWakeChannel is the Postgres LISTEN/NOTIFY channel name
+// the google-workspace-poller subscribes to so freshly-connected integrations
+// trigger an out-of-cycle poll instead of waiting up to a full poll interval
+// for the next ticker fire. The payload is the integration_connections.id.
+const GoogleWorkspaceSyncWakeChannel = "aperio_google_workspace_sync_requested"
+
+// requestImmediateGoogleWorkspaceSync nudges the google-workspace-poller to
+// run an out-of-cycle poll for a freshly-connected integration. We rely on
+// the existing poller for ingestion work, because that is the producer that
+// knows how to translate Google Reports API activities into the synthetic
+// event types supportedIngestionEventTypes accepts; enqueuing raw
+// ingestion_jobs rows here would dead-letter immediately since the worker
+// would not recognise the event type. NOTIFY is fire-and-forget: if no
+// poller process is listening (or none is running), the next scheduled
+// poller tick still picks the integration up because its discovery query
+// selects every CONNECTED Google Workspace integration.
+func (a *App) requestImmediateGoogleWorkspaceSync(ctx context.Context, integrationID string, provider string, auth compatAuth) {
+	if strings.ToUpper(provider) != "GOOGLE_WORKSPACE" {
+		return
+	}
+	if _, err := a.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, GoogleWorkspaceSyncWakeChannel, integrationID); err != nil {
+		a.writeCompatAudit(ctx, auth, "integration.initial_sync_notify_failed", "integration_connection", integrationID, map[string]any{"provider": provider, "error": err.Error()})
+		return
+	}
+	a.writeCompatAudit(ctx, auth, "integration.initial_sync_requested", "integration_connection", integrationID, map[string]any{"provider": provider, "channel": GoogleWorkspaceSyncWakeChannel})
+}
+
 func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (any, error) {
 	if err := requireCompatRole(auth, "OWNER", "ADMIN"); err != nil {
 		return nil, err
 	}
 	var provider string
-	var external string
-	err := a.db.QueryRowContext(ctx, `SELECT provider::text, external_account_id FROM integration_connections WHERE id = $1 AND organization_id = $2 AND status = 'CONNECTED'`, id, auth.OrganizationID).Scan(&provider, &external)
+	err := a.db.QueryRowContext(ctx, `SELECT provider::text FROM integration_connections WHERE id = $1 AND organization_id = $2 AND status = 'CONNECTED'`, id, auth.OrganizationID).Scan(&provider)
 	if err == sql.ErrNoRows {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
 	}
@@ -1293,31 +1320,44 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	if provider != "GOOGLE_WORKSPACE" {
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("force sync is not implemented for %s yet", strings.ReplaceAll(provider, "_", " ")))
 	}
-	jobID := compatID("job")
-	payload := map[string]any{
-		"provider":          provider,
-		"integrationId":     id,
-		"externalAccountId": external,
-		"requestedBy":       auth.UserID,
-		"reason":            "manual_force_sync",
-	}
-	payloadJSON, _ := json.Marshal(payload)
-	// Force-sync uses the same durable ingestion queue as provider webhooks. This
-	// preserves retry/dead-letter behavior instead of doing synchronous scanning
-	// from the request handler.
-	_, err = a.db.ExecContext(ctx, `INSERT INTO ingestion_jobs (id, organization_id, integration_id, provider, event_type, source, actor, occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4,'MANUAL_FORCE_SYNC','aperio.force_sync',$5,NOW(),$6,'QUEUED',0,3,NOW(),NOW(),NOW())`, jobID, auth.OrganizationID, id, provider, auth.Email, json.RawMessage(payloadJSON))
-	if err != nil {
+	// Manual force-sync goes through the same pg_notify wake channel as the
+	// post-connect immediate sync (see requestImmediateGoogleWorkspaceSync).
+	// We deliberately do NOT insert an ingestion_jobs row here: the ingestion
+	// worker only consumes the synthetic event types in
+	// supportedIngestionEventTypes["GOOGLE_WORKSPACE"] and would dead-letter
+	// any MANUAL_FORCE_SYNC row before the poller produced findings, so the
+	// API would falsely report sync queued while no work actually ran. Last
+	// sync time is owned by the poller; updating it pre-emptively here would
+	// hide a stuck poller behind a fresh-looking timestamp.
+	if _, err := a.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, GoogleWorkspaceSyncWakeChannel, id); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	a.writeCompatAudit(ctx, auth, "integration.force_sync", "integration_connection", id, map[string]any{"provider": provider, "sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}})
-	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
+	a.writeCompatAudit(ctx, auth, "integration.force_sync", "integration_connection", id, map[string]any{
+		"provider": provider,
+		"channel":  GoogleWorkspaceSyncWakeChannel,
+		"source":   "aperio.force_sync",
+	})
 	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	for _, row := range rows {
 		if row.ID == id {
-			return map[string]any{"data": row.toProto(), "sync": map[string]any{"sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}, "jobId": jobID}}, nil
+			return map[string]any{
+				"data": row.toProto(),
+				"sync": map[string]any{
+					// Counts intentionally zero: the poll runs out-of-band and
+					// the request returns once the wake-up is queued. The UI
+					// surfaces "New events will appear once the ingestion
+					// worker finishes." for this case.
+					"sampleCount":    0,
+					"eventsIngested": 0,
+					"findingsOpened": 0,
+					"sources":        []string{"aperio.force_sync"},
+					"queued":         true,
+					"channel":        GoogleWorkspaceSyncWakeChannel,
+				},
+			}, nil
 		}
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))

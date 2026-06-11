@@ -540,3 +540,17 @@ func (r rewriteHostRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	}
 	return http.DefaultTransport.RoundTrip(req)
 }
+
+func TestWakeIntegrationEmptyIDIsNoop(t *testing.T) {
+	// WakeIntegration must tolerate stray empty notification payloads
+	// without panicking or hitting the database; the LISTEN goroutine in
+	// cmd/google-workspace-poller relies on this to swallow malformed
+	// pg_notify payloads that survived the trim guard.
+	p := New(nil, nil)
+	if err := p.WakeIntegration(context.Background(), ""); err != nil {
+		t.Fatalf("WakeIntegration(\"\") returned err: %v", err)
+	}
+	if err := p.WakeIntegration(context.Background(), "   "); err != nil {
+		t.Fatalf("WakeIntegration(whitespace) returned err: %v", err)
+	}
+}

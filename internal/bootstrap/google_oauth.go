@@ -515,6 +515,17 @@ func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input google
 		return err
 	}
 	committed = true
+	// Mirror the form-based connect path: nudge the google-workspace-poller
+	// so the new integration is polled immediately instead of waiting for
+	// the next scheduled tick. The notify is fire-and-forget; if no poller
+	// is currently listening, the integration is still discovered by the
+	// next ticker fire because connectedIntegrations selects every
+	// CONNECTED Google Workspace row.
+	a.requestImmediateGoogleWorkspaceSync(ctx, integrationID, provider, compatAuth{
+		OrganizationID: input.organizationID,
+		UserID:         input.userID,
+		Email:          input.adminEmail,
+	})
 	return nil
 }
 
