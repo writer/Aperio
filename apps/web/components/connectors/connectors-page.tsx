@@ -50,6 +50,17 @@ import { formatRelative, providerLabel } from "../../lib/format";
 type StatusFilter = "ALL" | IntegrationConnection["status"];
 const STATUS_FILTERS: StatusFilter[] = ["ALL", "CONNECTED", "ERROR", "DISABLED"];
 
+// compatForceSync on the API only succeeds for CONNECTED Google Workspace
+// integrations today; every other provider/status combination returns
+// CodeUnimplemented or NotFound. Gate the Sync action so operators do not
+// see a button whose only outcome is a "Sync failed" toast.
+function supportsForceSync(integration: IntegrationConnection): boolean {
+  return (
+    integration.provider === "GOOGLE_WORKSPACE" &&
+    integration.status === "CONNECTED"
+  );
+}
+
 export function ConnectorsPage() {
   const { toast } = useToast();
   const [catalog, setCatalog] = useState<ConnectorDefinition[]>([]);
@@ -157,6 +168,7 @@ export function ConnectorsPage() {
 
   async function handleSync(integration: IntegrationConnection) {
     if (syncingId) return;
+    if (!supportsForceSync(integration)) return;
     setSyncingId(integration.id);
     try {
       const result = await forceSyncIntegration(integration.id);
@@ -322,19 +334,24 @@ export function ConnectorsPage() {
                       <ShieldCheck className="h-3.5 w-3.5" />
                       Rules
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleSync(integration)}
-                      disabled={syncingId === integration.id}
-                    >
-                      {syncingId === integration.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-                      )}
-                      {syncingId === integration.id ? "Syncing…" : "Sync"}
-                    </Button>
+                    {supportsForceSync(integration) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleSync(integration)}
+                        disabled={syncingId === integration.id}
+                      >
+                        {syncingId === integration.id ? (
+                          <Loader2
+                            className="h-3.5 w-3.5 animate-spin"
+                            aria-hidden
+                          />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        {syncingId === integration.id ? "Syncing…" : "Sync"}
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="outline"

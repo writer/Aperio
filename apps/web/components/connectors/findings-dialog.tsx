@@ -41,9 +41,17 @@ export function FindingsDialog({ integration, open, onOpenChange, onSaved }: Pro
   React.useEffect(() => {
     if (!open || !integration) return;
     let cancelled = false;
+    // Wipe the prior integration's snapshot before issuing the new fetch so
+    // a failure (or the brief load window before it resolves) can never
+    // leave the footer operating on stale checks/enabledMap from a
+    // different integration. Without this clear, Reset to defaults + Save
+    // could persist the previous integration's disabled list against the
+    // newly opened one.
     setLoading(true);
     setLoadError(null);
     setQuery("");
+    setChecks([]);
+    setEnabledMap({});
     fetchIntegrationChecks(integration.id)
       .then((response) => {
         if (cancelled) return;
@@ -209,6 +217,7 @@ export function FindingsDialog({ integration, open, onOpenChange, onSaved }: Pro
                       checked={enabled}
                       onCheckedChange={(next) => toggle(check.key, next)}
                       aria-label={`Toggle ${check.title}`}
+                      disabled={saving}
                     />
                   </li>
                 );
