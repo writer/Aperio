@@ -301,22 +301,27 @@ func (s *Sync) listTokensForUser(ctx context.Context, accessToken, userKey strin
 // sweeps converge on the same id idempotently.
 func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p parsedToken, now time.Time) (string, error) {
 	id := "ast_oauth_" + integ.ID + "_" + p.ClientID
+	risk := googleOAuthAssetRisk(p.Scopes)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO security_assets (
 			id, organization_id, integration_id, type, provider, external_id,
 			name, summary, criticality, contains_sensitive_data, exposure_level,
-			risk_score, labels, last_observed_at, created_at, updated_at
+			is_privileged, risk_score, labels, last_observed_at, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, 'OAUTH_APP'::"SecurityAssetType", 'GOOGLE_WORKSPACE'::"SaaSProvider", $4,
-			$5, $6, 'MEDIUM'::"AssetCriticality", false, 'TRUSTED_EXTERNAL'::"AssetExposureLevel",
-			0, ARRAY['shadow-it']::text[], $7, NOW(), NOW()
+			$5, $6, $7::"AssetCriticality", $8, 'TRUSTED_EXTERNAL'::"AssetExposureLevel",
+			$9, $10, ARRAY['shadow-it']::text[], $11, NOW(), NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
-			name             = EXCLUDED.name,
-			summary          = EXCLUDED.summary,
-			last_observed_at = EXCLUDED.last_observed_at,
-			updated_at       = NOW()
-	`, id, integ.OrganizationID, integ.ID, p.ClientID, p.DisplayName(), p.Summary(), now)
+			name                    = EXCLUDED.name,
+			summary                 = EXCLUDED.summary,
+			criticality             = EXCLUDED.criticality,
+			contains_sensitive_data = EXCLUDED.contains_sensitive_data,
+			is_privileged           = EXCLUDED.is_privileged,
+			risk_score              = EXCLUDED.risk_score,
+			last_observed_at        = EXCLUDED.last_observed_at,
+			updated_at              = NOW()
+	`, id, integ.OrganizationID, integ.ID, p.ClientID, p.DisplayName(), p.Summary(), risk.criticality, risk.containsSensitiveData, risk.isPrivileged, risk.riskScore, now)
 	if err != nil {
 		return "", err
 	}

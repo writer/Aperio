@@ -2201,7 +2201,7 @@ func seedExhaustedRateLimitBucket(t *testing.T, app *App, header http.Header, me
 	if !ok {
 		t.Fatalf("no rate limit policy for %s %s", method, path)
 	}
-	key := compatRateLimitKey(method, path, compatClientIdentity(header), "")
+	key := compatRateLimitKey(method, path, compatClientIdentity(header, ""), "")
 	_, err := app.db.ExecContext(context.Background(), `
 		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
 		VALUES ($1, $2, $3, NOW(), NOW())

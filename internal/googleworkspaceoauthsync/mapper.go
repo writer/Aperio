@@ -64,6 +64,78 @@ func (p parsedToken) Summary() string {
 	return "OAuth scopes: " + strings.Join(preview, ", ") + suffix
 }
 
+type oauthAssetRisk struct {
+	criticality           string
+	riskScore             int
+	containsSensitiveData bool
+	isPrivileged          bool
+}
+
+func googleOAuthAssetRisk(scopes []string) oauthAssetRisk {
+	normalized := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.ToLower(strings.TrimSpace(scope))
+		if scope != "" {
+			normalized = append(normalized, scope)
+		}
+	}
+	if len(normalized) == 0 {
+		return oauthAssetRisk{criticality: "LOW", riskScore: 10}
+	}
+	criticalScopeSet := map[string]struct{}{
+		"https://mail.google.com/":                               {},
+		"https://www.googleapis.com/auth/gmail.modify":           {},
+		"https://www.googleapis.com/auth/gmail.insert":           {},
+		"https://www.googleapis.com/auth/gmail.settings.basic":   {},
+		"https://www.googleapis.com/auth/gmail.settings.sharing": {},
+	}
+	highMailboxScopeSet := map[string]struct{}{
+		"https://www.googleapis.com/auth/gmail.readonly":                        {},
+		"https://www.googleapis.com/auth/gmail.metadata":                        {},
+		"https://www.googleapis.com/auth/gmail.send":                            {},
+		"https://www.googleapis.com/auth/gmail.compose":                         {},
+		"https://www.googleapis.com/auth/gmail.labels":                          {},
+		"https://www.googleapis.com/auth/gmail.addons.current.message.readonly": {},
+		"https://www.googleapis.com/auth/gmail.addons.current.message.action":   {},
+		"https://www.googleapis.com/auth/gmail.addons.execute":                  {},
+	}
+	criticalMatches := 0
+	highMailboxMatches := 0
+	highValueMatches := 0
+	isPrivileged := false
+	for _, scope := range normalized {
+		if _, ok := criticalScopeSet[scope]; ok {
+			criticalMatches++
+		}
+		if _, ok := highMailboxScopeSet[scope]; ok {
+			highMailboxMatches++
+		}
+		if strings.Contains(scope, "admin") || strings.Contains(scope, "drive") || strings.Contains(scope, "directory") {
+			highValueMatches++
+		}
+		if strings.Contains(scope, "admin") || strings.Contains(scope, "directory") {
+			isPrivileged = true
+		}
+	}
+	if criticalMatches > 0 {
+		return oauthAssetRisk{criticality: "CRITICAL", riskScore: minOAuthRisk(97, 92+criticalMatches), containsSensitiveData: true, isPrivileged: isPrivileged}
+	}
+	if highMailboxMatches > 0 {
+		return oauthAssetRisk{criticality: "HIGH", riskScore: minOAuthRisk(91, 84+highMailboxMatches), containsSensitiveData: true, isPrivileged: isPrivileged}
+	}
+	if highValueMatches > 0 {
+		return oauthAssetRisk{criticality: "HIGH", riskScore: 82, containsSensitiveData: true, isPrivileged: isPrivileged}
+	}
+	return oauthAssetRisk{criticality: "MEDIUM", riskScore: 45}
+}
+
+func minOAuthRisk(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func itoa(n int) string {
 	const digits = "0123456789"
 	if n == 0 {

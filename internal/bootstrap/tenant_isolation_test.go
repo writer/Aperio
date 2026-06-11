@@ -321,6 +321,37 @@ func TestTenantIsolationMemberResetLinkRejectsForeignUser(t *testing.T) {
 	}
 }
 
+func TestPublicForgotPasswordDoesNotExposeResetToken(t *testing.T) {
+	app, base := newTestDBApp(t)
+	ctx := context.Background()
+	user := seedOrgUserWithPassword(t, app, base.OrganizationID, "ADMIN", "forgot-"+randomBase36(10)+"@example.com", "old-password-123")
+	slug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, user.OrganizationID)
+
+	out, err := app.compatForgotPassword(ctx, map[string]any{
+		"organizationSlug": slug,
+		"email":            user.Email,
+	})
+	if err != nil {
+		t.Fatalf("forgot password: %v", err)
+	}
+	data := dataMap(t, out)
+	if accepted, _ := data["accepted"].(bool); !accepted {
+		t.Fatalf("forgot password accepted = %#v, want true", data["accepted"])
+	}
+	for _, field := range []string{"resetUrl", "token", "delivery", "expiresAt", "organizationName"} {
+		if value, ok := data[field]; ok && value != "" {
+			t.Fatalf("forgot password response leaked %s=%#v", field, value)
+		}
+	}
+	var tokens int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_tokens WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, user.OrganizationID, user.UserID).Scan(&tokens); err != nil {
+		t.Fatalf("count reset tokens: %v", err)
+	}
+	if tokens != 1 {
+		t.Fatalf("forgot password should still mint one server-side reset token, got %d", tokens)
+	}
+}
+
 func TestTenantIsolationSwitchWorkspaceRequiresTargetPassword(t *testing.T) {
 	app, base := newTestDBApp(t)
 	victim := seedIsolationOrg(t, app)

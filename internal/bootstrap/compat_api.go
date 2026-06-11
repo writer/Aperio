@@ -376,7 +376,7 @@ func (a *App) handleCompatAPI(
 			return "", nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid request body"))
 		}
 	}
-	if err := a.compatRateLimit(ctx, req.Header(), method, path, body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, method, path, body); err != nil {
 		return "", nil, err
 	}
 	headers := http.Header{}
@@ -541,6 +541,7 @@ func isPublicCompatPath(path string) bool {
 func (a *App) compatRateLimit(
 	ctx context.Context,
 	header http.Header,
+	peerAddr string,
 	method string,
 	path string,
 	body map[string]any,
@@ -552,7 +553,7 @@ func (a *App) compatRateLimit(
 	if !ok {
 		return nil
 	}
-	client := compatClientIdentity(header)
+	client := compatClientIdentity(header, peerAddr)
 	// Rate limit by both network identity and the submitted subject. This slows
 	// distributed guessing against a single email/token while still bounding one
 	// noisy client that rotates submitted subjects.
@@ -607,11 +608,10 @@ func (a *App) compatConsumeRateLimit(ctx context.Context, key string, max int, w
 }
 
 func compatRateLimitKey(method, path, client, subject string) string {
-	scope := "ip"
 	if subject != "" {
-		scope = "subject"
+		return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", "subject", method, path, subject}, ":"))
 	}
-	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", scope, method, path, client, subject}, ":"))
+	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", "ip", method, path, client}, ":"))
 }
 
 func compatRateLimitSubject(values []string) string {
@@ -646,19 +646,16 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 	}
 }
 
-func compatClientIdentity(header http.Header) string {
-	// Prefer the right-most forwarded IP, which is normally the closest trusted
-	// proxy hop in deployments that append X-Forwarded-For.
-	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
-	for index := len(forwarded) - 1; index >= 0; index-- {
-		if client := strings.TrimSpace(forwarded[index]); client != "" {
-			return client
-		}
+func compatClientIdentity(_ http.Header, peerAddr string) string {
+	peerAddr = strings.TrimSpace(peerAddr)
+	if peerAddr == "" {
+		return "unknown"
 	}
-	if client := strings.TrimSpace(header.Get("X-Real-IP")); client != "" {
-		return client
+	host, _, err := net.SplitHostPort(peerAddr)
+	if err == nil && strings.TrimSpace(host) != "" {
+		return strings.TrimSpace(host)
 	}
-	return "unknown"
+	return peerAddr
 }
 
 func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (compatAuth, error) {
@@ -912,16 +909,16 @@ func (a *App) compatSwitchWorkspace(ctx context.Context, body map[string]any, au
 
 func (a *App) compatForgotPassword(ctx context.Context, body map[string]any) (any, error) {
 	slug, email := requiredString(body, "organizationSlug"), strings.ToLower(requiredString(body, "email"))
-	var orgID, orgName, userID string
-	err := a.db.QueryRowContext(ctx, `SELECT o.id, o.name, u.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE`, slug, email).Scan(&orgID, &orgName, &userID)
+	var orgID, userID string
+	err := a.db.QueryRowContext(ctx, `SELECT o.id, u.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE`, slug, email).Scan(&orgID, &userID)
 	if err != nil {
 		return map[string]any{"data": map[string]any{"accepted": true}}, nil
 	}
-	token, tokenHash := compatToken()
+	_, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
 	_, _ = a.db.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, orgID, userID)
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,$5,NOW())`, compatID("tok"), orgID, userID, tokenHash, expires)
-	return map[string]any{"data": map[string]any{"accepted": true, "delivery": "manual_link", "resetUrl": compatAuthLink("/reset-password", token), "expiresAt": expires.UTC().Format(time.RFC3339Nano), "organizationName": orgName}}, nil
+	return map[string]any{"data": map[string]any{"accepted": true}}, nil
 }
 
 func (a *App) compatResetPassword(ctx context.Context, body map[string]any, headers http.Header) (any, error) {

@@ -98,6 +98,76 @@ func TestDBPruneStaleOauthGrantsRemovesRevokedApps(t *testing.T) {
 	assertOAuthPruneCount(t, db, `SELECT COUNT(*) FROM security_assets WHERE id = $1`, staleAssetID, 0)
 }
 
+func TestDBUpsertOauthAssetUpgradesScopeRisk(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("APERIO_TEST_DATABASE_URL"))
+	if dsn == "" {
+		t.Skip("set APERIO_TEST_DATABASE_URL to run DB-backed OAuth sync tests")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Ping(); err != nil {
+		t.Fatalf("ping db: %v", err)
+	}
+
+	ctx := context.Background()
+	suffix := shortHash(t.Name() + time.Now().UTC().String())
+	orgID := "org_oauth_risk_" + suffix
+	integrationID := "int_oauth_risk_" + suffix
+	now := time.Date(2026, 6, 11, 13, 0, 0, 0, time.UTC)
+	if _, err := db.ExecContext(ctx, `INSERT INTO organizations (id, name, slug, created_at, updated_at) VALUES ($1,$2,$3,NOW(),NOW())`, orgID, "OAuth risk", "oauth-risk-"+suffix); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM organizations WHERE id = $1`, orgID)
+	})
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO integration_connections (
+			id, organization_id, provider, display_name, external_account_id, scopes, disabled_checks,
+			encrypted_access_token, status, mode, created_at, updated_at
+		) VALUES (
+			$1, $2, 'GOOGLE_WORKSPACE'::"SaaSProvider", 'Google Workspace', 'example.com',
+			ARRAY[]::text[], ARRAY[]::text[], 'test-token-envelope',
+			'CONNECTED'::"IntegrationStatus", 'READ_ONLY'::"IntegrationMode", NOW(), NOW()
+		)
+	`, integrationID, orgID); err != nil {
+		t.Fatalf("seed integration: %v", err)
+	}
+
+	s := &Sync{db: db}
+	integ := integrationRow{ID: integrationID, OrganizationID: orgID}
+	assetID, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"openid"}}, now)
+	if err != nil {
+		t.Fatalf("initial upsert oauth asset: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		UPDATE security_assets
+		SET criticality = 'LOW'::"AssetCriticality", contains_sensitive_data = false, is_privileged = false, risk_score = 0
+		WHERE id = $1 AND organization_id = $2
+	`, assetID, orgID); err != nil {
+		t.Fatalf("downgrade existing asset: %v", err)
+	}
+	if _, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"https://mail.google.com/", "https://www.googleapis.com/auth/admin.directory.user.readonly"}}, now.Add(time.Minute)); err != nil {
+		t.Fatalf("risk upgrade upsert oauth asset: %v", err)
+	}
+
+	var criticality string
+	var containsSensitive, isPrivileged bool
+	var riskScore int
+	if err := db.QueryRowContext(ctx, `
+		SELECT criticality::text, contains_sensitive_data, is_privileged, risk_score
+		FROM security_assets
+		WHERE id = $1 AND organization_id = $2
+	`, assetID, orgID).Scan(&criticality, &containsSensitive, &isPrivileged, &riskScore); err != nil {
+		t.Fatalf("query upgraded asset risk: %v", err)
+	}
+	if criticality != "CRITICAL" || !containsSensitive || !isPrivileged || riskScore < 92 {
+		t.Fatalf("upgraded asset risk = criticality=%s sensitive=%t privileged=%t risk=%d", criticality, containsSensitive, isPrivileged, riskScore)
+	}
+}
+
 func assertOAuthPruneCount(t *testing.T, db *sql.DB, query string, arg any, want int) {
 	t.Helper()
 	var got int
