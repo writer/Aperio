@@ -176,6 +176,60 @@ func TestIsExternalEmailEdgeCases(t *testing.T) {
 	}
 }
 
+func FuzzMapEventTypeDriveDomainClassification(f *testing.F) {
+	for _, seed := range []struct {
+		owner  string
+		target string
+	}{
+		{"company.com", "alice@company.com"},
+		{"company.com", "partner@example.net"},
+		{"tenant.example", "sub.tenant.example"},
+	} {
+		f.Add(seed.owner, seed.target)
+	}
+	f.Fuzz(func(t *testing.T, ownerDomain, target string) {
+		ownerDomain = cleanDomainForFuzz(ownerDomain)
+		if ownerDomain == "" {
+			t.Skip()
+		}
+		targetDomain := cleanDomainForFuzz(target)
+		if targetDomain == "" {
+			t.Skip()
+		}
+		internalEmail := "user@" + ownerDomain
+		internal := MapEventType("drive", "change_user_access", []reportsParameter{
+			{Name: "target_user_emails", MultiValue: []string{internalEmail}},
+		}, ownerDomain)
+		if internal == "EXTERNAL_SHARING_ENABLED" {
+			t.Fatalf("same-domain target %q must not map external for owner %q", internalEmail, ownerDomain)
+		}
+
+		externalEmail := "user@" + targetDomain
+		external := MapEventType("drive", "change_user_access", []reportsParameter{
+			{Name: "target_user_emails", MultiValue: []string{externalEmail}},
+		}, ownerDomain)
+		if !strings.EqualFold(targetDomain, ownerDomain) && external != "EXTERNAL_SHARING_ENABLED" {
+			t.Fatalf("cross-domain target %q should map external for owner %q, got %q", externalEmail, ownerDomain, external)
+		}
+
+		public := MapEventType("drive", "change_document_visibility", []reportsParameter{
+			{Name: "visibility", Value: "anyone_with_link"},
+		}, "")
+		if public != "EXTERNAL_SHARING_ENABLED" {
+			t.Fatalf("public visibility must map external without owner domain, got %q", public)
+		}
+	})
+}
+
+func cleanDomainForFuzz(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.Trim(value, ".@")
+	if value == "" || strings.ContainsAny(value, " \t\r\n/@:") || !strings.Contains(value, ".") {
+		return ""
+	}
+	return value
+}
+
 // TestNextCursorAfterSweepPreservesOnPageCap is the regression pin for the
 // reviewer-flagged data-loss bug. When listActivities returned exhausted=false,
 // an earlier revision advanced the cursor to the OLDEST collected event. But
@@ -239,6 +293,29 @@ func TestCursorRowIsStrictlyAfter(t *testing.T) {
 	if !empty.isStrictlyAfter(time.Unix(0, 0).UTC(), "") {
 		t.Fatal("zero cursor must accept anything")
 	}
+}
+
+func FuzzNextCursorAfterSweepMonotonic(f *testing.F) {
+	f.Add(int64(100), "q100", int64(200), "q200", int64(300), "q300", true)
+	f.Add(int64(100), "q100", int64(200), "q200", int64(300), "q300", false)
+	f.Fuzz(func(t *testing.T, currentSec int64, currentQ string, firstSec int64, firstQ string, secondSec int64, secondQ string, exhausted bool) {
+		current := cursorRow{LastEventTime: time.Unix(currentSec, 0).UTC(), LastUniqueQualifier: currentQ}
+		activities := []reportsActivity{
+			{EventTime: time.Unix(firstSec, 0).UTC(), UniqueQualifier: firstQ},
+			{EventTime: time.Unix(secondSec, 0).UTC(), UniqueQualifier: secondQ},
+		}
+		got := nextCursorAfterSweep(activities, exhausted, current)
+		if !exhausted {
+			if !got.LastEventTime.Equal(current.LastEventTime) || got.LastUniqueQualifier != current.LastUniqueQualifier {
+				t.Fatalf("non-exhausted sweep advanced cursor: got %+v want %+v", got, current)
+			}
+			return
+		}
+		newest := activities[len(activities)-1]
+		if !got.LastEventTime.Equal(newest.EventTime) || got.LastUniqueQualifier != newest.UniqueQualifier {
+			t.Fatalf("exhausted sweep should advance to newest activity: got %+v want time=%s qualifier=%q", got, newest.EventTime, newest.UniqueQualifier)
+		}
+	})
 }
 
 func TestBuildJobPayloadFlattensParameters(t *testing.T) {
