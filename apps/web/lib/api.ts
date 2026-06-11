@@ -265,8 +265,12 @@ export async function fetchWorkspaces() {
   }>;
 }
 
-export async function switchWorkspace(organizationSlug: string) {
-  return aperioConnectClient.switchWorkspace(organizationSlug) as Promise<{
+export async function switchWorkspace(payload: {
+  organizationSlug: string;
+  password: string;
+  totpCode?: string;
+}) {
+  return aperioConnectClient.switchWorkspace(payload) as Promise<{
     data: AuthSession;
   }>;
 }

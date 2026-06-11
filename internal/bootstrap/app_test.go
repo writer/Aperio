@@ -304,6 +304,9 @@ func TestCompatRateLimitUsesSeparateIPAndSubjectBuckets(t *testing.T) {
 	if ipKey == subjectKey {
 		t.Fatal("expected global IP bucket and per-subject bucket to differ")
 	}
+	if _, _, ok := compatRateLimitPolicy("/api/v1/auth/workspaces/switch"); !ok {
+		t.Fatal("workspace switch re-auth must stay rate limited")
+	}
 }
 
 func TestCompatClientIdentityUsesRightmostForwardedFor(t *testing.T) {

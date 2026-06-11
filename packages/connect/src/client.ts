@@ -1256,13 +1256,15 @@ export const aperioConnectClient = {
     const response = await client.listWorkspaces({});
     return { data: response.data.map(workspaceMembershipFromProto) };
   },
-  async switchWorkspace(
-    organizationSlug: string,
-    totpCode?: string
-  ): Promise<{ data: ConnectAuthSession }> {
+  async switchWorkspace(payload: {
+    organizationSlug: string;
+    password: string;
+    totpCode?: string;
+  }): Promise<{ data: ConnectAuthSession }> {
     const response = await client.switchWorkspace({
-      organizationSlug,
-      totpCode: totpCode ?? ""
+      organizationSlug: payload.organizationSlug,
+      password: payload.password,
+      totpCode: payload.totpCode ?? ""
     });
     if (!response.data) {
       throw new Error("Workspace switch failed");

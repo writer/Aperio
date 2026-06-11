@@ -125,6 +125,7 @@ message ListWorkspacesResponse {
 message SwitchWorkspaceRequest {
   string organization_slug = 1;
   string totp_code = 2;
+  string password = 3;
 }
 
 message SwitchWorkspaceResponse {

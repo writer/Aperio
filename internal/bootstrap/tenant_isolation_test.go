@@ -48,6 +48,20 @@ func seedOrgAdmin(t *testing.T, app *App, orgID string) compatAuth {
 	return compatAuth{OrganizationID: orgID, UserID: adminID, Email: email, Role: "ADMIN"}
 }
 
+func seedOrgUserWithPassword(t *testing.T, app *App, orgID, roleName, email, password string) compatAuth {
+	t.Helper()
+	ctx := context.Background()
+	roleID, err := app.ensureCompatRole(ctx, orgID, roleName)
+	if err != nil {
+		t.Fatalf("seed %s role: %v", roleName, err)
+	}
+	userID := compatID("usr")
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, password_hash, display_name, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,TRUE,NOW(),NOW())`, userID, orgID, roleID, email, compatHashPassword(password), roleName+" User"); err != nil {
+		t.Fatalf("seed password user: %v", err)
+	}
+	return compatAuth{OrganizationID: orgID, UserID: userID, Email: email, Role: roleName}
+}
+
 func assertNotFound(t *testing.T, label string, _ any, err error) {
 	t.Helper()
 	if err == nil {
@@ -307,6 +321,70 @@ func TestTenantIsolationMemberResetLinkRejectsForeignUser(t *testing.T) {
 	}
 }
 
+func TestTenantIsolationSwitchWorkspaceRequiresTargetPassword(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	email := "same-email-" + randomBase36(10) + "@example.com"
+	attacker := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", email, "attacker-password-123")
+	victimUser := seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", email, "victim-password-123")
+	auth, err := app.compatAuthFromSession(ctx, seedSessionHeader(t, app, attacker))
+	if err != nil {
+		t.Fatalf("seed attacker session auth: %v", err)
+	}
+	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
+
+	_, err = app.compatSwitchWorkspace(ctx, map[string]any{
+		"organizationSlug": victimSlug,
+		"password":         "attacker-password-123",
+	}, auth, http.Header{})
+	if code := connect.CodeOf(err); code != connect.CodeUnauthenticated {
+		t.Fatalf("expected attacker password to be rejected for target workspace, got %v (%v)", code, err)
+	}
+	var victimSessions int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_sessions WHERE organization_id = $1 AND user_id = $2`, victim.OrganizationID, victimUser.UserID).Scan(&victimSessions); err != nil {
+		t.Fatalf("count victim sessions after rejected switch: %v", err)
+	}
+	if victimSessions != 0 {
+		t.Fatalf("rejected switch created %d victim session(s)", victimSessions)
+	}
+
+	out, err := app.compatSwitchWorkspace(ctx, map[string]any{
+		"organizationSlug": victimSlug,
+		"password":         "victim-password-123",
+	}, auth, http.Header{})
+	if err != nil {
+		t.Fatalf("target password should allow workspace switch: %v", err)
+	}
+	switchedOrg := dataMap(t, out)["organization"].(compatSessionOrg)
+	if switchedOrg.ID != victim.OrganizationID {
+		t.Fatalf("switched organization = %s, want %s", switchedOrg.ID, victim.OrganizationID)
+	}
+}
+
+func TestTypedSwitchWorkspaceHonorsRateLimit(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	email := "rate-limit-switch-" + randomBase36(10) + "@example.com"
+	attacker := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", email, "attacker-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", email, "victim-password-123")
+	header := seedSessionHeader(t, app, attacker)
+	path := "/api/v1/auth/workspaces/switch"
+	seedExhaustedRateLimitBucket(t, app, header, http.MethodPost, path)
+
+	req := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{
+		OrganizationSlug: scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID),
+		Password:         "victim-password-123",
+	})
+	copyCompatHeaders(req.Header(), header)
+	if _, err := app.SwitchWorkspace(ctx, req); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("expected rate-limited switch to return CodeResourceExhausted, got %v", err)
+	}
+}
+
 func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.T) {
 	app, attacker := newTestDBApp(t)
 	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)
@@ -347,6 +425,67 @@ func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.
 	}
 	if hashPresent {
 		t.Fatal("stale cross-tenant reset token updated the victim password")
+	}
+}
+
+func TestAuthTokenConsumeIsSingleUseUnderConcurrency(t *testing.T) {
+	app, base := newTestDBApp(t)
+	ctx := context.Background()
+	user := seedOrgUserWithPassword(t, app, base.OrganizationID, "ADMIN", "reset-race-"+randomBase36(10)+"@example.com", "old-password-123")
+	token, tokenHash := compatToken()
+	if _, err := app.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,NOW() + INTERVAL '1 hour',NOW())`, compatID("tok"), user.OrganizationID, user.UserID, tokenHash); err != nil {
+		t.Fatalf("seed reset token: %v", err)
+	}
+
+	passwords := []string{
+		"new-password-001",
+		"new-password-002",
+		"new-password-003",
+		"new-password-004",
+		"new-password-005",
+		"new-password-006",
+		"new-password-007",
+		"new-password-008",
+	}
+	start := make(chan struct{})
+	errs := make(chan error, len(passwords))
+	for _, password := range passwords {
+		password := password
+		go func() {
+			<-start
+			_, err := app.compatResetPassword(ctx, map[string]any{"token": token, "password": password}, http.Header{})
+			errs <- err
+		}()
+	}
+	close(start)
+
+	successes := 0
+	for range passwords {
+		err := <-errs
+		if err == nil {
+			successes++
+			continue
+		}
+		if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
+			t.Fatalf("expected losing token consumer to get CodeInvalidArgument, got %v (%v)", code, err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one token consumer to succeed, got %d", successes)
+	}
+
+	var consumed, sessions int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_tokens WHERE token_hash = $1 AND consumed_at IS NOT NULL`, tokenHash).Scan(&consumed); err != nil {
+		t.Fatalf("count consumed token: %v", err)
+	}
+	if consumed != 1 {
+		t.Fatalf("expected token to be consumed once, got %d", consumed)
+	}
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_sessions WHERE organization_id = $1 AND user_id = $2`, user.OrganizationID, user.UserID).Scan(&sessions); err != nil {
+		t.Fatalf("count sessions after concurrent reset: %v", err)
+	}
+	if sessions != 1 {
+		t.Fatalf("expected exactly one session after concurrent reset, got %d", sessions)
 	}
 }
 
