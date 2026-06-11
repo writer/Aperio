@@ -18,7 +18,6 @@ func TestMapEventTypeDriveExternalSharingByVisibility(t *testing.T) {
 		"anyone_with_link",
 		"anyone",
 		"public_on_the_web",
-		"public_in_the_domain_with_link",
 	} {
 		got := MapEventType("drive", "change_user_access", []reportsParameter{
 			{Name: "visibility", Value: visibility},
@@ -30,7 +29,7 @@ func TestMapEventTypeDriveExternalSharingByVisibility(t *testing.T) {
 }
 
 func TestMapEventTypeDriveInternalShareUnmapped(t *testing.T) {
-	for _, visibility := range []string{"private", "domain"} {
+	for _, visibility := range []string{"private", "domain", "public_in_the_domain_with_link"} {
 		got := MapEventType("drive", "change_user_access", []reportsParameter{
 			{Name: "visibility", Value: visibility},
 		}, "company.com")
