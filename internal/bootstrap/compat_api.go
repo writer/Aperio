@@ -1310,8 +1310,7 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 		return nil, err
 	}
 	var provider string
-	var external string
-	err := a.db.QueryRowContext(ctx, `SELECT provider::text, external_account_id FROM integration_connections WHERE id = $1 AND organization_id = $2 AND status = 'CONNECTED'`, id, auth.OrganizationID).Scan(&provider, &external)
+	err := a.db.QueryRowContext(ctx, `SELECT provider::text FROM integration_connections WHERE id = $1 AND organization_id = $2 AND status = 'CONNECTED'`, id, auth.OrganizationID).Scan(&provider)
 	if err == sql.ErrNoRows {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
 	}
@@ -1321,31 +1320,44 @@ func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (
 	if provider != "GOOGLE_WORKSPACE" {
 		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("force sync is not implemented for %s yet", strings.ReplaceAll(provider, "_", " ")))
 	}
-	jobID := compatID("job")
-	payload := map[string]any{
-		"provider":          provider,
-		"integrationId":     id,
-		"externalAccountId": external,
-		"requestedBy":       auth.UserID,
-		"reason":            "manual_force_sync",
-	}
-	payloadJSON, _ := json.Marshal(payload)
-	// Force-sync uses the same durable ingestion queue as provider webhooks. This
-	// preserves retry/dead-letter behavior instead of doing synchronous scanning
-	// from the request handler.
-	_, err = a.db.ExecContext(ctx, `INSERT INTO ingestion_jobs (id, organization_id, integration_id, provider, event_type, source, actor, occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4,'MANUAL_FORCE_SYNC','aperio.force_sync',$5,NOW(),$6,'QUEUED',0,3,NOW(),NOW(),NOW())`, jobID, auth.OrganizationID, id, provider, auth.Email, json.RawMessage(payloadJSON))
-	if err != nil {
+	// Manual force-sync goes through the same pg_notify wake channel as the
+	// post-connect immediate sync (see requestImmediateGoogleWorkspaceSync).
+	// We deliberately do NOT insert an ingestion_jobs row here: the ingestion
+	// worker only consumes the synthetic event types in
+	// supportedIngestionEventTypes["GOOGLE_WORKSPACE"] and would dead-letter
+	// any MANUAL_FORCE_SYNC row before the poller produced findings, so the
+	// API would falsely report sync queued while no work actually ran. Last
+	// sync time is owned by the poller; updating it pre-emptively here would
+	// hide a stuck poller behind a fresh-looking timestamp.
+	if _, err := a.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, GoogleWorkspaceSyncWakeChannel, id); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	a.writeCompatAudit(ctx, auth, "integration.force_sync", "integration_connection", id, map[string]any{"provider": provider, "sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}})
-	_, _ = a.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = NOW(), updated_at = NOW() WHERE id = $1 AND organization_id = $2`, id, auth.OrganizationID)
+	a.writeCompatAudit(ctx, auth, "integration.force_sync", "integration_connection", id, map[string]any{
+		"provider": provider,
+		"channel":  GoogleWorkspaceSyncWakeChannel,
+		"source":   "aperio.force_sync",
+	})
 	rows, err := a.listIntegrations(ctx, auth.OrganizationID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	for _, row := range rows {
 		if row.ID == id {
-			return map[string]any{"data": row.toProto(), "sync": map[string]any{"sampleCount": 1, "eventsIngested": 0, "findingsOpened": 0, "sources": []string{"aperio.force_sync"}, "jobId": jobID}}, nil
+			return map[string]any{
+				"data": row.toProto(),
+				"sync": map[string]any{
+					// Counts intentionally zero: the poll runs out-of-band and
+					// the request returns once the wake-up is queued. The UI
+					// surfaces "New events will appear once the ingestion
+					// worker finishes." for this case.
+					"sampleCount":    0,
+					"eventsIngested": 0,
+					"findingsOpened": 0,
+					"sources":        []string{"aperio.force_sync"},
+					"queued":         true,
+					"channel":        GoogleWorkspaceSyncWakeChannel,
+				},
+			}, nil
 		}
 	}
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("integration not found"))
