@@ -430,6 +430,7 @@ func TestTypedSwitchWorkspaceSubjectRateLimitIsScopedByUser(t *testing.T) {
 	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailB, "victim-b-password-123")
 	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
 	path := "/api/v1/auth/workspaces/switch"
+	clearRateLimitBucket(t, app, compatRateLimitKey(http.MethodPost, path, "unknown", ""))
 	seedExhaustedRateLimitSubjectBucket(t, app, http.MethodPost, path, map[string]any{
 		"organizationSlug": victimSlug,
 		"email":            userA.Email,
@@ -636,5 +637,12 @@ func seedExhaustedRateLimitSubjectBucket(t *testing.T, app *App, method, path st
 	`, key, max, time.Now().Add(window))
 	if err != nil {
 		t.Fatalf("seed subject rate limit bucket: %v", err)
+	}
+}
+
+func clearRateLimitBucket(t *testing.T, app *App, key string) {
+	t.Helper()
+	if _, err := app.db.ExecContext(context.Background(), `DELETE FROM rate_limit_buckets WHERE key = $1`, key); err != nil {
+		t.Fatalf("clear rate limit bucket: %v", err)
 	}
 }
