@@ -225,8 +225,12 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 			if parsed.ClientID == "" {
 				continue
 			}
-			appsByClientID[parsed.ClientID] = parsed
-			assetID, err := s.upsertOauthAsset(ctx, integ, parsed, now)
+			appRisk := parsed
+			if existing, ok := appsByClientID[parsed.ClientID]; ok {
+				appRisk = mergeOAuthAppToken(existing, parsed)
+			}
+			appsByClientID[parsed.ClientID] = appRisk
+			assetID, err := s.upsertOauthAsset(ctx, integ, appRisk, now)
 			if err != nil {
 				return fmt.Errorf("upsert oauth asset %s: %w", parsed.ClientID, err)
 			}

@@ -64,6 +64,33 @@ func (p parsedToken) Summary() string {
 	return "OAuth scopes: " + strings.Join(preview, ", ") + suffix
 }
 
+func mergeOAuthAppToken(existing, next parsedToken) parsedToken {
+	merged := existing
+	if merged.ClientID == "" {
+		merged.ClientID = next.ClientID
+	}
+	if merged.Label == "" {
+		merged.Label = next.Label
+	}
+	seen := map[string]struct{}{}
+	scopes := make([]string, 0, len(existing.Scopes)+len(next.Scopes))
+	for _, scope := range append(append([]string{}, existing.Scopes...), next.Scopes...) {
+		key := strings.ToLower(strings.TrimSpace(scope))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		scopes = append(scopes, strings.TrimSpace(scope))
+	}
+	merged.Scopes = scopes
+	merged.Anonymous = existing.Anonymous || next.Anonymous
+	merged.NativeApp = existing.NativeApp || next.NativeApp
+	return merged
+}
+
 type oauthAssetRisk struct {
 	criticality           string
 	riskScore             int

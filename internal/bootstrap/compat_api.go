@@ -646,16 +646,46 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 	}
 }
 
-func compatClientIdentity(_ http.Header, peerAddr string) string {
+func compatClientIdentity(header http.Header, peerAddr string) string {
+	peer := compatPeerHost(peerAddr)
+	if compatTrustedProxyPeer(peer) {
+		if client := compatForwardedClient(header); client != "" {
+			return client
+		}
+	}
+	if peer != "" {
+		return peer
+	}
+	return "unknown"
+}
+
+func compatPeerHost(peerAddr string) string {
 	peerAddr = strings.TrimSpace(peerAddr)
 	if peerAddr == "" {
-		return "unknown"
+		return ""
 	}
 	host, _, err := net.SplitHostPort(peerAddr)
-	if err == nil && strings.TrimSpace(host) != "" {
+	if err == nil {
 		return strings.TrimSpace(host)
 	}
 	return peerAddr
+}
+
+func compatTrustedProxyPeer(peer string) bool {
+	ip := net.ParseIP(strings.TrimSpace(peer))
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+func compatForwardedClient(header http.Header) string {
+	for _, forwarded := range strings.Split(header.Get("X-Forwarded-For"), ",") {
+		if client := strings.TrimSpace(forwarded); net.ParseIP(client) != nil {
+			return client
+		}
+	}
+	if client := strings.TrimSpace(header.Get("X-Real-IP")); net.ParseIP(client) != nil {
+		return client
+	}
+	return ""
 }
 
 func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (compatAuth, error) {

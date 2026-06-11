@@ -313,15 +313,15 @@ func TestCompatRateLimitUsesSeparateIPAndSubjectBuckets(t *testing.T) {
 	}
 }
 
-func TestCompatClientIdentityIgnoresForwardedHeaders(t *testing.T) {
+func TestCompatClientIdentityHonorsForwardedHeadersFromTrustedProxy(t *testing.T) {
 	header := http.Header{}
 	header.Set("X-Forwarded-For", "198.51.100.10, 203.0.113.20")
 	header.Set("X-Real-IP", "192.0.2.30")
-	if got := compatClientIdentity(header, "203.0.113.99:44321"); got != "203.0.113.99" {
-		t.Fatalf("expected peer address to win over forwarded headers, got %q", got)
+	if got := compatClientIdentity(header, "10.0.0.10:44321"); got != "198.51.100.10" {
+		t.Fatalf("expected trusted proxy to preserve original forwarded client, got %q", got)
 	}
-	if got := compatClientIdentity(header, "2001:db8::1"); got != "2001:db8::1" {
-		t.Fatalf("expected bare peer address fallback, got %q", got)
+	if got := compatClientIdentity(header, "203.0.113.99:44321"); got != "203.0.113.99" {
+		t.Fatalf("expected untrusted peer address to ignore spoofable forwarded headers, got %q", got)
 	}
 	if got := compatClientIdentity(header, ""); got != "unknown" {
 		t.Fatalf("expected empty peer address to use unknown bucket, got %q", got)
