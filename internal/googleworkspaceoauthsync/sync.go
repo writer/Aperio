@@ -250,7 +250,7 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 	if attemptedUsers > 0 && failedUsers == attemptedUsers && firstFailure != nil {
 		return fmt.Errorf("tokens.list failed for all %d directory users: %w", attemptedUsers, firstFailure)
 	}
-	if failedUsers == 0 {
+	if attemptedUsers > 0 && failedUsers == 0 {
 		if err := s.pruneStaleOauthGrants(ctx, integ, now); err != nil {
 			return fmt.Errorf("prune stale oauth grants: %w", err)
 		}

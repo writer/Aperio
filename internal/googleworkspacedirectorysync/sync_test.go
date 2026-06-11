@@ -190,8 +190,8 @@ func TestListUsersPageCapReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected page cap error")
 	}
-	if got != nil {
-		t.Fatalf("page cap must not return a partial clean user list, got %d users", len(got))
+	if len(got) != 2 {
+		t.Fatalf("page cap should return the partial user list for degraded upsert, got %d users", len(got))
 	}
 	if !strings.Contains(err.Error(), "page cap") {
 		t.Fatalf("expected page cap error, got %v", err)

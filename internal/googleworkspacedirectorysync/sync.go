@@ -177,10 +177,7 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 	if err != nil {
 		return fmt.Errorf("exchange refresh token: %w", err)
 	}
-	users, err := s.listUsers(ctx, accessToken)
-	if err != nil {
-		return fmt.Errorf("list users: %w", err)
-	}
+	users, listErr := s.listUsers(ctx, accessToken)
 	tenantDomain := strings.ToLower(strings.TrimSpace(integ.ExternalAccountID))
 	now := s.nowFn().UTC()
 	for _, u := range users {
@@ -189,6 +186,9 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 			// cursor's last_error so operators can investigate.
 			return fmt.Errorf("upsert identity %s: %w", u.ID, err)
 		}
+	}
+	if listErr != nil {
+		return fmt.Errorf("list users: %w", listErr)
 	}
 	s.touchCursor(ctx, integ.ID, len(users))
 	_, _ = s.db.ExecContext(ctx, `UPDATE integration_connections SET last_sync_at = $1, updated_at = NOW() WHERE id = $2`, now, integ.ID)
@@ -254,7 +254,7 @@ func (s *Sync) listUsers(ctx context.Context, accessToken string) ([]googleUser,
 		}
 		pageToken = decoded.NextPageToken
 	}
-	return nil, fmt.Errorf("directory users page cap reached after %d pages (%d users); next page token still present", maxPages, len(collected))
+	return collected, fmt.Errorf("directory users page cap reached after %d pages (%d users); next page token still present", maxPages, len(collected))
 }
 
 // upsertIdentity writes one saas_identities row. We let Postgres generate
