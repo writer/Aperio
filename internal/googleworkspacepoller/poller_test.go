@@ -282,19 +282,30 @@ func TestBuildJobPayloadFlattensParameters(t *testing.T) {
 	}
 }
 
-func TestGoogleWorkspaceJobIDScopesDedupeByTenantIntegrationAndApplication(t *testing.T) {
+func TestGoogleWorkspaceLegacyJobIDPreservesUpgradeIdempotency(t *testing.T) {
+	got := googleWorkspaceLegacyJobID(
+		reportsActivity{UniqueQualifier: "same-google-qualifier"},
+		reportsEvent{Name: "change_user_access"},
+	)
+	want := "ijb_same-google-qualifier_change_user_access"
+	if got != want {
+		t.Fatalf("legacy job id = %s, want %s", got, want)
+	}
+}
+
+func TestGoogleWorkspaceScopedJobIDScopesDedupeByTenantIntegrationAndApplication(t *testing.T) {
 	baseInteg := integrationRow{ID: "int_1", OrganizationID: "org_1"}
 	baseActivity := reportsActivity{UniqueQualifier: "same-google-qualifier"}
 	baseEvent := reportsEvent{Name: "change_user_access"}
-	baseID := googleWorkspaceJobID(baseInteg, "drive", baseActivity, baseEvent)
+	baseID := googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, baseEvent)
 
 	cases := map[string]string{
-		"same input":       googleWorkspaceJobID(baseInteg, "drive", baseActivity, baseEvent),
-		"different org":    googleWorkspaceJobID(integrationRow{ID: "int_1", OrganizationID: "org_2"}, "drive", baseActivity, baseEvent),
-		"different integ":  googleWorkspaceJobID(integrationRow{ID: "int_2", OrganizationID: "org_1"}, "drive", baseActivity, baseEvent),
-		"different app":    googleWorkspaceJobID(baseInteg, "admin", baseActivity, baseEvent),
-		"different event":  googleWorkspaceJobID(baseInteg, "drive", baseActivity, reportsEvent{Name: "change_document_visibility"}),
-		"different source": googleWorkspaceJobID(baseInteg, "drive", reportsActivity{UniqueQualifier: "other-google-qualifier"}, baseEvent),
+		"same input":       googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, baseEvent),
+		"different org":    googleWorkspaceScopedJobID(integrationRow{ID: "int_1", OrganizationID: "org_2"}, "drive", baseActivity, baseEvent),
+		"different integ":  googleWorkspaceScopedJobID(integrationRow{ID: "int_2", OrganizationID: "org_1"}, "drive", baseActivity, baseEvent),
+		"different app":    googleWorkspaceScopedJobID(baseInteg, "admin", baseActivity, baseEvent),
+		"different event":  googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, reportsEvent{Name: "change_document_visibility"}),
+		"different source": googleWorkspaceScopedJobID(baseInteg, "drive", reportsActivity{UniqueQualifier: "other-google-qualifier"}, baseEvent),
 	}
 
 	if cases["same input"] != baseID {

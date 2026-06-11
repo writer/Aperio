@@ -470,33 +470,76 @@ func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, applica
 	if err != nil {
 		return err
 	}
-	// The deterministic job id makes re-fetches idempotent without conflating
-	// events from another tenant, integration, or Google Reports application.
-	_, err = p.db.ExecContext(ctx, `
+	source := "google.reports." + application
+	legacyID := googleWorkspaceLegacyJobID(activity, event)
+	err = p.insertIngestionJob(ctx, legacyID, integ, mapped, source, activity, payloadJSON)
+	if err == nil {
+		return nil
+	}
+	if !isUniqueViolation(err) {
+		return err
+	}
+	matchesExisting, lookupErr := p.legacyJobMatches(ctx, legacyID, integ, mapped, source, activity)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	if matchesExisting {
+		// Cursor lagged behind a prior enqueue (retry or overlap); skipping
+		// keeps the worker queue idempotent and preserves pre-scoped job IDs.
+		return nil
+	}
+	err = p.insertIngestionJob(ctx, googleWorkspaceScopedJobID(integ, application, activity, event), integ, mapped, source, activity, payloadJSON)
+	if err != nil && isUniqueViolation(err) {
+		return nil
+	}
+	return err
+}
+
+func (p *Poller) insertIngestionJob(ctx context.Context, id string, integ integrationRow, mapped, source string, activity reportsActivity, payloadJSON []byte) error {
+	_, err := p.db.ExecContext(ctx, `
 		INSERT INTO ingestion_jobs (
 			id, organization_id, integration_id, provider, event_type, source, actor,
 			occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at
 		)
 		VALUES ($1, $2, $3, 'GOOGLE_WORKSPACE', $4, $5, $6, $7, $8::jsonb, 'QUEUED', 0, 3, NOW(), NOW(), NOW())
 	`,
-		googleWorkspaceJobID(integ, application, activity, event),
+		id,
 		integ.OrganizationID,
 		integ.ID,
 		mapped,
-		"google.reports."+application,
+		source,
 		activity.Actor.Email,
 		activity.EventTime,
 		payloadJSON,
 	)
-	if err != nil && isUniqueViolation(err) {
-		// Cursor lagged behind a prior enqueue (retry or overlap); skipping
-		// keeps the worker queue idempotent.
-		return nil
-	}
 	return err
 }
 
-func googleWorkspaceJobID(integ integrationRow, application string, activity reportsActivity, event reportsEvent) string {
+func (p *Poller) legacyJobMatches(ctx context.Context, id string, integ integrationRow, mapped, source string, activity reportsActivity) (bool, error) {
+	var existingOrg, existingIntegration, existingEventType, existingSource, existingSourceEventID string
+	err := p.db.QueryRowContext(ctx, `
+		SELECT organization_id, integration_id, event_type, source, payload->>'sourceEventId'
+		FROM ingestion_jobs
+		WHERE id = $1
+	`, id).Scan(&existingOrg, &existingIntegration, &existingEventType, &existingSource, &existingSourceEventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return existingOrg == integ.OrganizationID &&
+		existingIntegration == integ.ID &&
+		existingEventType == mapped &&
+		existingSource == source &&
+		existingSourceEventID == activity.UniqueQualifier, nil
+}
+
+func googleWorkspaceLegacyJobID(activity reportsActivity, event reportsEvent) string {
+	return "ijb_" + activity.UniqueQualifier + "_" + event.Name
+}
+
+func googleWorkspaceScopedJobID(integ integrationRow, application string, activity reportsActivity, event reportsEvent) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		integ.OrganizationID,
 		integ.ID,
