@@ -376,9 +376,6 @@ func (a *App) handleCompatAPI(
 			return "", nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid request body"))
 		}
 	}
-	if err := a.compatRateLimit(ctx, req.Header(), method, path, body); err != nil {
-		return "", nil, err
-	}
 	headers := http.Header{}
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 
@@ -392,6 +389,13 @@ func (a *App) handleCompatAPI(
 		if err != nil {
 			return "", nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 		}
+	}
+	rateLimitBody := body
+	if !public {
+		rateLimitBody = compatRateLimitBodyWithAuth(body, auth)
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, method, path, rateLimitBody); err != nil {
+		return "", nil, err
 	}
 
 	result, err := a.dispatchCompatAPI(ctx, method, path, segments, body, auth, headers)
@@ -541,6 +545,7 @@ func isPublicCompatPath(path string) bool {
 func (a *App) compatRateLimit(
 	ctx context.Context,
 	header http.Header,
+	peerAddr string,
 	method string,
 	path string,
 	body map[string]any,
@@ -552,7 +557,7 @@ func (a *App) compatRateLimit(
 	if !ok {
 		return nil
 	}
-	client := compatClientIdentity(header)
+	client := compatClientIdentity(header, peerAddr)
 	// Rate limit by both network identity and the submitted subject. This slows
 	// distributed guessing against a single email/token while still bounding one
 	// noisy client that rotates submitted subjects.
@@ -607,11 +612,10 @@ func (a *App) compatConsumeRateLimit(ctx context.Context, key string, max int, w
 }
 
 func compatRateLimitKey(method, path, client, subject string) string {
-	scope := "ip"
 	if subject != "" {
-		scope = "subject"
+		return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", "subject", method, path, subject}, ":"))
 	}
-	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", scope, method, path, client, subject}, ":"))
+	return hashOpaqueToken(strings.Join([]string{"compat-rate-limit", "ip", method, path, client}, ":"))
 }
 
 func compatRateLimitSubject(values []string) string {
@@ -623,6 +627,18 @@ func compatRateLimitSubject(values []string) string {
 		}
 	}
 	return strings.Join(parts, ":")
+}
+
+func compatRateLimitBodyWithAuth(body map[string]any, auth compatAuth) map[string]any {
+	if strings.TrimSpace(auth.Email) == "" {
+		return body
+	}
+	out := make(map[string]any, len(body)+1)
+	for key, value := range body {
+		out[key] = value
+	}
+	out["email"] = auth.Email
+	return out
 }
 
 func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
@@ -646,19 +662,59 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 	}
 }
 
-func compatClientIdentity(header http.Header) string {
-	// Prefer the right-most forwarded IP, which is normally the closest trusted
-	// proxy hop in deployments that append X-Forwarded-For.
-	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
-	for index := len(forwarded) - 1; index >= 0; index-- {
-		if client := strings.TrimSpace(forwarded[index]); client != "" {
+func compatClientIdentity(header http.Header, peerAddr string) string {
+	peer := compatPeerHost(peerAddr)
+	if compatTrustedProxyPeer(peer) {
+		if client := compatForwardedClient(header); client != "" {
 			return client
 		}
 	}
-	if client := strings.TrimSpace(header.Get("X-Real-IP")); client != "" {
-		return client
+	if peer != "" {
+		return peer
 	}
 	return "unknown"
+}
+
+func compatPeerHost(peerAddr string) string {
+	peerAddr = strings.TrimSpace(peerAddr)
+	if peerAddr == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(peerAddr)
+	if err == nil {
+		return strings.TrimSpace(host)
+	}
+	return peerAddr
+}
+
+func compatTrustedProxyPeer(peer string) bool {
+	ip := net.ParseIP(strings.TrimSpace(peer))
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+func compatForwardedClient(header http.Header) string {
+	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		forwardedClient := strings.TrimSpace(forwarded[index])
+		if forwardedClient == "" {
+			continue
+		}
+		if compatTrustedProxyPeer(forwardedClient) {
+			continue
+		}
+		if net.ParseIP(forwardedClient) != nil {
+			return forwardedClient
+		}
+	}
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		if client := strings.TrimSpace(forwarded[index]); net.ParseIP(client) != nil {
+			return client
+		}
+	}
+	if client := strings.TrimSpace(header.Get("X-Real-IP")); net.ParseIP(client) != nil {
+		return client
+	}
+	return ""
 }
 
 func (a *App) compatAuthFromSession(ctx context.Context, header http.Header) (compatAuth, error) {
@@ -912,16 +968,61 @@ func (a *App) compatSwitchWorkspace(ctx context.Context, body map[string]any, au
 
 func (a *App) compatForgotPassword(ctx context.Context, body map[string]any) (any, error) {
 	slug, email := requiredString(body, "organizationSlug"), strings.ToLower(requiredString(body, "email"))
-	var orgID, orgName, userID string
-	err := a.db.QueryRowContext(ctx, `SELECT o.id, o.name, u.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE`, slug, email).Scan(&orgID, &orgName, &userID)
+	var orgID, userID string
+	err := a.db.QueryRowContext(ctx, `SELECT o.id, u.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE o.slug = $1 AND u.email = $2 AND u.is_active = TRUE`, slug, email).Scan(&orgID, &userID)
 	if err != nil {
 		return map[string]any{"data": map[string]any{"accepted": true}}, nil
 	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
-	_, _ = a.db.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, orgID, userID)
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,$5,NOW())`, compatID("tok"), orgID, userID, tokenHash, expires)
-	return map[string]any{"data": map[string]any{"accepted": true, "delivery": "manual_link", "resetUrl": compatAuthLink("/reset-password", token), "expiresAt": expires.UTC().Format(time.RFC3339Nano), "organizationName": orgName}}, nil
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, orgID, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE auth_email_deliveries SET status = 'CANCELLED', updated_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND status = 'PENDING'`, orgID, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	tokenID := compatID("tok")
+	if _, err := tx.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,$5,NOW())`, tokenID, orgID, userID, tokenHash, expires); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := enqueuePasswordResetDelivery(ctx, tx, orgID, userID, tokenID, email, token, expires); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return map[string]any{"data": map[string]any{"accepted": true}}, nil
+}
+
+func enqueuePasswordResetDelivery(ctx context.Context, tx *sql.Tx, orgID, userID, tokenID, email, token string, expires time.Time) error {
+	resetURL := compatAuthLink("/reset-password", token)
+	encryptedResetURL, err := runtimeutil.EncryptString(resetURL, authEmailDeliveryAAD(orgID, tokenID))
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{
+		"template":          "password_reset",
+		"encryptedResetUrl": encryptedResetURL,
+		"encryption":        runtimeutil.CredentialAlgorithm,
+		"expiresAt":         expires.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO auth_email_deliveries (id, organization_id, user_id, auth_token_id, purpose, recipient_email, subject, payload, status, expires_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,$6,$7,'PENDING',$8,NOW(),NOW())
+	`, compatID("mail"), orgID, userID, tokenID, email, "Reset your Aperio password", string(payload), expires)
+	return err
+}
+
+func authEmailDeliveryAAD(orgID, tokenID string) string {
+	return orgID + ":auth-email-delivery:" + tokenID + ":reset-url"
 }
 
 func (a *App) compatResetPassword(ctx context.Context, body map[string]any, headers http.Header) (any, error) {

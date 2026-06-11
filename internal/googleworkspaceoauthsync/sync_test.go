@@ -54,6 +54,78 @@ func TestSummaryHandlesEmptyScopes(t *testing.T) {
 	}
 }
 
+func TestGoogleOAuthAssetRiskScoresSensitiveScopes(t *testing.T) {
+	cases := []struct {
+		name        string
+		scopes      []string
+		criticality string
+		riskFloor   int
+		sensitive   bool
+		privileged  bool
+	}{
+		{
+			name:        "critical gmail",
+			scopes:      []string{"https://mail.google.com/"},
+			criticality: "CRITICAL",
+			riskFloor:   92,
+			sensitive:   true,
+		},
+		{
+			name:        "high gmail readonly",
+			scopes:      []string{"https://www.googleapis.com/auth/gmail.readonly"},
+			criticality: "HIGH",
+			riskFloor:   84,
+			sensitive:   true,
+		},
+		{
+			name:        "admin directory",
+			scopes:      []string{"https://www.googleapis.com/auth/admin.directory.user.readonly"},
+			criticality: "HIGH",
+			riskFloor:   82,
+			sensitive:   true,
+			privileged:  true,
+		},
+		{
+			name:        "basic profile",
+			scopes:      []string{"openid", "email", "profile"},
+			criticality: "MEDIUM",
+			riskFloor:   45,
+		},
+		{
+			name:        "empty",
+			scopes:      nil,
+			criticality: "LOW",
+			riskFloor:   10,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := googleOAuthAssetRisk(c.scopes)
+			if got.criticality != c.criticality || got.riskScore < c.riskFloor || got.containsSensitiveData != c.sensitive || got.isPrivileged != c.privileged {
+				t.Fatalf("risk = %+v, want criticality=%s risk>=%d sensitive=%t privileged=%t", got, c.criticality, c.riskFloor, c.sensitive, c.privileged)
+			}
+		})
+	}
+}
+
+func TestMergeOAuthAppTokenAggregatesRiskScopes(t *testing.T) {
+	low := parsedToken{ClientID: "client-1", Label: "Client One", Scopes: []string{"openid", "email"}}
+	critical := parsedToken{ClientID: "client-1", Scopes: []string{"https://mail.google.com/", "openid"}}
+
+	for _, merged := range []parsedToken{
+		mergeOAuthAppToken(low, critical),
+		mergeOAuthAppToken(critical, low),
+	} {
+		risk := googleOAuthAssetRisk(merged.Scopes)
+		if risk.criticality != "CRITICAL" || risk.riskScore < 92 || !risk.containsSensitiveData {
+			t.Fatalf("merged scopes %v produced risk %+v, want critical sensitive app", merged.Scopes, risk)
+		}
+		if got := strings.Join(merged.Scopes, ","); !strings.Contains(got, "openid") || !strings.Contains(got, "https://mail.google.com/") {
+			t.Fatalf("merged scopes lost observed grants: %v", merged.Scopes)
+		}
+	}
+}
+
 // TestShortHashDistinguishesDistinctUserKeys pins the collision-resistance
 // property the grant PK relies on. Two identities that share an empty
 // external_id must derive distinct PK suffixes from their email userKey so

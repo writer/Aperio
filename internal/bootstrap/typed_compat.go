@@ -19,7 +19,7 @@ func (a *App) Signup(ctx context.Context, req *connect.Request[aperiov1.SignupRe
 		"ownerDisplayName":  req.Msg.OwnerDisplayName,
 		"password":          req.Msg.Password,
 	}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/signup", body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/signup", body); err != nil {
 		return nil, err
 	}
 	headers := http.Header{}
@@ -39,7 +39,7 @@ func (a *App) Login(ctx context.Context, req *connect.Request[aperiov1.LoginRequ
 		"password":         req.Msg.Password,
 		"totpCode":         req.Msg.TotpCode,
 	}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/login", body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/login", body); err != nil {
 		return nil, err
 	}
 	headers := http.Header{}
@@ -89,12 +89,12 @@ func (a *App) ListWorkspaces(ctx context.Context, req *connect.Request[aperiov1.
 
 func (a *App) SwitchWorkspace(ctx context.Context, req *connect.Request[aperiov1.SwitchWorkspaceRequest]) (*connect.Response[aperiov1.SwitchWorkspaceResponse], error) {
 	body := map[string]any{"organizationSlug": req.Msg.OrganizationSlug, "password": req.Msg.Password, "totpCode": req.Msg.TotpCode}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/workspaces/switch", body); err != nil {
-		return nil, err
-	}
 	auth, err := a.compatAuthFromSession(ctx, req.Header())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/workspaces/switch", compatRateLimitBodyWithAuth(body, auth)); err != nil {
+		return nil, err
 	}
 	headers := http.Header{}
 	result, err := a.compatSwitchWorkspace(ctx, body, auth, headers)
@@ -108,7 +108,7 @@ func (a *App) SwitchWorkspace(ctx context.Context, req *connect.Request[aperiov1
 
 func (a *App) RequestPasswordReset(ctx context.Context, req *connect.Request[aperiov1.RequestPasswordResetRequest]) (*connect.Response[aperiov1.RequestPasswordResetResponse], error) {
 	body := map[string]any{"organizationSlug": req.Msg.OrganizationSlug, "email": req.Msg.Email}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/forgot-password", body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/forgot-password", body); err != nil {
 		return nil, err
 	}
 	result, err := a.compatForgotPassword(ctx, body)
@@ -120,7 +120,7 @@ func (a *App) RequestPasswordReset(ctx context.Context, req *connect.Request[ape
 
 func (a *App) ResetPassword(ctx context.Context, req *connect.Request[aperiov1.ResetPasswordRequest]) (*connect.Response[aperiov1.ResetPasswordResponse], error) {
 	body := map[string]any{"token": req.Msg.Token, "password": req.Msg.Password}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/reset-password", body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/reset-password", body); err != nil {
 		return nil, err
 	}
 	headers := http.Header{}
@@ -135,7 +135,7 @@ func (a *App) ResetPassword(ctx context.Context, req *connect.Request[aperiov1.R
 
 func (a *App) AcceptInvite(ctx context.Context, req *connect.Request[aperiov1.AcceptInviteRequest]) (*connect.Response[aperiov1.AcceptInviteResponse], error) {
 	body := map[string]any{"token": req.Msg.Token, "displayName": req.Msg.DisplayName, "password": req.Msg.Password}
-	if err := a.compatRateLimit(ctx, req.Header(), http.MethodPost, "/api/v1/auth/invitations/accept", body); err != nil {
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/invitations/accept", body); err != nil {
 		return nil, err
 	}
 	headers := http.Header{}

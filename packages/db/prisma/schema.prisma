@@ -233,6 +233,7 @@ model Organization {
   riskExceptions    RiskException[]
   saasIdentities    SaasIdentity[]
   authTokens        AuthToken[]
+  authEmailDeliveries AuthEmailDelivery[]
   sessions          UserSession[]
   oauthAppGrants    OauthAppGrant[]
   ingestionJobs      IngestionJob[]
@@ -310,6 +311,7 @@ model User {
   approvedRiskExceptions RiskException[] @relation("RiskExceptionApprovedBy")
   authTokens       AuthToken[] @relation("AuthTokenUser")
   createdAuthTokens AuthToken[] @relation("AuthTokenCreatedBy")
+  authEmailDeliveries AuthEmailDelivery[]
   sessions        UserSession[]
   createdIntegrationOauthClients IntegrationOAuthClient[] @relation("IntegrationOAuthClientCreatedBy")
 
@@ -630,10 +632,35 @@ model AuthToken {
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user            User             @relation("AuthTokenUser", fields: [userId], references: [id], onDelete: Cascade)
   createdBy       User?            @relation("AuthTokenCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  emailDeliveries AuthEmailDelivery[]
 
   @@index([organizationId, purpose, expiresAt])
   @@index([userId, purpose, consumedAt])
   @@map("auth_tokens")
+}
+
+model AuthEmailDelivery {
+  id             String           @id @default(cuid())
+  organizationId String           @map("organization_id")
+  userId         String           @map("user_id")
+  authTokenId    String           @map("auth_token_id")
+  purpose        AuthTokenPurpose
+  recipientEmail String           @map("recipient_email") @db.VarChar(255)
+  subject        String           @db.VarChar(255)
+  payload        Json
+  status         String           @default("PENDING") @db.VarChar(32)
+  sentAt         DateTime?        @map("sent_at")
+  expiresAt      DateTime         @map("expires_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authToken      AuthToken        @relation(fields: [authTokenId], references: [id], onDelete: Cascade)
+
+  @@unique([authTokenId])
+  @@index([organizationId, status, createdAt])
+  @@index([userId, purpose, status])
+  @@map("auth_email_deliveries")
 }
 
 model UserSession {

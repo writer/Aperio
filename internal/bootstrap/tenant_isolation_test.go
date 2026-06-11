@@ -2,11 +2,16 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
+	"github.com/writer/aperio/internal/runtimeutil"
 )
 
 // seedIsolationOrg provisions a second organization alongside the one created by
@@ -321,6 +326,88 @@ func TestTenantIsolationMemberResetLinkRejectsForeignUser(t *testing.T) {
 	}
 }
 
+func TestPublicForgotPasswordDoesNotExposeResetToken(t *testing.T) {
+	app, base := newTestDBApp(t)
+	ctx := context.Background()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
+	user := seedOrgUserWithPassword(t, app, base.OrganizationID, "ADMIN", "forgot-"+randomBase36(10)+"@example.com", "old-password-123")
+	slug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, user.OrganizationID)
+
+	out, err := app.compatForgotPassword(ctx, map[string]any{
+		"organizationSlug": slug,
+		"email":            user.Email,
+	})
+	if err != nil {
+		t.Fatalf("forgot password: %v", err)
+	}
+	data := dataMap(t, out)
+	if accepted, _ := data["accepted"].(bool); !accepted {
+		t.Fatalf("forgot password accepted = %#v, want true", data["accepted"])
+	}
+	for _, field := range []string{"resetUrl", "token", "delivery", "expiresAt", "organizationName"} {
+		if value, ok := data[field]; ok && value != "" {
+			t.Fatalf("forgot password response leaked %s=%#v", field, value)
+		}
+	}
+	var tokens int
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_tokens WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, user.OrganizationID, user.UserID).Scan(&tokens); err != nil {
+		t.Fatalf("count reset tokens: %v", err)
+	}
+	if tokens != 1 {
+		t.Fatalf("forgot password should still mint one server-side reset token, got %d", tokens)
+	}
+	var encryptedResetURL, payloadText, status, recipient, tokenID string
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT payload->>'encryptedResetUrl', payload::text, status, recipient_email, auth_token_id
+		FROM auth_email_deliveries
+		WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET'
+	`, user.OrganizationID, user.UserID).Scan(&encryptedResetURL, &payloadText, &status, &recipient, &tokenID); err != nil {
+		t.Fatalf("fetch password reset delivery: %v", err)
+	}
+	if status != "PENDING" || recipient != user.Email {
+		t.Fatalf("reset delivery = status %q recipient %q, want pending delivery to %q", status, recipient, user.Email)
+	}
+	if encryptedResetURL == "" {
+		t.Fatalf("reset delivery did not store encrypted reset URL: %s", payloadText)
+	}
+	if strings.Contains(payloadText, "/reset-password") || strings.Contains(payloadText, "token=") {
+		t.Fatalf("reset delivery payload stored cleartext reset link: %s", payloadText)
+	}
+	resetURL, err := runtimeutil.DecryptString(encryptedResetURL, authEmailDeliveryAAD(user.OrganizationID, tokenID))
+	if err != nil {
+		t.Fatalf("decrypt reset delivery URL: %v", err)
+	}
+	if !strings.Contains(resetURL, "/reset-password?token=") {
+		t.Fatalf("reset delivery URL %q does not contain reset token link", resetURL)
+	}
+	parsed, err := url.Parse(resetURL)
+	if err != nil {
+		t.Fatalf("parse reset delivery URL: %v", err)
+	}
+	token := parsed.Query().Get("token")
+	if token == "" {
+		t.Fatalf("reset delivery URL did not include token: %q", resetURL)
+	}
+	if _, err := app.compatResetPassword(ctx, map[string]any{"token": token, "password": "new-password-12345"}, http.Header{}); err != nil {
+		t.Fatalf("delivered reset token should be redeemable: %v", err)
+	}
+	var unknownDeliveries int
+	unknownEmail := "missing-" + randomBase36(10) + "@example.com"
+	if _, err := app.compatForgotPassword(ctx, map[string]any{
+		"organizationSlug": slug,
+		"email":            unknownEmail,
+	}); err != nil {
+		t.Fatalf("forgot password unknown user: %v", err)
+	}
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_email_deliveries WHERE recipient_email = $1`, unknownEmail).Scan(&unknownDeliveries); err != nil {
+		t.Fatalf("count unknown password reset deliveries: %v", err)
+	}
+	if unknownDeliveries != 0 {
+		t.Fatalf("unknown account should not enqueue reset delivery, got %d", unknownDeliveries)
+	}
+}
+
 func TestTenantIsolationSwitchWorkspaceRequiresTargetPassword(t *testing.T) {
 	app, base := newTestDBApp(t)
 	victim := seedIsolationOrg(t, app)
@@ -382,6 +469,63 @@ func TestTypedSwitchWorkspaceHonorsRateLimit(t *testing.T) {
 	copyCompatHeaders(req.Header(), header)
 	if _, err := app.SwitchWorkspace(ctx, req); connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("expected rate-limited switch to return CodeResourceExhausted, got %v", err)
+	}
+}
+
+func TestTypedSwitchWorkspaceSubjectRateLimitIsScopedByUser(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	emailA := "switch-a-" + randomBase36(10) + "@example.com"
+	emailB := "switch-b-" + randomBase36(10) + "@example.com"
+	userA := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailA, "base-a-password-123")
+	userB := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailB, "base-b-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailA, "victim-a-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailB, "victim-b-password-123")
+	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
+	path := "/api/v1/auth/workspaces/switch"
+	clearRateLimitBucket(t, app, compatRateLimitKey(http.MethodPost, path, "unknown", ""))
+	seedExhaustedRateLimitSubjectBucket(t, app, http.MethodPost, path, map[string]any{
+		"organizationSlug": victimSlug,
+		"email":            userA.Email,
+	})
+
+	reqA := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{OrganizationSlug: victimSlug, Password: "victim-a-password-123"})
+	copyCompatHeaders(reqA.Header(), seedSessionHeader(t, app, userA))
+	if _, err := app.SwitchWorkspace(ctx, reqA); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("expected exhausted user-specific switch bucket to reject user A, got %v", err)
+	}
+
+	reqB := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{OrganizationSlug: victimSlug, Password: "victim-b-password-123"})
+	copyCompatHeaders(reqB.Header(), seedSessionHeader(t, app, userB))
+	if _, err := app.SwitchWorkspace(ctx, reqB); err != nil {
+		t.Fatalf("user A's exhausted switch bucket should not block user B: %v", err)
+	}
+}
+
+func TestCompatSwitchWorkspaceRateLimitIgnoresSpoofedBodyEmail(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	emailA := "switch-spoof-a-" + randomBase36(10) + "@example.com"
+	emailB := "switch-spoof-b-" + randomBase36(10) + "@example.com"
+	userA := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailA, "base-a-password-123")
+	userB := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailB, "base-b-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailA, "victim-a-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailB, "victim-b-password-123")
+	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
+	path := "/api/v1/auth/workspaces/switch"
+	clearRateLimitBucket(t, app, compatRateLimitKey(http.MethodPost, path, "unknown", ""))
+	seedExhaustedRateLimitSubjectBucket(t, app, http.MethodPost, path, map[string]any{
+		"organizationSlug": victimSlug,
+		"email":            userB.Email,
+	})
+
+	body := `{"organizationSlug":"` + victimSlug + `","password":"victim-a-password-123","email":"` + userB.Email + `"}`
+	if _, err := callCompatViaCallAPI(t, app, ctx, seedSessionHeader(t, app, userA), http.MethodPost, path, body); err != nil {
+		t.Fatalf("spoofed body email should not key switch bucket as another user: %v", err)
 	}
 }
 
@@ -547,4 +691,38 @@ func scanString(t *testing.T, app *App, query, arg string) string {
 		t.Fatalf("scan %q: %v", query, err)
 	}
 	return value
+}
+
+func seedExhaustedRateLimitSubjectBucket(t *testing.T, app *App, method, path string, body map[string]any) {
+	t.Helper()
+	max, window, ok := compatRateLimitPolicy(path)
+	if !ok {
+		t.Fatalf("no rate limit policy for %s %s", method, path)
+	}
+	subject := compatRateLimitSubject([]string{
+		requiredString(body, "organizationSlug"),
+		requiredString(body, "workspaceSlug"),
+		requiredString(body, "ownerEmail"),
+		requiredString(body, "email"),
+		requiredString(body, "token"),
+	})
+	if subject == "" {
+		t.Fatal("subject rate limit seed requires a non-empty subject")
+	}
+	key := compatRateLimitKey(method, path, "", subject)
+	_, err := app.db.ExecContext(context.Background(), `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET count = EXCLUDED.count, reset_at = EXCLUDED.reset_at, updated_at = NOW()
+	`, key, max, time.Now().Add(window))
+	if err != nil {
+		t.Fatalf("seed subject rate limit bucket: %v", err)
+	}
+}
+
+func clearRateLimitBucket(t *testing.T, app *App, key string) {
+	t.Helper()
+	if _, err := app.db.ExecContext(context.Background(), `DELETE FROM rate_limit_buckets WHERE key = $1`, key); err != nil {
+		t.Fatalf("clear rate limit bucket: %v", err)
+	}
 }
