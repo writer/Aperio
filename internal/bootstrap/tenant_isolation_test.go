@@ -449,6 +449,31 @@ func TestTypedSwitchWorkspaceSubjectRateLimitIsScopedByUser(t *testing.T) {
 	}
 }
 
+func TestCompatSwitchWorkspaceRateLimitIgnoresSpoofedBodyEmail(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	emailA := "switch-spoof-a-" + randomBase36(10) + "@example.com"
+	emailB := "switch-spoof-b-" + randomBase36(10) + "@example.com"
+	userA := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailA, "base-a-password-123")
+	userB := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailB, "base-b-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailA, "victim-a-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailB, "victim-b-password-123")
+	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
+	path := "/api/v1/auth/workspaces/switch"
+	clearRateLimitBucket(t, app, compatRateLimitKey(http.MethodPost, path, "unknown", ""))
+	seedExhaustedRateLimitSubjectBucket(t, app, http.MethodPost, path, map[string]any{
+		"organizationSlug": victimSlug,
+		"email":            userB.Email,
+	})
+
+	body := `{"organizationSlug":"` + victimSlug + `","password":"victim-a-password-123","email":"` + userB.Email + `"}`
+	if _, err := callCompatViaCallAPI(t, app, ctx, seedSessionHeader(t, app, userA), http.MethodPost, path, body); err != nil {
+		t.Fatalf("spoofed body email should not key switch bucket as another user: %v", err)
+	}
+}
+
 func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.T) {
 	app, attacker := newTestDBApp(t)
 	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)

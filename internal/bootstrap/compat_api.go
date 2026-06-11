@@ -637,9 +637,7 @@ func compatRateLimitBodyWithAuth(body map[string]any, auth compatAuth) map[strin
 	for key, value := range body {
 		out[key] = value
 	}
-	if strings.TrimSpace(requiredString(out, "email")) == "" {
-		out["email"] = auth.Email
-	}
+	out["email"] = auth.Email
 	return out
 }
 
