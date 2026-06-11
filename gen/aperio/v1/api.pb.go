@@ -610,6 +610,7 @@ type SwitchWorkspaceRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationSlug string                 `protobuf:"bytes,1,opt,name=organization_slug,json=organizationSlug,proto3" json:"organization_slug,omitempty"`
 	TotpCode         string                 `protobuf:"bytes,2,opt,name=totp_code,json=totpCode,proto3" json:"totp_code,omitempty"`
+	Password         string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -654,6 +655,13 @@ func (x *SwitchWorkspaceRequest) GetOrganizationSlug() string {
 func (x *SwitchWorkspaceRequest) GetTotpCode() string {
 	if x != nil {
 		return x.TotpCode
+	}
+	return ""
+}
+
+func (x *SwitchWorkspaceRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
 	}
 	return ""
 }
@@ -11111,10 +11119,11 @@ const file_aperio_v1_api_proto_rawDesc = "" +
 	"\x04data\x18\x01 \x01(\v2\x17.aperio.v1.DeleteResultR\x04data\"\x17\n" +
 	"\x15ListWorkspacesRequest\"L\n" +
 	"\x16ListWorkspacesResponse\x122\n" +
-	"\x04data\x18\x01 \x03(\v2\x1e.aperio.v1.WorkspaceMembershipR\x04data\"b\n" +
+	"\x04data\x18\x01 \x03(\v2\x1e.aperio.v1.WorkspaceMembershipR\x04data\"~\n" +
 	"\x16SwitchWorkspaceRequest\x12+\n" +
 	"\x11organization_slug\x18\x01 \x01(\tR\x10organizationSlug\x12\x1b\n" +
-	"\ttotp_code\x18\x02 \x01(\tR\btotpCode\"E\n" +
+	"\ttotp_code\x18\x02 \x01(\tR\btotpCode\x12\x1a\n" +
+	"\bpassword\x18\x03 \x01(\tR\bpassword\"E\n" +
 	"\x17SwitchWorkspaceResponse\x12*\n" +
 	"\x04data\x18\x01 \x01(\v2\x16.aperio.v1.AuthSessionR\x04data\"`\n" +
 	"\x1bRequestPasswordResetRequest\x12+\n" +

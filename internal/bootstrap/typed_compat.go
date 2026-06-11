@@ -93,7 +93,7 @@ func (a *App) SwitchWorkspace(ctx context.Context, req *connect.Request[aperiov1
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 	}
 	headers := http.Header{}
-	result, err := a.compatSwitchWorkspace(ctx, map[string]any{"organizationSlug": req.Msg.OrganizationSlug, "totpCode": req.Msg.TotpCode}, auth, headers)
+	result, err := a.compatSwitchWorkspace(ctx, map[string]any{"organizationSlug": req.Msg.OrganizationSlug, "password": req.Msg.Password, "totpCode": req.Msg.TotpCode}, auth, headers)
 	if err != nil {
 		return nil, err
 	}

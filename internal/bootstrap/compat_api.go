@@ -851,19 +851,27 @@ func (a *App) compatWorkspaces(ctx context.Context, auth compatAuth) (any, error
 
 func (a *App) compatSwitchWorkspace(ctx context.Context, body map[string]any, auth compatAuth, headers http.Header) (any, error) {
 	slug := requiredString(body, "organizationSlug")
+	password := requiredString(body, "password")
+	if password == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("target workspace password is required"))
+	}
 	var target compatAuth
 	var orgName string
+	var targetPasswordHash sql.NullString
 	var targetMFAEnabled bool
 	var targetMFASecret sql.NullString
 	var targetMFALastCounter sql.NullInt64
 	err := a.db.QueryRowContext(ctx, `
-		SELECT us.id, o.id, u.id, u.email, r.name::text, o.name, u.mfa_enabled, u.mfa_secret_encrypted, u.mfa_last_counter
+		SELECT us.id, o.id, u.id, u.email, r.name::text, o.name, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, u.mfa_last_counter
 		FROM users u JOIN organizations o ON o.id = u.organization_id JOIN roles r ON r.id = u.role_id
 		LEFT JOIN user_sessions us ON us.id = $3
 		WHERE u.email = $1 AND o.slug = $2 AND u.is_active = TRUE
-	`, auth.Email, slug, auth.SessionID).Scan(&target.SessionID, &target.OrganizationID, &target.UserID, &target.Email, &target.Role, &orgName, &targetMFAEnabled, &targetMFASecret, &targetMFALastCounter)
+	`, auth.Email, slug, auth.SessionID).Scan(&target.SessionID, &target.OrganizationID, &target.UserID, &target.Email, &target.Role, &orgName, &targetPasswordHash, &targetMFAEnabled, &targetMFASecret, &targetMFALastCounter)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("workspace not found"))
+	}
+	if !targetPasswordHash.Valid || !compatVerifyPassword(password, targetPasswordHash.String) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid target workspace credentials"))
 	}
 	targetMFACounter := int64(0)
 	if targetMFAEnabled {
@@ -926,28 +934,40 @@ func (a *App) compatConsumeAuthToken(ctx context.Context, token, password, purpo
 	if len(password) < 12 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid password"))
 	}
-	var orgID, orgName, orgSlug, userID, email, role string
-	var displayName sql.NullString
-	err := a.db.QueryRowContext(ctx, `
-		SELECT o.id, o.name, o.slug, u.id, u.email, u.display_name, r.name::text
-		FROM auth_tokens at JOIN users u ON u.id = at.user_id AND u.organization_id = at.organization_id JOIN organizations o ON o.id = at.organization_id JOIN roles r ON r.id = u.role_id
-		WHERE at.token_hash = $1 AND at.purpose = $2 AND at.consumed_at IS NULL AND at.expires_at > NOW()
-	`, hashOpaqueToken(token), purpose).Scan(&orgID, &orgName, &orgSlug, &userID, &email, &displayName, &role)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid or expired token"))
-	}
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, internalServerError("consume_token.begin_tx", err)
 	}
 	defer tx.Rollback()
+	tokenHash := hashOpaqueToken(token)
+	var orgID, orgName, orgSlug, userID, email, role string
+	var displayName sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		WITH claimed AS (
+			UPDATE auth_tokens
+			SET consumed_at = NOW()
+			WHERE token_hash = $1
+			  AND purpose = $2
+			  AND consumed_at IS NULL
+			  AND expires_at > NOW()
+			RETURNING organization_id, user_id
+		)
+		SELECT o.id, o.name, o.slug, u.id, u.email, u.display_name, r.name::text
+		FROM claimed at
+		JOIN users u ON u.id = at.user_id AND u.organization_id = at.organization_id
+		JOIN organizations o ON o.id = at.organization_id
+		JOIN roles r ON r.id = u.role_id
+	`, tokenHash, purpose).Scan(&orgID, &orgName, &orgSlug, &userID, &email, &displayName, &role)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid or expired token"))
+		}
+		return nil, internalServerError("consume_token.claim", err)
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $1, is_active = TRUE, mfa_enabled = FALSE, mfa_secret_encrypted = NULL, mfa_last_counter = NULL, updated_at = NOW() WHERE id = $2 AND organization_id = $3`, compatHashPassword(password), userID, orgID); err != nil {
 		return nil, internalServerError("consume_token.update_user", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1`, hashOpaqueToken(token)); err != nil {
-		return nil, internalServerError("consume_token.mark_consumed", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND organization_id = $2 AND revoked_at IS NULL`, userID, orgID); err != nil {
 		return nil, internalServerError("consume_token.revoke_sessions", err)
 	}
 	session, err := compatIssueSessionTx(ctx, tx, orgID, userID, true)

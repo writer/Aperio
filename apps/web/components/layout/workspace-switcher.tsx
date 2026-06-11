@@ -61,9 +61,25 @@ export function WorkspaceSwitcher() {
 
   async function handleSwitch(workspace: WorkspaceMembership) {
     if (workspace.current || switchingSlug) return;
+    const password =
+      typeof window === "undefined"
+        ? null
+        : window.prompt(`Enter your password for ${workspace.name}`);
+    if (password === null || password.trim() === "") return;
+    const totpPrompt =
+      typeof window === "undefined"
+        ? null
+        : window.prompt(
+            "If this workspace requires MFA, enter your 6-digit code. Otherwise leave this blank."
+          );
+    const totpCode = totpPrompt?.trim() ?? "";
     setSwitchingSlug(workspace.slug);
     try {
-      const response = await switchWorkspace(workspace.slug);
+      const response = await switchWorkspace({
+        organizationSlug: workspace.slug,
+        password,
+        totpCode: totpCode || undefined
+      });
       setOpen(false);
       setWorkspaces(null);
       if (typeof window !== "undefined") {
