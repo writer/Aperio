@@ -26,7 +26,9 @@ package googleworkspacepoller
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -468,13 +470,8 @@ func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, applica
 	if err != nil {
 		return err
 	}
-	// Application + activity uniqueQualifier is globally unique within a
-	// Google customer; including it in the ingestion_jobs id derivation would
-	// be ideal but the schema generates ids itself. We rely on a server-side
-	// unique guard via (organization_id, integration_id, source_event_id) at
-	// the ingested_events layer once the worker promotes the job. Within the
-	// ingestion_jobs table we instead use a best-effort dedupe based on the
-	// composite key embedded in the JSON payload's sourceEventId field.
+	// The deterministic job id makes re-fetches idempotent without conflating
+	// events from another tenant, integration, or Google Reports application.
 	_, err = p.db.ExecContext(ctx, `
 		INSERT INTO ingestion_jobs (
 			id, organization_id, integration_id, provider, event_type, source, actor,
@@ -482,7 +479,7 @@ func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, applica
 		)
 		VALUES ($1, $2, $3, 'GOOGLE_WORKSPACE', $4, $5, $6, $7, $8::jsonb, 'QUEUED', 0, 3, NOW(), NOW(), NOW())
 	`,
-		"ijb_"+activity.UniqueQualifier+"_"+event.Name,
+		googleWorkspaceJobID(integ, application, activity, event),
 		integ.OrganizationID,
 		integ.ID,
 		mapped,
@@ -497,6 +494,17 @@ func (p *Poller) enqueueEvent(ctx context.Context, integ integrationRow, applica
 		return nil
 	}
 	return err
+}
+
+func googleWorkspaceJobID(integ integrationRow, application string, activity reportsActivity, event reportsEvent) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		integ.OrganizationID,
+		integ.ID,
+		application,
+		activity.UniqueQualifier,
+		event.Name,
+	}, "\x00")))
+	return "ijb_gws_" + hex.EncodeToString(sum[:])
 }
 
 // buildJobPayload flattens Google's array-based parameters into the
