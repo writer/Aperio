@@ -172,6 +172,35 @@ func TestListUsersPaginates(t *testing.T) {
 	}
 }
 
+func TestListUsersPageCapReturnsError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(googleUsersResponse{
+			Users:         []googleUser{{ID: "user-" + itoa(calls), PrimaryEmail: "user@example.com"}},
+			NextPageToken: "more",
+		})
+	}))
+	t.Cleanup(srv.Close)
+	s := New(nil, nil).WithMaxPages(2)
+	s.httpClient = &http.Client{Transport: rewriteHost{base: srv.URL, inner: srv.Client().Transport}}
+
+	got, err := s.listUsers(context.Background(), "access-token")
+	if err == nil {
+		t.Fatal("expected page cap error")
+	}
+	if got != nil {
+		t.Fatalf("page cap must not return a partial clean user list, got %d users", len(got))
+	}
+	if !strings.Contains(err.Error(), "page cap") {
+		t.Fatalf("expected page cap error, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("want exactly 2 capped page calls, got %d", calls)
+	}
+}
+
 // rewriteHost is a minimal RoundTripper that swaps any incoming request's
 // scheme + host for the test server's. Lets the test exercise the real
 // listUsers() URL construction (query params, headers) without mutating

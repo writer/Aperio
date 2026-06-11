@@ -204,9 +204,13 @@ func (s *Sync) listUsers(ctx context.Context, accessToken string) ([]googleUser,
 	if pageSize <= 0 {
 		pageSize = defaultPageSize
 	}
+	maxPages := s.maxPages
+	if maxPages <= 0 {
+		maxPages = maxPagesPerTick
+	}
 	collected := make([]googleUser, 0, pageSize)
 	pageToken := ""
-	for page := 0; page < s.maxPages; page++ {
+	for page := 0; page < maxPages; page++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -250,8 +254,7 @@ func (s *Sync) listUsers(ctx context.Context, accessToken string) ([]googleUser,
 		}
 		pageToken = decoded.NextPageToken
 	}
-	log.Printf("googleworkspacedirectorysync: hit page cap (%d pages, %d users); leaving cursor untouched", s.maxPages, len(collected))
-	return collected, nil
+	return nil, fmt.Errorf("directory users page cap reached after %d pages (%d users); next page token still present", maxPages, len(collected))
 }
 
 // upsertIdentity writes one saas_identities row. We let Postgres generate
