@@ -1,6 +1,7 @@
 package googleworkspaceoauthsync
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -121,4 +122,81 @@ func TestStringArrayLiteralEscapes(t *testing.T) {
 			t.Errorf("stringArrayLiteral(%v)=%q want %q", c.in, got, c.want)
 		}
 	}
+}
+
+func FuzzStringArrayLiteralRoundTrip(f *testing.F) {
+	for _, seed := range [][]string{
+		nil,
+		{""},
+		{"a", "b"},
+		{`with "quote"`},
+		{`back\slash`},
+		{"comma,value", "{brace}", "NULL"},
+	} {
+		f.Add(strings.Join(seed, "\x00"))
+	}
+	f.Fuzz(func(t *testing.T, joined string) {
+		values := []string{}
+		if joined != "" {
+			values = strings.Split(joined, "\x00")
+		}
+		got, err := parseStringArrayLiteralForTest(stringArrayLiteral(values))
+		if err != nil {
+			t.Fatalf("parse array literal: %v", err)
+		}
+		if len(got) != len(values) {
+			t.Fatalf("round trip length = %d, want %d (%q -> %q)", len(got), len(values), values, stringArrayLiteral(values))
+		}
+		for i := range values {
+			if got[i] != values[i] {
+				t.Fatalf("round trip[%d] = %q, want %q (%q)", i, got[i], values[i], stringArrayLiteral(values))
+			}
+		}
+	})
+}
+
+func parseStringArrayLiteralForTest(literal string) ([]string, error) {
+	if literal == "{}" {
+		return nil, nil
+	}
+	if len(literal) < 2 || literal[0] != '{' || literal[len(literal)-1] != '}' {
+		return nil, errors.New("invalid array literal")
+	}
+	body := literal[1 : len(literal)-1]
+	values := []string{}
+	for len(body) > 0 {
+		if body[0] != '"' {
+			return nil, errors.New("expected quoted element")
+		}
+		body = body[1:]
+		var builder strings.Builder
+		for {
+			if len(body) == 0 {
+				return nil, errors.New("unterminated quoted element")
+			}
+			ch := body[0]
+			body = body[1:]
+			if ch == '\\' {
+				if len(body) == 0 {
+					return nil, errors.New("trailing escape")
+				}
+				builder.WriteByte(body[0])
+				body = body[1:]
+				continue
+			}
+			if ch == '"' {
+				values = append(values, builder.String())
+				break
+			}
+			builder.WriteByte(ch)
+		}
+		if len(body) == 0 {
+			break
+		}
+		if body[0] != ',' {
+			return nil, errors.New("expected comma")
+		}
+		body = body[1:]
+	}
+	return values, nil
 }

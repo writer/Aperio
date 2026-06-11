@@ -2,6 +2,7 @@ package ingestionworker
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -215,6 +216,89 @@ func TestEvaluateCustomRulesNotEqualsRequiresFieldPresent(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("not_equals must fire when present-and-differing, got %d findings", len(got))
 	}
+}
+
+func FuzzDedupeKeyTupleSeparation(f *testing.F) {
+	for _, seed := range []struct {
+		org    string
+		integ  string
+		rule   string
+		target string
+		alt    string
+	}{
+		{"org_1", "int_1", "rule.one", "alice@example.test", "bob@example.test"},
+		{"org_1", "int_1", "custom.rule", "doc:a", "doc:b"},
+	} {
+		f.Add(seed.org, seed.integ, seed.rule, seed.target, seed.alt)
+	}
+	f.Fuzz(func(t *testing.T, orgID, integrationID, ruleID, target, alt string) {
+		if orgID == "" || integrationID == "" || ruleID == "" || target == "" || alt == "" || target == alt {
+			t.Skip()
+		}
+		if strings.ContainsAny(orgID+integrationID+ruleID, ":\x00") {
+			t.Skip()
+		}
+		basePayload := JobPayload{OrganizationID: orgID, IntegrationID: integrationID}
+		baseFinding := Finding{RuleID: ruleID, Target: target}
+		baseKey := DedupeKey(basePayload, baseFinding)
+		if DedupeKey(basePayload, baseFinding) != baseKey {
+			t.Fatal("DedupeKey must be deterministic")
+		}
+		if DedupeKey(basePayload, Finding{RuleID: ruleID, Target: alt}) == baseKey {
+			t.Fatalf("changing target must change dedupe key for %q -> %q", target, alt)
+		}
+		if DedupeKey(JobPayload{OrganizationID: orgID, IntegrationID: integrationID + "_other"}, baseFinding) == baseKey {
+			t.Fatal("changing integration must change dedupe key")
+		}
+	})
+}
+
+func FuzzValidatePredicateAcceptedLeavesEvaluate(f *testing.F) {
+	for _, seed := range []struct {
+		value  string
+		needle string
+	}{
+		{"Vendor Analytics", "vendor"},
+		{"shared_externally", "external"},
+		{"TRUE", "tr"},
+	} {
+		f.Add(seed.value, seed.needle)
+	}
+	f.Fuzz(func(t *testing.T, value, needle string) {
+		if strings.TrimSpace(value) == "" || strings.TrimSpace(needle) == "" || !strings.Contains(strings.ToLower(value), strings.ToLower(needle)) {
+			t.Skip()
+		}
+		payload := JobPayload{Payload: map[string]any{"value": value}}
+		for _, predicate := range []predicateNode{
+			{Op: "equals", Field: "payload.value", Value: mustRawValue(t, value)},
+			{Op: "contains", Field: "payload.value", Value: mustRawValue(t, needle)},
+			{Op: "in", Field: "payload.value", Value: mustRawValue(t, []string{"not-it", value})},
+		} {
+			raw, err := json.Marshal(predicate)
+			if err != nil {
+				t.Fatalf("marshal predicate: %v", err)
+			}
+			if err := ValidatePredicate(raw); err != nil {
+				t.Fatalf("generated predicate should validate: %s: %v", raw, err)
+			}
+			ok, err := evalPredicate(raw, payload)
+			if err != nil {
+				t.Fatalf("validated predicate should evaluate without structural error: %v", err)
+			}
+			if !ok {
+				t.Fatalf("validated matching predicate did not match: %s", raw)
+			}
+		}
+	})
+}
+
+func mustRawValue(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal raw value: %v", err)
+	}
+	return raw
 }
 
 // TestValidatePredicateRejectsMalformedShapes pins the gate that prevents

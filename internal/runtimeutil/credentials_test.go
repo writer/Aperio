@@ -1,7 +1,9 @@
 package runtimeutil
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -167,6 +169,52 @@ func TestPGXSafeDatabaseURLAndRedaction(t *testing.T) {
 	if strings.Contains(message, fixture.Plaintext) || !strings.Contains(message, Redacted) {
 		t.Fatalf("redacted message leaked plaintext: %s", message)
 	}
+}
+
+func FuzzRedactDSNDoesNotLeakCredentials(f *testing.F) {
+	for _, seed := range []struct {
+		user     string
+		password string
+		key      string
+		value    string
+	}{
+		{"aperio", "secret-password", "password", "query-secret"},
+		{"user@example.com", "p@ss:w0rd", "api_key", "abc12345"},
+		{"", "token-value", "token", "tok_live_example"},
+	} {
+		f.Add(seed.user, seed.password, seed.key, seed.value)
+	}
+	f.Fuzz(func(t *testing.T, username, password, queryKey, queryValue string) {
+		if strings.TrimSpace(password) == "" || strings.TrimSpace(queryValue) == "" {
+			t.Skip()
+		}
+		password = fuzzSecret("pw", password)
+		queryValue = fuzzSecret("qv", queryValue)
+		if !isSensitiveKey(queryKey) {
+			queryKey = "password"
+		}
+		u := url.URL{
+			Scheme: "postgresql",
+			User:   url.UserPassword(username, password),
+			Host:   "db.example.test:5432",
+			Path:   "/aperio",
+		}
+		query := u.Query()
+		query.Set(queryKey, queryValue)
+		u.RawQuery = query.Encode()
+
+		redacted := RedactDSN(u.String())
+		for _, secret := range []string{password, queryValue} {
+			if len(strings.TrimSpace(secret)) >= 4 && strings.Contains(redacted, secret) {
+				t.Fatalf("redacted DSN leaked secret %q in %q", secret, redacted)
+			}
+		}
+	})
+}
+
+func fuzzSecret(prefix, input string) string {
+	sum := sha256.Sum256([]byte(input))
+	return prefix + "_" + hex.EncodeToString(sum[:8]) + "_secret"
 }
 
 func TestLoadEnvFileParsesLocalDotenvWithoutOverwritingByDefault(t *testing.T) {
