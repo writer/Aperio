@@ -192,6 +192,33 @@ func (p *Poller) Tick(ctx context.Context) error {
 	return nil
 }
 
+// WakeIntegration runs an out-of-cycle poll for a single integration. The
+// poller binary calls this in response to a Postgres NOTIFY (see
+// GoogleWorkspaceSyncWakeChannel in internal/bootstrap) so freshly-connected
+// integrations land on the connector card with real data immediately,
+// instead of waiting up to a full poll interval for the next Tick. Returns
+// nil silently if the id does not match a CONNECTED Google Workspace
+// integration so stale notifications (e.g. for a since-disconnected row) do
+// not surface as errors.
+func (p *Poller) WakeIntegration(ctx context.Context, integrationID string) error {
+	if strings.TrimSpace(integrationID) == "" {
+		return nil
+	}
+	var integ integrationRow
+	err := p.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, external_account_id, encrypted_access_token
+		FROM integration_connections
+		WHERE id = $1 AND provider = 'GOOGLE_WORKSPACE' AND status = 'CONNECTED'
+	`, integrationID).Scan(&integ.ID, &integ.OrganizationID, &integ.ExternalAccountID, &integ.EncryptedToken)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("load integration %s: %w", integrationID, err)
+	}
+	return p.pollIntegration(ctx, integ)
+}
+
 func (p *Poller) connectedIntegrations(ctx context.Context) ([]integrationRow, error) {
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT id, organization_id, external_account_id, encrypted_access_token

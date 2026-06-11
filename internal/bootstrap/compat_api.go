@@ -1079,7 +1079,7 @@ func (a *App) compatCreateIntegration(ctx context.Context, body map[string]any, 
 	}
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO security_assets (id, organization_id, integration_id, type, provider, name, summary, external_id, labels, criticality, exposure_level, ownership_status, contains_sensitive_data, is_privileged, risk_score, created_at, updated_at) VALUES ($1,$2,$3,'APPLICATION',$4,$5,$6,$7,$8,'HIGH','INTERNAL','ASSIGNED',false,$9,$10,NOW(),NOW()) ON CONFLICT DO NOTHING`, compatID("ast"), auth.OrganizationID, id, provider, displayName, strings.ReplaceAll(provider, "_", " ")+" control plane", external, []string{"integration", strings.ToLower(mode)}, isPrivileged, riskScore)
 	a.writeCompatAudit(ctx, auth, "integration.connect", "integration_connection", id, map[string]any{"provider": provider, "displayName": displayName, "externalAccountId": external, "mode": mode})
-	a.enqueueInitialSyncJob(ctx, id, provider, external, auth)
+	a.requestImmediateGoogleWorkspaceSync(ctx, id, provider, auth)
 	return map[string]any{"data": map[string]any{"id": id, "provider": provider, "displayName": displayName, "externalAccountId": external, "status": "CONNECTED", "mode": mode, "scopes": scopes, "disabledChecks": disabledChecks, "googleMailboxScanEnabled": false, "googleMailboxScanClientEmail": nil, "lastSyncAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339Nano)}}, nil
 }
 
@@ -1278,33 +1278,31 @@ func (a *App) writeCompatAudit(ctx context.Context, auth compatAuth, action, tar
 	_, _ = a.db.ExecContext(ctx, `INSERT INTO tenant_audit_logs (id, organization_id, actor_user_id, action, target_type, target_id, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`, compatID("aud"), auth.OrganizationID, actor, action, targetType, targetID, meta)
 }
 
-// enqueueInitialSyncJob queues an immediate ingestion sweep for a newly created
-// integration so the operator sees real data right after connecting instead of
-// an empty connector card that waits for the next scheduled run. The job uses
-// the same durable queue as compatForceSync, so retries, dead-lettering, and
-// auditing all behave identically. Providers without an inline ingestion path
-// are skipped (the scheduled worker still picks them up later).
-func (a *App) enqueueInitialSyncJob(ctx context.Context, integrationID string, provider string, externalAccount string, auth compatAuth) {
+// GoogleWorkspaceSyncWakeChannel is the Postgres LISTEN/NOTIFY channel name
+// the google-workspace-poller subscribes to so freshly-connected integrations
+// trigger an out-of-cycle poll instead of waiting up to a full poll interval
+// for the next ticker fire. The payload is the integration_connections.id.
+const GoogleWorkspaceSyncWakeChannel = "aperio_google_workspace_sync_requested"
+
+// requestImmediateGoogleWorkspaceSync nudges the google-workspace-poller to
+// run an out-of-cycle poll for a freshly-connected integration. We rely on
+// the existing poller for ingestion work, because that is the producer that
+// knows how to translate Google Reports API activities into the synthetic
+// event types supportedIngestionEventTypes accepts; enqueuing raw
+// ingestion_jobs rows here would dead-letter immediately since the worker
+// would not recognise the event type. NOTIFY is fire-and-forget: if no
+// poller process is listening (or none is running), the next scheduled
+// poller tick still picks the integration up because its discovery query
+// selects every CONNECTED Google Workspace integration.
+func (a *App) requestImmediateGoogleWorkspaceSync(ctx context.Context, integrationID string, provider string, auth compatAuth) {
 	if strings.ToUpper(provider) != "GOOGLE_WORKSPACE" {
 		return
 	}
-	jobID := compatID("job")
-	payload := map[string]any{
-		"provider":          provider,
-		"integrationId":     integrationID,
-		"externalAccountId": externalAccount,
-		"requestedBy":       auth.UserID,
-		"reason":            "initial_sync_after_connect",
-	}
-	payloadJSON, _ := json.Marshal(payload)
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO ingestion_jobs (id, organization_id, integration_id, provider, event_type, source, actor, occurred_at, payload, status, attempts, max_attempts, next_attempt_at, created_at, updated_at) VALUES ($1,$2,$3,$4,'INITIAL_SYNC','aperio.initial_sync',$5,NOW(),$6,'QUEUED',0,3,NOW(),NOW(),NOW())`, jobID, auth.OrganizationID, integrationID, provider, auth.Email, json.RawMessage(payloadJSON)); err != nil {
-		// Logged as audit only; queue failure must not block the connect
-		// response because the scheduled poller will still pick the
-		// integration up on its next tick.
-		a.writeCompatAudit(ctx, auth, "integration.initial_sync_queue_failed", "integration_connection", integrationID, map[string]any{"provider": provider, "error": err.Error()})
+	if _, err := a.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, GoogleWorkspaceSyncWakeChannel, integrationID); err != nil {
+		a.writeCompatAudit(ctx, auth, "integration.initial_sync_notify_failed", "integration_connection", integrationID, map[string]any{"provider": provider, "error": err.Error()})
 		return
 	}
-	a.writeCompatAudit(ctx, auth, "integration.initial_sync_queued", "integration_connection", integrationID, map[string]any{"provider": provider, "jobId": jobID})
+	a.writeCompatAudit(ctx, auth, "integration.initial_sync_requested", "integration_connection", integrationID, map[string]any{"provider": provider, "channel": GoogleWorkspaceSyncWakeChannel})
 }
 
 func (a *App) compatForceSync(ctx context.Context, id string, auth compatAuth) (any, error) {

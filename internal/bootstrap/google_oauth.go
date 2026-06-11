@@ -515,12 +515,13 @@ func (a *App) upsertGoogleWorkspaceIntegration(ctx context.Context, input google
 		return err
 	}
 	committed = true
-	// Mirror the form-based connect path: queue the first sync immediately so
-	// the workspace lands on /connectors with data populated instead of an
-	// empty placeholder until the scheduled poller catches up. The enqueue
-	// helper is best-effort; the scheduled poller will retry on the next tick
-	// if it fails.
-	a.enqueueInitialSyncJob(ctx, integrationID, provider, input.externalAccountID, compatAuth{
+	// Mirror the form-based connect path: nudge the google-workspace-poller
+	// so the new integration is polled immediately instead of waiting for
+	// the next scheduled tick. The notify is fire-and-forget; if no poller
+	// is currently listening, the integration is still discovered by the
+	// next ticker fire because connectedIntegrations selects every
+	// CONNECTED Google Workspace row.
+	a.requestImmediateGoogleWorkspaceSync(ctx, integrationID, provider, compatAuth{
 		OrganizationID: input.organizationID,
 		UserID:         input.userID,
 		Email:          input.adminEmail,
