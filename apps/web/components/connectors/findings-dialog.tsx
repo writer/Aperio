@@ -109,19 +109,28 @@ export function FindingsDialog({ integration, open, onOpenChange, onSaved }: Pro
 
   async function save() {
     if (!integration) return;
+    // Snapshot the integration id at save start so a late completion can
+    // detect that the parent has since swapped to a different integration
+    // and avoid closing the dialog out from under the operator. The
+    // dismissal guard below also blocks the user from dismissing while
+    // saving, but this second check defends against future callers that
+    // mutate `integration` mid-flight (e.g. websocket-driven refreshes).
+    const savedFor = integration.id;
     setSaving(true);
     try {
       const disabledChecks = checks
         .filter((c) => !(enabledMap[c.key] ?? c.enabled))
         .map((c) => c.key);
-      await updateIntegrationChecks(integration.id, disabledChecks);
+      await updateIntegrationChecks(savedFor, disabledChecks);
       toast({
         title: "Findings updated",
         description: `${enabledCount} of ${checks.length} checks enabled`,
         tone: "success"
       });
       onSaved?.();
-      onOpenChange(false);
+      if (integration?.id === savedFor) {
+        onOpenChange(false);
+      }
     } catch (err) {
       toast({
         title: "Unable to update findings",
@@ -134,8 +143,27 @@ export function FindingsDialog({ integration, open, onOpenChange, onSaved }: Pro
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Block overlay / Escape / built-in close-button dismissal while a
+        // save is in flight so the operator cannot accidentally dismiss the
+        // dialog, open another integration, and then have this save's
+        // completion close the unrelated second dialog through the shared
+        // parent setFindingsIntegration(null) handler.
+        if (saving && !next) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        className="max-w-2xl"
+        onPointerDownOutside={(event) => {
+          if (saving) event.preventDefault();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (saving) event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4" aria-hidden />

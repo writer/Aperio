@@ -10,7 +10,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os/signal"
 	"strings"
@@ -24,6 +26,15 @@ import (
 	"github.com/writer/aperio/internal/config"
 	"github.com/writer/aperio/internal/googleworkspacepoller"
 )
+
+// onceDrainWindow bounds how long the -once entrypoint waits for buffered
+// wake-up notifications after its single Tick completes. Notifications fired
+// from compatCreateIntegration / the OAuth callback during the Tick land on
+// the LISTEN connection's server-side queue, so the drain window only needs
+// to be long enough for WaitForNotification to surface anything already
+// buffered. Keeping it short (a couple of seconds) preserves the "useful
+// for cron" semantics of -once.
+const onceDrainWindow = 2 * time.Second
 
 func main() {
 	once := flag.Bool("once", false, "tick once and exit (useful for cron)")
@@ -54,8 +65,25 @@ func main() {
 	defer stop()
 
 	if *once {
+		// Establish LISTEN *before* the Tick so any pg_notify wake-up fired
+		// from compatCreateIntegration / the Google OAuth callback during
+		// the Tick is queued server-side and surfaced when we drain after.
+		// Cron-style deployments (npm run worker:google -- -once) would
+		// otherwise silently drop every wake-up, leaving newly connected
+		// Google Workspace tenants waiting for the next scheduled cron run.
+		listener, listenErr := openSyncWakeListener(ctx, cfg.DatabaseURL)
+		if listenErr != nil {
+			log.Printf("google-workspace-poller: -once listener setup failed (immediate wake-ups will be dropped): %v", listenErr)
+		} else {
+			defer listener.Close(context.Background())
+		}
 		if err := poller.Tick(ctx); err != nil {
 			log.Fatalf("google-workspace-poller: tick failed: %v", err)
+		}
+		if listener != nil {
+			drainCtx, cancel := context.WithTimeout(ctx, onceDrainWindow)
+			dispatchSyncWakes(drainCtx, listener, poller)
+			cancel()
 		}
 		return
 	}
@@ -73,54 +101,76 @@ func main() {
 	}
 }
 
-// runSyncWakeListener opens a dedicated pgx connection, executes
-// LISTEN on the wake channel, and dispatches WakeIntegration for each
-// notification payload. On any connection error it logs, sleeps briefly
-// to avoid tight reconnect loops, and retries until the parent context
-// is cancelled.
+// openSyncWakeListener opens a dedicated pgx connection and runs LISTEN on
+// the wake channel. Returned to the caller so it can pump notifications via
+// dispatchSyncWakes. Caller is responsible for closing the connection.
+func openSyncWakeListener(ctx context.Context, dsn string) (*pgx.Conn, error) {
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("listener connect: %w", err)
+	}
+	if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{bootstrap.GoogleWorkspaceSyncWakeChannel}.Sanitize()); err != nil {
+		_ = conn.Close(context.Background())
+		return nil, fmt.Errorf("LISTEN %s: %w", bootstrap.GoogleWorkspaceSyncWakeChannel, err)
+	}
+	return conn, nil
+}
+
+// dispatchSyncWakes pumps notifications off the listener and dispatches
+// Poller.WakeIntegration per payload until the provided context is done or
+// the connection drops. Each wake-up runs in its own goroutine so a slow
+// Google API call cannot stall subsequent notifications. Returns silently
+// when ctx is cancelled (including the deadline-driven -once drain) and
+// returns on any non-context error so the caller can decide whether to
+// reconnect.
+func dispatchSyncWakes(ctx context.Context, conn *pgx.Conn, poller *googleworkspacepoller.Poller) {
+	for {
+		notification, err := conn.WaitForNotification(ctx)
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return
+			}
+			log.Printf("google-workspace-poller: WaitForNotification failed: %v", err)
+			return
+		}
+		integrationID := strings.TrimSpace(notification.Payload)
+		if integrationID == "" {
+			continue
+		}
+		go func(id string) {
+			if err := poller.WakeIntegration(ctx, id); err != nil {
+				log.Printf("google-workspace-poller: wake integration %s failed: %v", id, err)
+			}
+		}(integrationID)
+	}
+}
+
+// runSyncWakeListener is the long-running variant used by the daemon mode.
+// It transparently reconnects on connection-level failures so a transient
+// Postgres restart does not silently drop future wake-ups for the rest of
+// the process lifetime.
 func runSyncWakeListener(ctx context.Context, dsn string, poller *googleworkspacepoller.Poller) {
 	const reconnectBackoff = 5 * time.Second
-	channel := bootstrap.GoogleWorkspaceSyncWakeChannel
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		conn, err := pgx.Connect(ctx, dsn)
+		conn, err := openSyncWakeListener(ctx, dsn)
 		if err != nil {
-			log.Printf("google-workspace-poller: listener connect failed: %v", err)
+			log.Printf("google-workspace-poller: %v", err)
 			sleepOrReturn(ctx, reconnectBackoff)
 			continue
 		}
-		if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
-			log.Printf("google-workspace-poller: LISTEN failed: %v", err)
-			_ = conn.Close(ctx)
-			sleepOrReturn(ctx, reconnectBackoff)
-			continue
+		log.Printf("google-workspace-poller: listening on %s", bootstrap.GoogleWorkspaceSyncWakeChannel)
+		dispatchSyncWakes(ctx, conn, poller)
+		_ = conn.Close(context.Background())
+		if ctx.Err() != nil {
+			return
 		}
-		log.Printf("google-workspace-poller: listening on %s", channel)
-		for {
-			notification, waitErr := conn.WaitForNotification(ctx)
-			if waitErr != nil {
-				if ctx.Err() != nil {
-					_ = conn.Close(ctx)
-					return
-				}
-				log.Printf("google-workspace-poller: WaitForNotification failed: %v", waitErr)
-				_ = conn.Close(ctx)
-				break
-			}
-			integrationID := strings.TrimSpace(notification.Payload)
-			if integrationID == "" {
-				continue
-			}
-			// Run wake-ups in a goroutine so a slow Google API call cannot
-			// stall the LISTEN loop and drop subsequent notifications.
-			go func(id string) {
-				if err := poller.WakeIntegration(ctx, id); err != nil {
-					log.Printf("google-workspace-poller: wake integration %s failed: %v", id, err)
-				}
-			}(integrationID)
-		}
+		// dispatchSyncWakes returned for a non-context reason (connection
+		// drop, server-side LISTEN reset). Back off briefly and reconnect
+		// so wake-ups continue to flow.
+		sleepOrReturn(ctx, reconnectBackoff)
 	}
 }
 
