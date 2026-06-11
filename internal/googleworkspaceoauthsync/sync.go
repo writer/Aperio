@@ -230,7 +230,7 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 				appRisk = mergeOAuthAppToken(existing, parsed)
 			}
 			appsByClientID[parsed.ClientID] = appRisk
-			assetID, err := s.upsertOauthAsset(ctx, integ, appRisk, now)
+			assetID, err := s.upsertOauthAsset(ctx, integ, appRisk, now, true)
 			if err != nil {
 				return fmt.Errorf("upsert oauth asset %s: %w", parsed.ClientID, err)
 			}
@@ -257,6 +257,11 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 	if attemptedUsers > 0 && failedUsers == 0 {
 		if err := s.pruneStaleOauthGrants(ctx, integ, now); err != nil {
 			return fmt.Errorf("prune stale oauth grants: %w", err)
+		}
+		for _, appRisk := range appsByClientID {
+			if _, err := s.upsertOauthAsset(ctx, integ, appRisk, now, false); err != nil {
+				return fmt.Errorf("refresh oauth asset risk %s: %w", appRisk.ClientID, err)
+			}
 		}
 	}
 	s.touchCursor(ctx, integ.ID, len(appsByClientID), grantCount, failedUsers, attemptedUsers)
@@ -303,7 +308,7 @@ func (s *Sync) listTokensForUser(ctx context.Context, accessToken, userKey strin
 // natural unique that lets us upsert by (org, integration, external_id),
 // so we derive a deterministic id and upsert by primary key. Repeated
 // sweeps converge on the same id idempotently.
-func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p parsedToken, now time.Time) (string, error) {
+func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p parsedToken, now time.Time, preserveExistingRisk bool) (string, error) {
 	id := "ast_oauth_" + integ.ID + "_" + p.ClientID
 	risk := googleOAuthAssetRisk(p.Scopes)
 	_, err := s.db.ExecContext(ctx, `
@@ -319,13 +324,13 @@ func (s *Sync) upsertOauthAsset(ctx context.Context, integ integrationRow, p par
 		ON CONFLICT (id) DO UPDATE SET
 			name                    = EXCLUDED.name,
 			summary                 = EXCLUDED.summary,
-			criticality             = EXCLUDED.criticality,
-			contains_sensitive_data = EXCLUDED.contains_sensitive_data,
-			is_privileged           = EXCLUDED.is_privileged,
-			risk_score              = EXCLUDED.risk_score,
+			criticality             = CASE WHEN $12 AND security_assets.risk_score > EXCLUDED.risk_score THEN security_assets.criticality ELSE EXCLUDED.criticality END,
+			contains_sensitive_data = CASE WHEN $12 THEN security_assets.contains_sensitive_data OR EXCLUDED.contains_sensitive_data ELSE EXCLUDED.contains_sensitive_data END,
+			is_privileged           = CASE WHEN $12 THEN security_assets.is_privileged OR EXCLUDED.is_privileged ELSE EXCLUDED.is_privileged END,
+			risk_score              = CASE WHEN $12 THEN GREATEST(security_assets.risk_score, EXCLUDED.risk_score) ELSE EXCLUDED.risk_score END,
 			last_observed_at        = EXCLUDED.last_observed_at,
 			updated_at              = NOW()
-	`, id, integ.OrganizationID, integ.ID, p.ClientID, p.DisplayName(), p.Summary(), risk.criticality, risk.containsSensitiveData, risk.isPrivileged, risk.riskScore, now)
+	`, id, integ.OrganizationID, integ.ID, p.ClientID, p.DisplayName(), p.Summary(), risk.criticality, risk.containsSensitiveData, risk.isPrivileged, risk.riskScore, now, preserveExistingRisk)
 	if err != nil {
 		return "", err
 	}

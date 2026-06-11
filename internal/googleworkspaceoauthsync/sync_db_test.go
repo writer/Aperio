@@ -138,7 +138,7 @@ func TestDBUpsertOauthAssetUpgradesScopeRisk(t *testing.T) {
 
 	s := &Sync{db: db}
 	integ := integrationRow{ID: integrationID, OrganizationID: orgID}
-	assetID, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"openid"}}, now)
+	assetID, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"openid"}}, now, false)
 	if err != nil {
 		t.Fatalf("initial upsert oauth asset: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestDBUpsertOauthAssetUpgradesScopeRisk(t *testing.T) {
 	`, assetID, orgID); err != nil {
 		t.Fatalf("downgrade existing asset: %v", err)
 	}
-	if _, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"https://mail.google.com/", "https://www.googleapis.com/auth/admin.directory.user.readonly"}}, now.Add(time.Minute)); err != nil {
+	if _, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"https://mail.google.com/", "https://www.googleapis.com/auth/admin.directory.user.readonly"}}, now.Add(time.Minute), false); err != nil {
 		t.Fatalf("risk upgrade upsert oauth asset: %v", err)
 	}
 
@@ -165,6 +165,32 @@ func TestDBUpsertOauthAssetUpgradesScopeRisk(t *testing.T) {
 	}
 	if criticality != "CRITICAL" || !containsSensitive || !isPrivileged || riskScore < 92 {
 		t.Fatalf("upgraded asset risk = criticality=%s sensitive=%t privileged=%t risk=%d", criticality, containsSensitive, isPrivileged, riskScore)
+	}
+	if _, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"openid"}}, now.Add(2*time.Minute), true); err != nil {
+		t.Fatalf("preserve risk upsert oauth asset: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `
+		SELECT criticality::text, contains_sensitive_data, is_privileged, risk_score
+		FROM security_assets
+		WHERE id = $1 AND organization_id = $2
+	`, assetID, orgID).Scan(&criticality, &containsSensitive, &isPrivileged, &riskScore); err != nil {
+		t.Fatalf("query preserved asset risk: %v", err)
+	}
+	if criticality != "CRITICAL" || !containsSensitive || !isPrivileged || riskScore < 92 {
+		t.Fatalf("preserved asset risk = criticality=%s sensitive=%t privileged=%t risk=%d", criticality, containsSensitive, isPrivileged, riskScore)
+	}
+	if _, err := s.upsertOauthAsset(ctx, integ, parsedToken{ClientID: "critical-client", Label: "Critical Client", Scopes: []string{"openid"}}, now.Add(3*time.Minute), false); err != nil {
+		t.Fatalf("clean sweep downgrade upsert oauth asset: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `
+		SELECT criticality::text, contains_sensitive_data, is_privileged, risk_score
+		FROM security_assets
+		WHERE id = $1 AND organization_id = $2
+	`, assetID, orgID).Scan(&criticality, &containsSensitive, &isPrivileged, &riskScore); err != nil {
+		t.Fatalf("query downgraded asset risk: %v", err)
+	}
+	if criticality != "MEDIUM" || containsSensitive || isPrivileged || riskScore != 45 {
+		t.Fatalf("clean-sweep downgraded asset risk = criticality=%s sensitive=%t privileged=%t risk=%d", criticality, containsSensitive, isPrivileged, riskScore)
 	}
 }
 

@@ -677,8 +677,21 @@ func compatTrustedProxyPeer(peer string) bool {
 }
 
 func compatForwardedClient(header http.Header) string {
-	for _, forwarded := range strings.Split(header.Get("X-Forwarded-For"), ",") {
-		if client := strings.TrimSpace(forwarded); net.ParseIP(client) != nil {
+	forwarded := strings.Split(header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		forwardedClient := strings.TrimSpace(forwarded[index])
+		if forwardedClient == "" {
+			continue
+		}
+		if compatTrustedProxyPeer(forwardedClient) {
+			continue
+		}
+		if net.ParseIP(forwardedClient) != nil {
+			return forwardedClient
+		}
+	}
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		if client := strings.TrimSpace(forwarded[index]); net.ParseIP(client) != nil {
 			return client
 		}
 	}
