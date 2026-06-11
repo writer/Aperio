@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -350,6 +352,45 @@ func TestPublicForgotPasswordDoesNotExposeResetToken(t *testing.T) {
 	}
 	if tokens != 1 {
 		t.Fatalf("forgot password should still mint one server-side reset token, got %d", tokens)
+	}
+	var resetURL, status, recipient string
+	if err := app.db.QueryRowContext(ctx, `
+		SELECT payload->>'resetUrl', status, recipient_email
+		FROM auth_email_deliveries
+		WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET'
+	`, user.OrganizationID, user.UserID).Scan(&resetURL, &status, &recipient); err != nil {
+		t.Fatalf("fetch password reset delivery: %v", err)
+	}
+	if status != "PENDING" || recipient != user.Email {
+		t.Fatalf("reset delivery = status %q recipient %q, want pending delivery to %q", status, recipient, user.Email)
+	}
+	if !strings.Contains(resetURL, "/reset-password?token=") {
+		t.Fatalf("reset delivery URL %q does not contain reset token link", resetURL)
+	}
+	parsed, err := url.Parse(resetURL)
+	if err != nil {
+		t.Fatalf("parse reset delivery URL: %v", err)
+	}
+	token := parsed.Query().Get("token")
+	if token == "" {
+		t.Fatalf("reset delivery URL did not include token: %q", resetURL)
+	}
+	if _, err := app.compatResetPassword(ctx, map[string]any{"token": token, "password": "new-password-12345"}, http.Header{}); err != nil {
+		t.Fatalf("delivered reset token should be redeemable: %v", err)
+	}
+	var unknownDeliveries int
+	unknownEmail := "missing-" + randomBase36(10) + "@example.com"
+	if _, err := app.compatForgotPassword(ctx, map[string]any{
+		"organizationSlug": slug,
+		"email":            unknownEmail,
+	}); err != nil {
+		t.Fatalf("forgot password unknown user: %v", err)
+	}
+	if err := app.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_email_deliveries WHERE recipient_email = $1`, unknownEmail).Scan(&unknownDeliveries); err != nil {
+		t.Fatalf("count unknown password reset deliveries: %v", err)
+	}
+	if unknownDeliveries != 0 {
+		t.Fatalf("unknown account should not enqueue reset delivery, got %d", unknownDeliveries)
 	}
 }
 

@@ -973,11 +973,47 @@ func (a *App) compatForgotPassword(ctx context.Context, body map[string]any) (an
 	if err != nil {
 		return map[string]any{"data": map[string]any{"accepted": true}}, nil
 	}
-	_, tokenHash := compatToken()
+	token, tokenHash := compatToken()
 	expires := time.Now().Add(2 * time.Hour)
-	_, _ = a.db.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, orgID, userID)
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,$5,NOW())`, compatID("tok"), orgID, userID, tokenHash, expires)
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE auth_tokens SET consumed_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND consumed_at IS NULL`, orgID, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE auth_email_deliveries SET status = 'CANCELLED', updated_at = NOW() WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET' AND status = 'PENDING'`, orgID, userID); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	tokenID := compatID("tok")
+	if _, err := tx.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,'PASSWORD_RESET',$4,$5,NOW())`, tokenID, orgID, userID, tokenHash, expires); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := enqueuePasswordResetDelivery(ctx, tx, orgID, userID, tokenID, email, token, expires); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return map[string]any{"data": map[string]any{"accepted": true}}, nil
+}
+
+func enqueuePasswordResetDelivery(ctx context.Context, tx *sql.Tx, orgID, userID, tokenID, email, token string, expires time.Time) error {
+	resetURL := compatAuthLink("/reset-password", token)
+	payload, err := json.Marshal(map[string]any{
+		"template":  "password_reset",
+		"resetUrl":  resetURL,
+		"expiresAt": expires.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO auth_email_deliveries (id, organization_id, user_id, auth_token_id, purpose, recipient_email, subject, payload, status, expires_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,$6,$7,'PENDING',$8,NOW(),NOW())
+	`, compatID("mail"), orgID, userID, tokenID, email, "Reset your Aperio password", string(payload), expires)
+	return err
 }
 
 func (a *App) compatResetPassword(ctx context.Context, body map[string]any, headers http.Header) (any, error) {
