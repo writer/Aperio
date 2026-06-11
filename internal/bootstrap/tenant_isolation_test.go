@@ -363,6 +363,28 @@ func TestTenantIsolationSwitchWorkspaceRequiresTargetPassword(t *testing.T) {
 	}
 }
 
+func TestTypedSwitchWorkspaceHonorsRateLimit(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	email := "rate-limit-switch-" + randomBase36(10) + "@example.com"
+	attacker := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", email, "attacker-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", email, "victim-password-123")
+	header := seedSessionHeader(t, app, attacker)
+	path := "/api/v1/auth/workspaces/switch"
+	seedExhaustedRateLimitBucket(t, app, header, http.MethodPost, path)
+
+	req := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{
+		OrganizationSlug: scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID),
+		Password:         "victim-password-123",
+	})
+	copyCompatHeaders(req.Header(), header)
+	if _, err := app.SwitchWorkspace(ctx, req); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("expected rate-limited switch to return CodeResourceExhausted, got %v", err)
+	}
+}
+
 func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.T) {
 	app, attacker := newTestDBApp(t)
 	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)

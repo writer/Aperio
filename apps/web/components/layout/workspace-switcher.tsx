@@ -5,6 +5,14 @@ import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { useAuth } from "../auth/auth-shell";
 import { Button } from "../ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "../ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -12,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "../ui/dropdown-menu";
+import { Field, Input } from "../ui/form";
 import { useToast } from "../ui/toast";
 import {
   fetchWorkspaces,
@@ -29,6 +38,12 @@ export function WorkspaceSwitcher() {
   const [loading, setLoading] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [switchingSlug, setSwitchingSlug] = React.useState<string | null>(null);
+  const [pendingWorkspace, setPendingWorkspace] =
+    React.useState<WorkspaceMembership | null>(null);
+  const [switchPassword, setSwitchPassword] = React.useState("");
+  const [switchTotpCode, setSwitchTotpCode] = React.useState("");
+  const passwordId = React.useId();
+  const totpId = React.useId();
 
   React.useEffect(() => {
     if (!open || workspaces !== null || errorMessage) return;
@@ -59,28 +74,29 @@ export function WorkspaceSwitcher() {
     setWorkspaces(null);
   }, [session?.organization.id]);
 
-  async function handleSwitch(workspace: WorkspaceMembership) {
+  function openSwitchDialog(workspace: WorkspaceMembership) {
     if (workspace.current || switchingSlug) return;
-    const password =
-      typeof window === "undefined"
-        ? null
-        : window.prompt(`Enter your password for ${workspace.name}`);
-    if (password === null || password.trim() === "") return;
-    const totpPrompt =
-      typeof window === "undefined"
-        ? null
-        : window.prompt(
-            "If this workspace requires MFA, enter your 6-digit code. Otherwise leave this blank."
-          );
-    const totpCode = totpPrompt?.trim() ?? "";
+    setOpen(false);
+    setPendingWorkspace(workspace);
+    setSwitchPassword("");
+    setSwitchTotpCode("");
+  }
+
+  async function handleSwitchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pendingWorkspace || switchingSlug || switchPassword.trim() === "")
+      return;
+    const workspace = pendingWorkspace;
     setSwitchingSlug(workspace.slug);
     try {
       const response = await switchWorkspace({
         organizationSlug: workspace.slug,
-        password,
-        totpCode: totpCode || undefined
+        password: switchPassword,
+        totpCode: switchTotpCode.trim() || undefined
       });
-      setOpen(false);
+      setPendingWorkspace(null);
+      setSwitchPassword("");
+      setSwitchTotpCode("");
       setWorkspaces(null);
       if (typeof window !== "undefined") {
         window.location.assign("/");
@@ -102,6 +118,13 @@ export function WorkspaceSwitcher() {
     }
   }
 
+  function handleSwitchDialogOpenChange(next: boolean) {
+    if (next || switchingSlug) return;
+    setPendingWorkspace(null);
+    setSwitchPassword("");
+    setSwitchTotpCode("");
+  }
+
   const currentName = session?.organization.name ?? "Workspace";
 
   function handleOpenChange(next: boolean) {
@@ -113,7 +136,8 @@ export function WorkspaceSwitcher() {
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+    <>
+      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
@@ -155,7 +179,7 @@ export function WorkspaceSwitcher() {
                   key={workspace.id}
                   onSelect={(event) => {
                     event.preventDefault();
-                    if (!isCurrent) void handleSwitch(workspace);
+                    if (!isCurrent) openSwitchDialog(workspace);
                   }}
                   disabled={isCurrent || Boolean(switchingSlug)}
                   className="flex items-start gap-2"
@@ -193,5 +217,65 @@ export function WorkspaceSwitcher() {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+
+      <Dialog
+        open={pendingWorkspace !== null}
+        onOpenChange={handleSwitchDialogOpenChange}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch workspace</DialogTitle>
+            <DialogDescription>
+              Re-enter your credentials for{" "}
+              {pendingWorkspace?.name ?? "the target workspace"} before
+              switching.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSwitchSubmit} className="space-y-4">
+            <Field label="Password" htmlFor={passwordId} required>
+              <Input
+                id={passwordId}
+                type="password"
+                autoComplete="current-password"
+                value={switchPassword}
+                onChange={(event) => setSwitchPassword(event.target.value)}
+                required
+              />
+            </Field>
+            <Field
+              label="MFA code"
+              htmlFor={totpId}
+              hint="Only required if the target workspace has MFA enabled."
+            >
+              <Input
+                id={totpId}
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                autoComplete="one-time-code"
+                value={switchTotpCode}
+                onChange={(event) =>
+                  setSwitchTotpCode(
+                    event.target.value.replace(/\D/g, "").slice(0, 6)
+                  )
+                }
+              />
+            </Field>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleSwitchDialogOpenChange(false)}
+                disabled={Boolean(switchingSlug)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={Boolean(switchingSlug)}>
+                {switchingSlug ? "Switching…" : "Switch"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

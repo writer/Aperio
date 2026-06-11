@@ -631,6 +631,8 @@ func compatRateLimitPolicy(path string) (int, time.Duration, bool) {
 		return 5, time.Hour, true
 	case "/api/v1/auth/login":
 		return 15, 10 * time.Minute, true
+	case "/api/v1/auth/workspaces/switch":
+		return 10, 15 * time.Minute, true
 	case "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/invitations/accept":
 		return 10, 15 * time.Minute, true
 	default:
