@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type runtimePrimitiveFixture struct {
@@ -200,6 +201,65 @@ func TestLoadEnvFileParsesLocalDotenvWithoutOverwritingByDefault(t *testing.T) {
 	if _, err := LoadEnvFile(filepath.Join(dir, "missing.env"), false); err != nil {
 		t.Fatalf("missing env file should be a no-op: %v", err)
 	}
+}
+
+func TestParseEnvValuePreservesEscapedBackslashBeforeControlEscape(t *testing.T) {
+	got, err := parseEnvValue(`"literal\\nnot-newline"`)
+	if err != nil {
+		t.Fatalf("parse env value: %v", err)
+	}
+	if got != `literal\nnot-newline` {
+		t.Fatalf("parseEnvValue preserved escaped backslash = %q, want literal backslash+n", got)
+	}
+}
+
+func FuzzParseEnvValueDoubleQuotedRoundTrip(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"plain",
+		"two words",
+		"line\nbreak",
+		"tab\tseparated",
+		`literal\nnot-newline`,
+		`quote"and\backslash`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		if !utf8.ValidString(input) {
+			t.Skip()
+		}
+		got, err := parseEnvValue(quoteDoubleEnvValue(input))
+		if err != nil {
+			t.Fatalf("parse quoted env value: %v", err)
+		}
+		if got != input {
+			t.Fatalf("double-quoted env round trip mismatch: got %q want %q", got, input)
+		}
+	})
+}
+
+func quoteDoubleEnvValue(input string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range input {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func readRuntimePrimitiveFixture(t *testing.T) runtimePrimitiveFixture {

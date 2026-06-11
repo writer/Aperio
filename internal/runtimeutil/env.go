@@ -92,12 +92,7 @@ func parseEnvValue(raw string) (string, error) {
 			return "", errors.New("unterminated quoted value")
 		}
 		unquoted := strings.TrimSuffix(strings.TrimPrefix(value, `"`), `"`)
-		unquoted = strings.ReplaceAll(unquoted, `\n`, "\n")
-		unquoted = strings.ReplaceAll(unquoted, `\r`, "\r")
-		unquoted = strings.ReplaceAll(unquoted, `\t`, "\t")
-		unquoted = strings.ReplaceAll(unquoted, `\"`, `"`)
-		unquoted = strings.ReplaceAll(unquoted, `\\`, `\`)
-		return unquoted, nil
+		return unescapeDoubleQuotedEnvValue(unquoted), nil
 	}
 	if strings.HasPrefix(value, `'`) {
 		if !strings.HasSuffix(value, `'`) || len(value) == 1 {
@@ -109,6 +104,34 @@ func parseEnvValue(raw string) (string, error) {
 		value = strings.TrimSpace(value[:comment])
 	}
 	return value, nil
+}
+
+func unescapeDoubleQuotedEnvValue(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		if value[index] != '\\' || index == len(value)-1 {
+			builder.WriteByte(value[index])
+			continue
+		}
+		index++
+		switch value[index] {
+		case 'n':
+			builder.WriteByte('\n')
+		case 'r':
+			builder.WriteByte('\r')
+		case 't':
+			builder.WriteByte('\t')
+		case '"':
+			builder.WriteByte('"')
+		case '\\':
+			builder.WriteByte('\\')
+		default:
+			builder.WriteByte('\\')
+			builder.WriteByte(value[index])
+		}
+	}
+	return builder.String()
 }
 
 func inlineCommentIndex(value string) int {
