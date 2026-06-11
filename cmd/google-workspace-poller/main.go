@@ -37,13 +37,12 @@ import (
 // for cron" semantics of -once.
 const onceDrainWindow = 2 * time.Second
 
-// onceWakeWorkBudget bounds how long the -once entrypoint waits for already
-// dispatched WakeIntegration goroutines (token exchange + Reports API
-// scanning) to finish after the LISTEN drain window expires. Without this
-// bound a stuck Google API call would pin the process; with it the wake
-// poll has a realistic deadline (~one full poll cycle plus headroom) so
-// cron deployments deliver the promised immediate sync instead of tearing
-// down the work mid-call.
+// onceWakeWorkBudget bounds how long the -once entrypoint keeps listening for
+// follow-up wake notifications while dispatched WakeIntegration goroutines
+// (token exchange + Reports API scanning) finish. Without this bound a stuck
+// Google API call would pin the process; with it the wake poll has a realistic
+// deadline (~one full poll cycle plus headroom) so cron deployments deliver
+// the promised immediate sync instead of tearing down the work mid-call.
 const onceWakeWorkBudget = 60 * time.Second
 
 func main() {
@@ -91,18 +90,18 @@ func main() {
 			log.Fatalf("google-workspace-poller: tick failed: %v", err)
 		}
 		if listener != nil {
-			// Wake-triggered polls must outlive the drain deadline: the
-			// drain only stops the *listening loop* once it has surfaced
-			// every queued notification, but the per-id WakeIntegration
-			// goroutines (token exchange + Reports API scan) need the
-			// parent ctx so a SIGTERM still cancels them while the 2 s
-			// drain timeout does not. inflight tracks those goroutines
-			// so -once can Wait() for them before the process exits.
-			var inflight sync.WaitGroup
-			drainCtx, cancel := context.WithTimeout(ctx, onceDrainWindow)
-			dispatchSyncWakes(drainCtx, listener, poller, ctx, &inflight)
-			cancel()
-			waitForWakeWork(ctx, &inflight, onceWakeWorkBudget)
+			// Keep the LISTEN loop alive while wake-triggered polls run so
+			// follow-up pg_notify payloads are consumed before -once exits.
+			tracker := newWakeTracker()
+			listenCtx, stopListening := context.WithCancel(ctx)
+			dispatchDone := make(chan struct{})
+			go func() {
+				dispatchSyncWakes(listenCtx, listener, poller, ctx, tracker)
+				close(dispatchDone)
+			}()
+			waitForWakeWork(ctx, tracker, onceDrainWindow, onceWakeWorkBudget)
+			stopListening()
+			<-dispatchDone
 		}
 		return
 	}
@@ -135,6 +134,55 @@ func openSyncWakeListener(ctx context.Context, dsn string) (*pgx.Conn, error) {
 	return conn, nil
 }
 
+// wakeTracker tracks wake-up goroutines even while new notifications are still
+// being consumed. sync.WaitGroup cannot safely model this because -once waits
+// while the LISTEN goroutine may still add more work.
+type wakeTracker struct {
+	mu    sync.Mutex
+	count int
+	idle  chan struct{}
+}
+
+func newWakeTracker() *wakeTracker {
+	idle := make(chan struct{})
+	close(idle)
+	return &wakeTracker{idle: idle}
+}
+
+func (t *wakeTracker) start() func() {
+	t.mu.Lock()
+	if t.count == 0 {
+		t.idle = make(chan struct{})
+	}
+	t.count++
+	t.mu.Unlock()
+	return t.done
+}
+
+func (t *wakeTracker) done() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.count == 0 {
+		return
+	}
+	t.count--
+	if t.count == 0 {
+		close(t.idle)
+	}
+}
+
+func (t *wakeTracker) isIdle() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.count == 0
+}
+
+func (t *wakeTracker) idleNotify() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.idle
+}
+
 // dispatchSyncWakes pumps notifications off the listener and dispatches
 // Poller.WakeIntegration per payload until listenCtx is done or the
 // connection drops.
@@ -142,16 +190,16 @@ func openSyncWakeListener(ctx context.Context, dsn string) (*pgx.Conn, error) {
 // listenCtx governs ONLY the WaitForNotification loop; the per-id
 // WakeIntegration goroutines are launched under workCtx so they outlive
 // short-lived drain deadlines (-once mode passes a 2 s drain context for
-// listenCtx and the long-lived parent context for workCtx). inflight is
-// optional and lets callers Wait() on dispatched goroutines before
-// exiting the process; pass nil when goroutine lifetime is bounded by
-// process lifetime (daemon mode).
+// listenCtx and the long-lived parent context for workCtx). tracker is
+// optional and lets callers wait for dynamically dispatched goroutines
+// before exiting the process; pass nil when goroutine lifetime is bounded
+// by process lifetime (daemon mode).
 //
 // Each wake-up runs in its own goroutine so a slow Google API call cannot
 // stall subsequent notifications. Returns silently when listenCtx is
 // cancelled (including the deadline-driven -once drain) and returns on
 // any non-context error so the caller can decide whether to reconnect.
-func dispatchSyncWakes(listenCtx context.Context, conn *pgx.Conn, poller *googleworkspacepoller.Poller, workCtx context.Context, inflight *sync.WaitGroup) {
+func dispatchSyncWakes(listenCtx context.Context, conn *pgx.Conn, poller *googleworkspacepoller.Poller, workCtx context.Context, tracker *wakeTracker) {
 	for {
 		notification, err := conn.WaitForNotification(listenCtx)
 		if err != nil {
@@ -165,39 +213,52 @@ func dispatchSyncWakes(listenCtx context.Context, conn *pgx.Conn, poller *google
 		if integrationID == "" {
 			continue
 		}
-		if inflight != nil {
-			inflight.Add(1)
+		finish := func() {}
+		if tracker != nil {
+			finish = tracker.start()
 		}
-		go func(id string) {
-			if inflight != nil {
-				defer inflight.Done()
-			}
+		go func(id string, finish func()) {
+			defer finish()
 			if err := poller.WakeIntegration(workCtx, id); err != nil {
 				log.Printf("google-workspace-poller: wake integration %s failed: %v", id, err)
 			}
-		}(integrationID)
+		}(integrationID, finish)
 	}
 }
 
-// waitForWakeWork blocks until either every dispatched wake-up goroutine
-// finishes, the parent ctx cancels (e.g. SIGTERM), or the bounded budget
-// elapses. The budget caps process tear-down so a hung Google API call
-// cannot indefinitely block exit.
-func waitForWakeWork(ctx context.Context, inflight *sync.WaitGroup, budget time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		inflight.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return
-	case <-ctx.Done():
-		log.Printf("google-workspace-poller: -once interrupted before wake-triggered polls completed: %v", ctx.Err())
-		return
-	case <-time.After(budget):
-		log.Printf("google-workspace-poller: -once exiting after %s; some wake-triggered polls may not have completed", budget)
-		return
+// waitForWakeWork blocks until the initial quiet window has elapsed and all
+// tracked wake-up goroutines have finished, the parent ctx cancels, or the
+// bounded budget elapses. The budget caps process tear-down so a hung Google
+// API call cannot indefinitely block exit.
+func waitForWakeWork(ctx context.Context, tracker *wakeTracker, quietWindow time.Duration, budget time.Duration) {
+	quietTimer := time.NewTimer(quietWindow)
+	defer quietTimer.Stop()
+	budgetTimer := time.NewTimer(budget)
+	defer budgetTimer.Stop()
+	quietElapsed := false
+	for {
+		if quietElapsed && tracker.isIdle() {
+			return
+		}
+		var idle <-chan struct{}
+		if quietElapsed {
+			idle = tracker.idleNotify()
+		}
+		select {
+		case <-idle:
+			return
+		case <-quietTimer.C:
+			quietElapsed = true
+			if tracker.isIdle() {
+				return
+			}
+		case <-ctx.Done():
+			log.Printf("google-workspace-poller: -once interrupted before wake-triggered polls completed: %v", ctx.Err())
+			return
+		case <-budgetTimer.C:
+			log.Printf("google-workspace-poller: -once exiting after %s; some wake-triggered polls may not have completed", budget)
+			return
+		}
 	}
 }
 

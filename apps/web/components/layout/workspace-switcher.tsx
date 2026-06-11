@@ -31,7 +31,7 @@ export function WorkspaceSwitcher() {
   const [switchingSlug, setSwitchingSlug] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!open || workspaces !== null) return;
+    if (!open || workspaces !== null || errorMessage) return;
     let cancelled = false;
     setLoading(true);
     setErrorMessage(null);
@@ -42,7 +42,7 @@ export function WorkspaceSwitcher() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setWorkspaces([]);
+        setWorkspaces(null);
         setErrorMessage(
           err instanceof Error ? err.message : "Unable to load workspaces"
         );
@@ -53,7 +53,7 @@ export function WorkspaceSwitcher() {
     return () => {
       cancelled = true;
     };
-  }, [open, workspaces]);
+  }, [open, workspaces, errorMessage]);
 
   React.useEffect(() => {
     setWorkspaces(null);
@@ -88,8 +88,16 @@ export function WorkspaceSwitcher() {
 
   const currentName = session?.organization.name ?? "Workspace";
 
+  function handleOpenChange(next: boolean) {
+    if (next && errorMessage) {
+      setWorkspaces(null);
+      setErrorMessage(null);
+    }
+    setOpen(next);
+  }
+
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
