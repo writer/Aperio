@@ -376,9 +376,6 @@ func (a *App) handleCompatAPI(
 			return "", nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid request body"))
 		}
 	}
-	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, method, path, body); err != nil {
-		return "", nil, err
-	}
 	headers := http.Header{}
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 
@@ -392,6 +389,13 @@ func (a *App) handleCompatAPI(
 		if err != nil {
 			return "", nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
 		}
+	}
+	rateLimitBody := body
+	if !public {
+		rateLimitBody = compatRateLimitBodyWithAuth(body, auth)
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, method, path, rateLimitBody); err != nil {
+		return "", nil, err
 	}
 
 	result, err := a.dispatchCompatAPI(ctx, method, path, segments, body, auth, headers)
@@ -623,6 +627,20 @@ func compatRateLimitSubject(values []string) string {
 		}
 	}
 	return strings.Join(parts, ":")
+}
+
+func compatRateLimitBodyWithAuth(body map[string]any, auth compatAuth) map[string]any {
+	if strings.TrimSpace(auth.Email) == "" {
+		return body
+	}
+	out := make(map[string]any, len(body)+1)
+	for key, value := range body {
+		out[key] = value
+	}
+	if strings.TrimSpace(requiredString(out, "email")) == "" {
+		out["email"] = auth.Email
+	}
+	return out
 }
 
 func compatRateLimitPolicy(path string) (int, time.Duration, bool) {

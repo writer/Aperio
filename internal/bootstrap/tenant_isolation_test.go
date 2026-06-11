@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
@@ -416,6 +417,37 @@ func TestTypedSwitchWorkspaceHonorsRateLimit(t *testing.T) {
 	}
 }
 
+func TestTypedSwitchWorkspaceSubjectRateLimitIsScopedByUser(t *testing.T) {
+	app, base := newTestDBApp(t)
+	victim := seedIsolationOrg(t, app)
+	ctx := context.Background()
+
+	emailA := "switch-a-" + randomBase36(10) + "@example.com"
+	emailB := "switch-b-" + randomBase36(10) + "@example.com"
+	userA := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailA, "base-a-password-123")
+	userB := seedOrgUserWithPassword(t, app, base.OrganizationID, "OWNER", emailB, "base-b-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailA, "victim-a-password-123")
+	seedOrgUserWithPassword(t, app, victim.OrganizationID, "OWNER", emailB, "victim-b-password-123")
+	victimSlug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, victim.OrganizationID)
+	path := "/api/v1/auth/workspaces/switch"
+	seedExhaustedRateLimitSubjectBucket(t, app, http.MethodPost, path, map[string]any{
+		"organizationSlug": victimSlug,
+		"email":            userA.Email,
+	})
+
+	reqA := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{OrganizationSlug: victimSlug, Password: "victim-a-password-123"})
+	copyCompatHeaders(reqA.Header(), seedSessionHeader(t, app, userA))
+	if _, err := app.SwitchWorkspace(ctx, reqA); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("expected exhausted user-specific switch bucket to reject user A, got %v", err)
+	}
+
+	reqB := connect.NewRequest(&aperiov1.SwitchWorkspaceRequest{OrganizationSlug: victimSlug, Password: "victim-b-password-123"})
+	copyCompatHeaders(reqB.Header(), seedSessionHeader(t, app, userB))
+	if _, err := app.SwitchWorkspace(ctx, reqB); err != nil {
+		t.Fatalf("user A's exhausted switch bucket should not block user B: %v", err)
+	}
+}
+
 func TestTenantIsolationRejectsPreviouslyMintedCrossTenantResetToken(t *testing.T) {
 	app, attacker := newTestDBApp(t)
 	attacker = seedOrgAdmin(t, app, attacker.OrganizationID)
@@ -578,4 +610,31 @@ func scanString(t *testing.T, app *App, query, arg string) string {
 		t.Fatalf("scan %q: %v", query, err)
 	}
 	return value
+}
+
+func seedExhaustedRateLimitSubjectBucket(t *testing.T, app *App, method, path string, body map[string]any) {
+	t.Helper()
+	max, window, ok := compatRateLimitPolicy(path)
+	if !ok {
+		t.Fatalf("no rate limit policy for %s %s", method, path)
+	}
+	subject := compatRateLimitSubject([]string{
+		requiredString(body, "organizationSlug"),
+		requiredString(body, "workspaceSlug"),
+		requiredString(body, "ownerEmail"),
+		requiredString(body, "email"),
+		requiredString(body, "token"),
+	})
+	if subject == "" {
+		t.Fatal("subject rate limit seed requires a non-empty subject")
+	}
+	key := compatRateLimitKey(method, path, "", subject)
+	_, err := app.db.ExecContext(context.Background(), `
+		INSERT INTO rate_limit_buckets (key, count, reset_at, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (key) DO UPDATE SET count = EXCLUDED.count, reset_at = EXCLUDED.reset_at, updated_at = NOW()
+	`, key, max, time.Now().Add(window))
+	if err != nil {
+		t.Fatalf("seed subject rate limit bucket: %v", err)
+	}
 }

@@ -89,12 +89,12 @@ func (a *App) ListWorkspaces(ctx context.Context, req *connect.Request[aperiov1.
 
 func (a *App) SwitchWorkspace(ctx context.Context, req *connect.Request[aperiov1.SwitchWorkspaceRequest]) (*connect.Response[aperiov1.SwitchWorkspaceResponse], error) {
 	body := map[string]any{"organizationSlug": req.Msg.OrganizationSlug, "password": req.Msg.Password, "totpCode": req.Msg.TotpCode}
-	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/workspaces/switch", body); err != nil {
-		return nil, err
-	}
 	auth, err := a.compatAuthFromSession(ctx, req.Header())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized"))
+	}
+	if err := a.compatRateLimit(ctx, req.Header(), req.Peer().Addr, http.MethodPost, "/api/v1/auth/workspaces/switch", compatRateLimitBodyWithAuth(body, auth)); err != nil {
+		return nil, err
 	}
 	headers := http.Header{}
 	result, err := a.compatSwitchWorkspace(ctx, body, auth, headers)
