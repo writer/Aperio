@@ -250,6 +250,11 @@ func (s *Sync) syncIntegration(ctx context.Context, integ integrationRow) error 
 	if attemptedUsers > 0 && failedUsers == attemptedUsers && firstFailure != nil {
 		return fmt.Errorf("tokens.list failed for all %d directory users: %w", attemptedUsers, firstFailure)
 	}
+	if attemptedUsers > 0 && failedUsers == 0 {
+		if err := s.pruneStaleOauthGrants(ctx, integ, now); err != nil {
+			return fmt.Errorf("prune stale oauth grants: %w", err)
+		}
+	}
 	s.touchCursor(ctx, integ.ID, len(appsByClientID), grantCount, failedUsers, attemptedUsers)
 	return nil
 }
@@ -334,9 +339,8 @@ func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, asset
 	//     same email → same PK → same arbiter tuple → quiet UPDATE.
 	//   * Rename (external_id stable, email changes):
 	//     new email → new PK → arbiter miss → fresh INSERT with new id,
-	//     no PK collision. The stale old-email row is left behind for
-	//     later cursor-based cleanup; this is strictly safer than wedging
-	//     the sweep.
+	//     no PK collision. The stale old-email row is left behind until
+	//     successful-sweep cleanup proves it is no longer observed.
 	//   * Empty external_id (already covered by sync_test):
 	//     userKey falls back to email so two distinct users never share a
 	//     PK suffix.
@@ -370,6 +374,32 @@ func (s *Sync) upsertOauthGrant(ctx context.Context, integ integrationRow, asset
 		p.DisplayName(), identity.Email, identity.ExternalID, identity.DisplayName,
 		stringArrayLiteral(p.Scopes), p.Anonymous, p.NativeApp, now,
 	)
+	return err
+}
+
+func (s *Sync) pruneStaleOauthGrants(ctx context.Context, integ integrationRow, cutoff time.Time) error {
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM oauth_app_grants
+		WHERE organization_id = $1
+		  AND integration_id = $2
+		  AND provider = 'GOOGLE_WORKSPACE'::"SaaSProvider"
+		  AND last_observed_at < $3
+	`, integ.OrganizationID, integ.ID, cutoff); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM security_assets sa
+		WHERE sa.organization_id = $1
+		  AND sa.integration_id = $2
+		  AND sa.type = 'OAUTH_APP'::"SecurityAssetType"
+		  AND sa.provider = 'GOOGLE_WORKSPACE'::"SaaSProvider"
+		  AND 'shadow-it' = ANY(sa.labels)
+		  AND sa.last_observed_at < $3
+		  AND NOT EXISTS (
+			SELECT 1 FROM oauth_app_grants g
+			WHERE g.asset_id = sa.id
+		  )
+	`, integ.OrganizationID, integ.ID, cutoff)
 	return err
 }
 

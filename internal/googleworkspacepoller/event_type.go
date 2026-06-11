@@ -85,7 +85,8 @@ func MapEventType(application, eventName string, parameters []reportsParameter, 
 // sharing with a party outside ownerDomain. Two kinds of signals fire it:
 //
 //  1. visibility transitions whose target side is inherently public
-//     (shared_externally, anyone_with_link, anyone, public_in_the_domain_with_link).
+//     (shared_externally, shared_with_external_user, anyone_with_link,
+//     anyone, public_on_the_web).
 //     These are independent of any target-email comparison; if visibility
 //     opens to the public the file is externally shared regardless of who
 //     happens to be in target_user_emails.
@@ -107,7 +108,7 @@ func isExternalSharing(parameters []reportsParameter, ownerDomain string) bool {
 		switch strings.ToLower(param.Name) {
 		case "visibility":
 			v := strings.ToLower(param.Value)
-			if v == "shared_externally" || v == "anyone_with_link" || v == "anyone" || v == "public_in_the_domain_with_link" {
+			if v == "shared_externally" || v == "shared_with_external_user" || v == "anyone_with_link" || v == "anyone" || v == "public_on_the_web" {
 				return true
 			}
 		case "target_user_emails":

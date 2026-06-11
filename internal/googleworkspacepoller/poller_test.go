@@ -12,20 +12,30 @@ import (
 )
 
 func TestMapEventTypeDriveExternalSharingByVisibility(t *testing.T) {
-	got := MapEventType("drive", "change_user_access", []reportsParameter{
-		{Name: "visibility", Value: "shared_externally"},
-	}, "company.com")
-	if got != "EXTERNAL_SHARING_ENABLED" {
-		t.Fatalf("want EXTERNAL_SHARING_ENABLED, got %s", got)
+	for _, visibility := range []string{
+		"shared_externally",
+		"shared_with_external_user",
+		"anyone_with_link",
+		"anyone",
+		"public_on_the_web",
+	} {
+		got := MapEventType("drive", "change_user_access", []reportsParameter{
+			{Name: "visibility", Value: visibility},
+		}, "company.com")
+		if got != "EXTERNAL_SHARING_ENABLED" {
+			t.Fatalf("visibility=%s: want EXTERNAL_SHARING_ENABLED, got %s", visibility, got)
+		}
 	}
 }
 
 func TestMapEventTypeDriveInternalShareUnmapped(t *testing.T) {
-	got := MapEventType("drive", "change_user_access", []reportsParameter{
-		{Name: "visibility", Value: "private"},
-	}, "company.com")
-	if got == "EXTERNAL_SHARING_ENABLED" {
-		t.Fatalf("private share must not map to EXTERNAL_SHARING_ENABLED")
+	for _, visibility := range []string{"private", "domain", "public_in_the_domain_with_link"} {
+		got := MapEventType("drive", "change_user_access", []reportsParameter{
+			{Name: "visibility", Value: visibility},
+		}, "company.com")
+		if got == "EXTERNAL_SHARING_ENABLED" {
+			t.Fatalf("visibility=%s must not map to EXTERNAL_SHARING_ENABLED", visibility)
+		}
 	}
 }
 
