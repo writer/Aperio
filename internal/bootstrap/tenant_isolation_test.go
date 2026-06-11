@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 	aperiov1 "github.com/writer/aperio/gen/aperio/v1"
+	"github.com/writer/aperio/internal/runtimeutil"
 )
 
 // seedIsolationOrg provisions a second organization alongside the one created by
@@ -327,6 +329,8 @@ func TestTenantIsolationMemberResetLinkRejectsForeignUser(t *testing.T) {
 func TestPublicForgotPasswordDoesNotExposeResetToken(t *testing.T) {
 	app, base := newTestDBApp(t)
 	ctx := context.Background()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	t.Setenv("APERIO_ENCRYPTION_KEY", "base64:"+base64.StdEncoding.EncodeToString(key))
 	user := seedOrgUserWithPassword(t, app, base.OrganizationID, "ADMIN", "forgot-"+randomBase36(10)+"@example.com", "old-password-123")
 	slug := scanString(t, app, `SELECT slug FROM organizations WHERE id = $1`, user.OrganizationID)
 
@@ -353,16 +357,26 @@ func TestPublicForgotPasswordDoesNotExposeResetToken(t *testing.T) {
 	if tokens != 1 {
 		t.Fatalf("forgot password should still mint one server-side reset token, got %d", tokens)
 	}
-	var resetURL, status, recipient string
+	var encryptedResetURL, payloadText, status, recipient, tokenID string
 	if err := app.db.QueryRowContext(ctx, `
-		SELECT payload->>'resetUrl', status, recipient_email
+		SELECT payload->>'encryptedResetUrl', payload::text, status, recipient_email, auth_token_id
 		FROM auth_email_deliveries
 		WHERE organization_id = $1 AND user_id = $2 AND purpose = 'PASSWORD_RESET'
-	`, user.OrganizationID, user.UserID).Scan(&resetURL, &status, &recipient); err != nil {
+	`, user.OrganizationID, user.UserID).Scan(&encryptedResetURL, &payloadText, &status, &recipient, &tokenID); err != nil {
 		t.Fatalf("fetch password reset delivery: %v", err)
 	}
 	if status != "PENDING" || recipient != user.Email {
 		t.Fatalf("reset delivery = status %q recipient %q, want pending delivery to %q", status, recipient, user.Email)
+	}
+	if encryptedResetURL == "" {
+		t.Fatalf("reset delivery did not store encrypted reset URL: %s", payloadText)
+	}
+	if strings.Contains(payloadText, "/reset-password") || strings.Contains(payloadText, "token=") {
+		t.Fatalf("reset delivery payload stored cleartext reset link: %s", payloadText)
+	}
+	resetURL, err := runtimeutil.DecryptString(encryptedResetURL, authEmailDeliveryAAD(user.OrganizationID, tokenID))
+	if err != nil {
+		t.Fatalf("decrypt reset delivery URL: %v", err)
 	}
 	if !strings.Contains(resetURL, "/reset-password?token=") {
 		t.Fatalf("reset delivery URL %q does not contain reset token link", resetURL)

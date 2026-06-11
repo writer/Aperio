@@ -1001,10 +1001,15 @@ func (a *App) compatForgotPassword(ctx context.Context, body map[string]any) (an
 
 func enqueuePasswordResetDelivery(ctx context.Context, tx *sql.Tx, orgID, userID, tokenID, email, token string, expires time.Time) error {
 	resetURL := compatAuthLink("/reset-password", token)
+	encryptedResetURL, err := runtimeutil.EncryptString(resetURL, authEmailDeliveryAAD(orgID, tokenID))
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{
-		"template":  "password_reset",
-		"resetUrl":  resetURL,
-		"expiresAt": expires.UTC().Format(time.RFC3339Nano),
+		"template":          "password_reset",
+		"encryptedResetUrl": encryptedResetURL,
+		"encryption":        runtimeutil.CredentialAlgorithm,
+		"expiresAt":         expires.UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
 		return err
@@ -1014,6 +1019,10 @@ func enqueuePasswordResetDelivery(ctx context.Context, tx *sql.Tx, orgID, userID
 		VALUES ($1,$2,$3,$4,'PASSWORD_RESET',$5,$6,$7,'PENDING',$8,NOW(),NOW())
 	`, compatID("mail"), orgID, userID, tokenID, email, "Reset your Aperio password", string(payload), expires)
 	return err
+}
+
+func authEmailDeliveryAAD(orgID, tokenID string) string {
+	return orgID + ":auth-email-delivery:" + tokenID + ":reset-url"
 }
 
 func (a *App) compatResetPassword(ctx context.Context, body map[string]any, headers http.Header) (any, error) {
