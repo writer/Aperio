@@ -282,6 +282,45 @@ func TestBuildJobPayloadFlattensParameters(t *testing.T) {
 	}
 }
 
+func TestGoogleWorkspaceLegacyJobIDPreservesUpgradeIdempotency(t *testing.T) {
+	got := googleWorkspaceLegacyJobID(
+		reportsActivity{UniqueQualifier: "same-google-qualifier"},
+		reportsEvent{Name: "change_user_access"},
+	)
+	want := "ijb_same-google-qualifier_change_user_access"
+	if got != want {
+		t.Fatalf("legacy job id = %s, want %s", got, want)
+	}
+}
+
+func TestGoogleWorkspaceScopedJobIDScopesDedupeByTenantIntegrationAndApplication(t *testing.T) {
+	baseInteg := integrationRow{ID: "int_1", OrganizationID: "org_1"}
+	baseActivity := reportsActivity{UniqueQualifier: "same-google-qualifier"}
+	baseEvent := reportsEvent{Name: "change_user_access"}
+	baseID := googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, baseEvent)
+
+	cases := map[string]string{
+		"same input":       googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, baseEvent),
+		"different org":    googleWorkspaceScopedJobID(integrationRow{ID: "int_1", OrganizationID: "org_2"}, "drive", baseActivity, baseEvent),
+		"different integ":  googleWorkspaceScopedJobID(integrationRow{ID: "int_2", OrganizationID: "org_1"}, "drive", baseActivity, baseEvent),
+		"different app":    googleWorkspaceScopedJobID(baseInteg, "admin", baseActivity, baseEvent),
+		"different event":  googleWorkspaceScopedJobID(baseInteg, "drive", baseActivity, reportsEvent{Name: "change_document_visibility"}),
+		"different source": googleWorkspaceScopedJobID(baseInteg, "drive", reportsActivity{UniqueQualifier: "other-google-qualifier"}, baseEvent),
+	}
+
+	if cases["same input"] != baseID {
+		t.Fatalf("same inputs must produce stable job id: %s vs %s", cases["same input"], baseID)
+	}
+	for label, got := range cases {
+		if label == "same input" {
+			continue
+		}
+		if got == baseID {
+			t.Fatalf("%s must not collide with base job id %s", label, baseID)
+		}
+	}
+}
+
 func TestResolveOwnerDomainPrefersDriveOwnerParam(t *testing.T) {
 	got := resolveOwnerDomain(
 		integrationRow{ExternalAccountID: "tenant.example"},
