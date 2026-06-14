@@ -152,16 +152,6 @@ func renderCompliancePDF(payload complianceReportPayload) ([]byte, error) {
 		drawFrameworkSection(pdf, framework)
 	}
 
-	// Page footer with page numbers. Registered after content so it runs
-	// on every page including those added during the framework loop.
-	pdf.SetFooterFunc(func() {
-		pdf.SetY(-12)
-		pdf.SetFont("Helvetica", "I", 8)
-		pdf.SetTextColor(140, 140, 140)
-		pdf.CellFormat(0, 8, fmt.Sprintf("Aperio · page %d/{nb}", pdf.PageNo()), "", 0, "C", false, 0, "")
-	})
-	pdf.AliasNbPages("{nb}")
-
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
 		return nil, fmt.Errorf("pdf output: %w", err)
