@@ -2100,14 +2100,23 @@ func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth 
 	}
 	email, roleName := strings.ToLower(requiredString(body, "email")), stringDefault(body, "roleName", "VIEWER")
 	roleID, _ := a.ensureCompatRole(ctx, auth.OrganizationID, roleName)
-	userID := compatID("usr")
-	_, err := a.db.ExecContext(ctx, `INSERT INTO users (id, organization_id, role_id, email, display_name, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),NOW()) ON CONFLICT (organization_id, email) DO UPDATE SET role_id = EXCLUDED.role_id, display_name = COALESCE(EXCLUDED.display_name, users.display_name), is_active = TRUE RETURNING id`, userID, auth.OrganizationID, roleID, email, optionalStringPtr(body, "displayName"))
+	insertedUserID := compatID("usr")
+	var userID string
+	err := a.db.QueryRowContext(
+		ctx,
+		`INSERT INTO users (id, organization_id, role_id, email, display_name, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,TRUE,NOW(),NOW()) ON CONFLICT (organization_id, email) DO UPDATE SET role_id = EXCLUDED.role_id, display_name = COALESCE(EXCLUDED.display_name, users.display_name), is_active = TRUE RETURNING id`,
+		insertedUserID,
+		auth.OrganizationID,
+		roleID,
+		email,
+		optionalStringPtr(body, "displayName"),
+	).Scan(&userID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	token, tokenHash := compatToken()
 	expires := time.Now().Add(72 * time.Hour)
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, created_by_user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,(SELECT id FROM users WHERE organization_id=$2 AND email=$3),$4,'INVITE',$5,$6,NOW())`, compatID("tok"), auth.OrganizationID, email, auth.UserID, tokenHash, expires)
+	_, _ = a.db.ExecContext(ctx, `INSERT INTO auth_tokens (id, organization_id, user_id, created_by_user_id, purpose, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4,'INVITE',$5,$6,NOW())`, compatID("tok"), auth.OrganizationID, userID, auth.UserID, tokenHash, expires)
 
 	a.writeCompatAudit(ctx, auth, "member.invite", "user", userID, map[string]any{
 		"email": email,
@@ -2115,7 +2124,7 @@ func (a *App) compatCreateMember(ctx context.Context, body map[string]any, auth 
 	})
 
 	members, _ := a.compatMembers(ctx, auth)
-	return map[string]any{"data": firstMemberByEmail(members, email), "invitation": map[string]any{"delivery": "manual_link", "url": compatAuthLink("/accept-invite", token), "expiresAt": expires.UTC().Format(time.RFC3339Nano)}}, nil
+	return map[string]any{"data": firstMemberByID(members, userID), "invitation": map[string]any{"delivery": "manual_link", "url": compatAuthLink("/accept-invite", token), "expiresAt": expires.UTC().Format(time.RFC3339Nano)}}, nil
 }
 
 func (a *App) compatCreateMemberReset(ctx context.Context, userID string, auth compatAuth) (any, error) {
