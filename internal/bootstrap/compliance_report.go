@@ -120,6 +120,14 @@ func renderCompliancePDF(payload complianceReportPayload) ([]byte, error) {
 		organization = "Aperio organization"
 	}
 
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(-12)
+		pdf.SetFont("Helvetica", "I", 8)
+		pdf.SetTextColor(140, 140, 140)
+		pdf.CellFormat(0, 8, fmt.Sprintf("Aperio · page %d/{nb}", pdf.PageNo()), "", 0, "C", false, 0, "")
+	})
+	pdf.AliasNbPages("{nb}")
+
 	pdf.AddPage()
 
 	// Cover header. Keep the layout intentionally simple so the export
