@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   CheckCircle2,
+  Copy,
   ExternalLink,
   ListChecks,
   Loader2,
@@ -44,8 +45,14 @@ import {
   DialogTitle
 } from "../ui/dialog";
 import { Field, FormBanner, Input } from "../ui/form";
+import { Textarea } from "../ui/input";
 import { Skeleton } from "../ui/skeleton";
 import { formatRelative, providerLabel } from "../../lib/format";
+import {
+  buildGoogleWorkspaceBigQueryWifSetupScript,
+  googleWorkspaceBigQueryWifDefaults,
+  type GoogleWorkspaceBigQueryWifAccessMode
+} from "@aperio/shared/google-workspace-bigquery-wif";
 
 type StatusFilter = "ALL" | IntegrationConnection["status"];
 const STATUS_FILTERS: StatusFilter[] = ["ALL", "CONNECTED", "ERROR", "DISABLED"];
@@ -73,6 +80,8 @@ export function ConnectorsPage() {
   const [catalogQuery, setCatalogQuery] = useState("");
   const [rulesIntegration, setRulesIntegration] = useState<IntegrationConnection | null>(null);
   const [findingsIntegration, setFindingsIntegration] =
+    useState<IntegrationConnection | null>(null);
+  const [bigQueryIntegration, setBigQueryIntegration] =
     useState<IntegrationConnection | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
@@ -352,6 +361,17 @@ export function ConnectorsPage() {
                         {syncingId === integration.id ? "Syncing…" : "Sync"}
                       </Button>
                     ) : null}
+                    {integration.provider === "GOOGLE_WORKSPACE" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setBigQueryIntegration(integration)}
+                        disabled={syncingId === integration.id}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                        BigQuery
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="outline"
@@ -485,7 +505,356 @@ export function ConnectorsPage() {
         }}
         onSaved={() => void load()}
       />
+      <GoogleWorkspaceBigQuerySetupDialog
+        integration={bigQueryIntegration}
+        open={bigQueryIntegration !== null}
+        onOpenChange={(next) => {
+          if (!next) setBigQueryIntegration(null);
+        }}
+      />
     </div>
+  );
+}
+
+function GoogleWorkspaceBigQuerySetupDialog({
+  integration,
+  open,
+  onOpenChange
+}: {
+  integration: IntegrationConnection | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const projectIdId = useId();
+  const rawDatasetId = useId();
+  const readDatasetId = useId();
+  const locationId = useId();
+  const issuerId = useId();
+  const audienceId = useId();
+  const subjectId = useId();
+  const serviceAccountNameId = useId();
+  const [projectId, setProjectId] = useState("");
+  const [rawDataset, setRawDataset] = useState<string>(
+    googleWorkspaceBigQueryWifDefaults.rawDatasetId
+  );
+  const [readDataset, setReadDataset] = useState<string>(
+    googleWorkspaceBigQueryWifDefaults.readDatasetId
+  );
+  const [location, setLocation] = useState<string>(
+    googleWorkspaceBigQueryWifDefaults.location
+  );
+  const [accessMode, setAccessMode] =
+    useState<GoogleWorkspaceBigQueryWifAccessMode>(
+      googleWorkspaceBigQueryWifDefaults.accessMode
+    );
+  const [oidcIssuerUri, setOidcIssuerUri] = useState("");
+  const [oidcAudience, setOidcAudience] = useState<string>(
+    googleWorkspaceBigQueryWifDefaults.oidcAudience
+  );
+  const [principalSubject, setPrincipalSubject] = useState("");
+  const [serviceAccountName, setServiceAccountName] =
+    useState<string>(googleWorkspaceBigQueryWifDefaults.serviceAccountName);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!open) setCopied(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setProjectId("");
+    setRawDataset(googleWorkspaceBigQueryWifDefaults.rawDatasetId);
+    setReadDataset(googleWorkspaceBigQueryWifDefaults.readDatasetId);
+    setLocation(googleWorkspaceBigQueryWifDefaults.location);
+    setAccessMode(googleWorkspaceBigQueryWifDefaults.accessMode);
+    setOidcIssuerUri("");
+    setOidcAudience(googleWorkspaceBigQueryWifDefaults.oidcAudience);
+    setPrincipalSubject("");
+    setServiceAccountName(googleWorkspaceBigQueryWifDefaults.serviceAccountName);
+    setCopied(false);
+  }, [integration?.id, open]);
+
+  const setupScript = useMemo(
+    () =>
+      buildGoogleWorkspaceBigQueryWifSetupScript({
+        projectId: projectId.trim() || "<gcp-project-id>",
+        rawDatasetId: rawDataset.trim() || "workspace_logs",
+        readDatasetId: readDataset.trim() || "aperio_workspace_views",
+        location: location.trim() || "US",
+        serviceAccountName: serviceAccountName.trim() || "aperio-bq-reader",
+        poolId: googleWorkspaceBigQueryWifDefaults.poolId,
+        providerId: googleWorkspaceBigQueryWifDefaults.providerId,
+        oidcIssuerUri: oidcIssuerUri.trim() || "<aperio-oidc-issuer-uri>",
+        oidcAudience: oidcAudience.trim() || "aperio",
+        principalSubject:
+          principalSubject.trim() || "<trusted-aperio-workload-subject>",
+        accessMode
+      }),
+    [
+      accessMode,
+      location,
+      oidcAudience,
+      oidcIssuerUri,
+      principalSubject,
+      projectId,
+      rawDataset,
+      readDataset,
+      serviceAccountName
+    ]
+  );
+
+  async function copyScript() {
+    await navigator.clipboard.writeText(setupScript);
+    setCopied(true);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto p-0">
+        <DialogHeader>
+          <div className="border-b border-border px-6 pb-4 pt-6">
+            <DialogTitle>Google Workspace BigQuery intelligence</DialogTitle>
+            <DialogDescription className="mt-2 max-w-3xl">
+              Configure least-privilege BigQuery access for{" "}
+              {integration?.displayName ?? "this Google Workspace integration"} using
+              Workload Identity Federation. No service-account keys are stored in
+              Aperio.
+            </DialogDescription>
+          </div>
+        </DialogHeader>
+
+        <div className="grid gap-6 px-6 pb-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                ["1", "Export logs", "Workspace audit logs land in BigQuery."],
+                ["2", "Limit reads", "Authorized views are recommended."],
+                ["3", "Run setup", "Copy commands into the data-owner project."]
+              ].map(([step, title, body]) => (
+                <div
+                  key={step}
+                  className="rounded-lg border border-border bg-card/60 p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-signal/15 font-mono text-[10px] font-semibold text-signal">
+                      {step}
+                    </span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {title}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {body}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <section className="rounded-lg border border-border bg-card/50 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Data-owner BigQuery project
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Point Aperio at the smallest readable dataset, not the raw export
+                  unless that is intentional. The generated views start with
+                  `SELECT *` so teams can narrow columns before running them.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field label="GCP project ID" htmlFor={projectIdId} required>
+                  <Input
+                    id={projectIdId}
+                    value={projectId}
+                    onChange={(event) => setProjectId(event.target.value)}
+                    placeholder="example-security-logs"
+                  />
+                </Field>
+                <Field label="BigQuery location" htmlFor={locationId} required>
+                  <Input
+                    id={locationId}
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    placeholder="US"
+                  />
+                </Field>
+                <Field
+                  label="Raw Workspace log dataset"
+                  htmlFor={rawDatasetId}
+                  hint="Dataset receiving Google Workspace BigQuery exports."
+                  required
+                >
+                  <Input
+                    id={rawDatasetId}
+                    value={rawDataset}
+                    onChange={(event) => setRawDataset(event.target.value)}
+                  />
+                </Field>
+                {accessMode === "views" ? (
+                  <Field
+                    label="Aperio read-view dataset"
+                    htmlFor={readDatasetId}
+                    hint="Aperio gets dataViewer on this curated dataset."
+                    required
+                  >
+                    <Input
+                      id={readDatasetId}
+                      value={readDataset}
+                      onChange={(event) => setReadDataset(event.target.value)}
+                    />
+                  </Field>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card/50 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Read scope
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Authorized views keep the Workspace export private while giving
+                  Aperio a separate dataset to read.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {(["views", "dataset"] as const).map((mode) => {
+                  const active = accessMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setAccessMode(mode)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left transition-colors",
+                        active
+                          ? "border-signal/50 bg-signal/10 text-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-muted/50"
+                      )}
+                    >
+                      <span className="block text-xs font-semibold">
+                        {mode === "views" ? "Authorized views" : "Raw dataset"}
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-relaxed">
+                        {mode === "views"
+                          ? "Recommended, grant Aperio only the view dataset."
+                          : "Simpler, but Aperio can read the whole export dataset."}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card/50 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Workload Identity trust
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aperio impersonates one reader service account through OIDC, with
+                  no downloadable keys.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Service account name"
+                  htmlFor={serviceAccountNameId}
+                  hint="Created in the data-owner project."
+                  required
+                >
+                  <Input
+                    id={serviceAccountNameId}
+                    value={serviceAccountName}
+                    onChange={(event) =>
+                      setServiceAccountName(event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="OIDC audience" htmlFor={audienceId} required>
+                  <Input
+                    id={audienceId}
+                    value={oidcAudience}
+                    onChange={(event) => setOidcAudience(event.target.value)}
+                  />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Aperio OIDC issuer URI"
+                    htmlFor={issuerId}
+                    hint="Use the issuer for your Aperio deployment or runtime identity provider."
+                    required
+                  >
+                    <Input
+                      id={issuerId}
+                      value={oidcIssuerUri}
+                      onChange={(event) => setOidcIssuerUri(event.target.value)}
+                      placeholder="https://issuer.example.com"
+                    />
+                  </Field>
+                </div>
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Trusted subject"
+                    htmlFor={subjectId}
+                    hint="Exact OIDC subject allowed to impersonate the reader service account."
+                    required
+                  >
+                    <Input
+                      id={subjectId}
+                      value={principalSubject}
+                      onChange={(event) => setPrincipalSubject(event.target.value)}
+                      placeholder="repo:example/aperio:ref:refs/heads/main"
+                    />
+                  </Field>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-3 lg:sticky lg:top-0 lg:self-start">
+            <div className="rounded-lg border border-border bg-card/50">
+              <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">
+                    Commands to run
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Generic `gcloud` and `bq` setup for any Aperio deployment.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copyScript()}
+                  className="shrink-0"
+                >
+                  {copied ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <Textarea
+                readOnly
+                value={setupScript}
+                className="h-[560px] min-h-[560px] resize-none rounded-none border-0 bg-background/80 font-mono text-[11px] leading-relaxed shadow-none focus-visible:ring-0"
+                aria-label="Google Workspace BigQuery WIF setup commands"
+              />
+            </div>
+            <FormBanner tone="info" className="text-xs">
+              This prepares least-privilege BigQuery access. After the commands
+              complete, use the printed project, dataset, service account, and WIF
+              provider values in Aperio.
+            </FormBanner>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
