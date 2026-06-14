@@ -209,7 +209,10 @@ function generateLogs(now: number, windowMinutes: number, seed = 1): LogEntry[] 
       service: "aperio-go-connect",
       severity: "TRACE",
       message: "session middleware ran",
-      attrs: { route: "/api/v1/integrations", duration_ms: "1" }
+      attrs: {
+        route: "/aperio.v1.AperioService/ListIntegrations",
+        duration_ms: "1"
+      }
     }
   ];
 

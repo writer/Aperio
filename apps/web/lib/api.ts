@@ -1060,12 +1060,12 @@ export type ComplianceReportPayload = {
 
 // exportComplianceReport posts the current dashboard snapshot to the Go
 // renderer and returns the resulting PDF as a Blob. The fetch is
-// same-origin via the /api/v1 Next.js proxy, so the session cookie is
+// same-origin via a Next.js rewrite, so the session cookie is
 // included automatically without CORS gymnastics.
 export async function exportComplianceReport(
   payload: ComplianceReportPayload
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch("/api/v1/compliance/reports/render", {
+  const response = await fetch("/compliance/reports/render", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
